@@ -1,0 +1,167 @@
+#!/bin/bash
+
+# MNPBEM Automation Pipeline
+# Usage: ./master.sh --config ./config/config.py
+
+set -e  # Exit on error
+
+# Color codes for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Print colored message
+print_msg() {
+    echo -e "${2}${1}${NC}"
+}
+
+# Parse command line arguments
+CONFIG_FILE=""
+VERBOSE=false
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --config)
+            CONFIG_FILE="$2"
+            shift 2
+            ;;
+        --verbose)
+            VERBOSE=true
+            shift
+            ;;
+        --help|-h)
+            echo "MNPBEM Automation Pipeline"
+            echo ""
+            echo "Usage: ./master.sh --config <config_file> [options]"
+            echo ""
+            echo "Required arguments:"
+            echo "  --config <file>     Configuration file path"
+            echo ""
+            echo "Optional arguments:"
+            echo "  --verbose          Enable verbose output"
+            echo "  --help, -h         Show this help message"
+            echo ""
+            echo "Example:"
+            echo "  ./master.sh --config ./config/config.py"
+            exit 0
+            ;;
+        *)
+            print_msg "Error: Unknown option: $1" "$RED"
+            echo "Use --help for usage information"
+            exit 1
+            ;;
+    esac
+done
+
+# Validate config file
+if [ -z "$CONFIG_FILE" ]; then
+    print_msg "Error: --config option is required" "$RED"
+    echo "Usage: ./master.sh --config <config_file>"
+    exit 1
+fi
+
+if [ ! -f "$CONFIG_FILE" ]; then
+    print_msg "Error: Config file not found: $CONFIG_FILE" "$RED"
+    exit 1
+fi
+
+# Start pipeline
+print_msg "╔════════════════════════════════════════════════════════════╗" "$BLUE"
+print_msg "║         MNPBEM Automation Pipeline Started               ║" "$BLUE"
+print_msg "╚════════════════════════════════════════════════════════════╝" "$BLUE"
+echo ""
+print_msg "📄 Config file: $CONFIG_FILE" "$BLUE"
+echo ""
+
+# Create necessary directories
+mkdir -p ./logs
+mkdir -p ./results
+mkdir -p ./simulation
+
+# Generate timestamp for logs
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+LOG_DIR="./logs"
+MATLAB_LOG="$LOG_DIR/matlab_$TIMESTAMP.log"
+PYTHON_LOG="$LOG_DIR/pipeline_$TIMESTAMP.log"
+
+# Export environment variables
+export MNPBEM_CONFIG="$CONFIG_FILE"
+export MNPBEM_TIMESTAMP="$TIMESTAMP"
+export MNPBEM_LOG_DIR="$LOG_DIR"
+
+# Step 1: Generate MATLAB simulation code
+print_msg "🔧 Step 1/3: Generating MATLAB simulation code..." "$YELLOW"
+if [ "$VERBOSE" = true ]; then
+    python run_simulation.py --config "$CONFIG_FILE" 2>&1 | tee -a "$PYTHON_LOG"
+else
+    python run_simulation.py --config "$CONFIG_FILE" >> "$PYTHON_LOG" 2>&1
+fi
+
+if [ $? -ne 0 ]; then
+    print_msg "✗ Error: Failed to generate MATLAB code" "$RED"
+    print_msg "Check log file: $PYTHON_LOG" "$RED"
+    exit 1
+fi
+print_msg "✓ MATLAB code generated successfully" "$GREEN"
+echo ""
+
+# Step 2: Run MATLAB simulation
+print_msg "⚡ Step 2/3: Running MATLAB simulation..." "$YELLOW"
+
+# Check if MATLAB is available
+if ! command -v matlab &> /dev/null; then
+    print_msg "✗ Error: MATLAB not found in PATH" "$RED"
+    exit 1
+fi
+
+# Check if simulation script exists
+if [ ! -f "./simulation/simulation_script.m" ]; then
+    print_msg "✗ Error: simulation_script.m not found" "$RED"
+    exit 1
+fi
+
+# Run MATLAB
+cd simulation
+if [ "$VERBOSE" = true ]; then
+    matlab -nodisplay -nodesktop -r "addpath(genpath('/home/yoojk20/workspace/MNPBEM')); run('simulation_script.m'); quit" 2>&1 | tee "../$MATLAB_LOG"
+else
+    matlab -nodisplay -nodesktop -r "addpath(genpath('/home/yoojk20/workspace/MNPBEM')); run('simulation_script.m'); quit" > "../$MATLAB_LOG" 2>&1
+fi
+MATLAB_EXIT_CODE=$?
+cd ..
+
+if [ $MATLAB_EXIT_CODE -ne 0 ]; then
+    print_msg "✗ Error: MATLAB simulation failed (exit code: $MATLAB_EXIT_CODE)" "$RED"
+    print_msg "Check log file: $MATLAB_LOG" "$RED"
+    exit 1
+fi
+print_msg "✓ MATLAB simulation completed successfully" "$GREEN"
+echo ""
+
+# Step 3: Postprocess results
+print_msg "📊 Step 3/3: Processing and analyzing results..." "$YELLOW"
+if [ "$VERBOSE" = true ]; then
+    python run_postprocess.py --config "$CONFIG_FILE" 2>&1 | tee -a "$PYTHON_LOG"
+else
+    python run_postprocess.py --config "$CONFIG_FILE" >> "$PYTHON_LOG" 2>&1
+fi
+
+if [ $? -ne 0 ]; then
+    print_msg "✗ Error: Failed to process results" "$RED"
+    print_msg "Check log file: $PYTHON_LOG" "$RED"
+    exit 1
+fi
+print_msg "✓ Results processed successfully" "$GREEN"
+echo ""
+
+# Pipeline completed
+print_msg "╔════════════════════════════════════════════════════════════╗" "$GREEN"
+print_msg "║         Pipeline Completed Successfully! 🎉              ║" "$GREEN"
+print_msg "╚════════════════════════════════════════════════════════════╝" "$GREEN"
+echo ""
+print_msg "📁 Results saved in: ./results/" "$BLUE"
+print_msg "📝 Logs saved in: $LOG_DIR/" "$BLUE"
+echo ""
+print_msg "Timestamp: $TIMESTAMP" "$BLUE"
