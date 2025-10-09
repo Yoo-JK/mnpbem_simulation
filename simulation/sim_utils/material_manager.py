@@ -3,7 +3,12 @@ Material Manager
 
 Manages material definitions and generates corresponding MATLAB code.
 NEW: Supports medium, materials, and substrate as separate configs.
+NEW: Enhanced 'table' type with automatic interpolation.
 """
+
+import numpy as np
+from pathlib import Path
+from .refractive_index_loader import RefractiveIndexLoader
 
 
 class MaterialManager:
@@ -16,6 +21,9 @@ class MaterialManager:
         
         # NEW: Build complete material list from separate configs
         self.complete_materials = self._build_complete_material_list()
+        
+        # Store interpolated refractive index data for 'table' type materials
+        self.table_materials_data = {}
     
     def _build_complete_material_list(self):
         """
@@ -75,6 +83,7 @@ class MaterialManager:
     
     def _generate_substrate_materials(self):
         """Generate materials code for substrate configuration."""
+        # Get substrate configuration
         substrate = self.config.get('substrate', {})
         z_interface = substrate.get('position', 0)
         
@@ -117,7 +126,7 @@ end
         eps_list = []
         
         for i, material in enumerate(self.complete_materials):
-            eps_code = self._material_to_eps(material)
+            eps_code = self._material_to_eps(material, material_index=i)
             eps_list.append(eps_code)
         
         # Join with commas
@@ -126,14 +135,17 @@ end
         code = f"epstab = {{ {eps_str} }};"
         return code
     
-    def _material_to_eps(self, material):
+    def _material_to_eps(self, material, material_index=0):
         """
         Convert material specification to MATLAB epsilon code.
+        
+        NEW: For 'table' type, loads file in Python, interpolates to simulation 
+        wavelengths, and generates epsconst array directly.
         
         Supports:
         1. Built-in materials (string)
         2. Constant epsilon (dict with 'constant')
-        3. Tabulated data file (dict with 'table')
+        3. Tabulated data file (dict with 'table') - NEW: with interpolation
         4. Custom function (dict with 'function')
         """
         # Built-in materials
@@ -160,9 +172,8 @@ end
                 return f"epsconst({epsilon})"
             
             elif mat_type == 'table':
-                # Wavelength-dependent from data file
-                filename = material['file']
-                return f"epstable('{filename}')"
+                # NEW: Wavelength-dependent from data file with interpolation
+                return self._handle_table_material(material, material_index)
             
             elif mat_type == 'function':
                 # Custom function (advanced)
@@ -186,6 +197,98 @@ end
         
         else:
             raise ValueError(f"Invalid material specification: {material}")
+    
+    def _handle_table_material(self, material, material_index):
+        """
+        Handle 'table' type material with automatic interpolation.
+        
+        Process:
+        1. Load refractive index file
+        2. Get simulation wavelengths
+        3. Interpolate n and k to simulation wavelengths
+        4. Calculate epsilon = (n + ik)^2
+        5. Generate MATLAB code with interpolated values
+        
+        Args:
+            material (dict): Material specification with 'file' key
+            material_index (int): Index of material in complete_materials list
+        
+        Returns:
+            str: MATLAB epsilon code with interpolated values
+        """
+        filepath = material['file']
+        
+        # Resolve filepath (support Path.home() and relative paths)
+        filepath = Path(filepath).expanduser()
+        
+        if self.verbose:
+            print(f"\n--- Processing table material (index {material_index}) ---")
+            print(f"File: {filepath}")
+        
+        # Load and interpolate
+        try:
+            loader = RefractiveIndexLoader(filepath, verbose=self.verbose)
+            
+            # Get simulation wavelengths
+            wavelength_range = self.config.get('wavelength_range', [400, 800, 80])
+            target_wavelengths = np.linspace(
+                wavelength_range[0],
+                wavelength_range[1],
+                wavelength_range[2]
+            )
+            
+            # Interpolate
+            n_interp, k_interp = loader.interpolate(target_wavelengths)
+            
+            # Calculate epsilon = (n + ik)^2
+            refractive_index = n_interp + 1j * k_interp
+            epsilon_complex = refractive_index ** 2
+            
+            # Store for potential later use
+            self.table_materials_data[material_index] = {
+                'wavelengths': target_wavelengths,
+                'n': n_interp,
+                'k': k_interp,
+                'epsilon': epsilon_complex
+            }
+            
+            # Generate MATLAB code
+            # Format: epsconst([eps1, eps2, eps3, ...])
+            epsilon_str = self._format_complex_array(epsilon_complex)
+            matlab_code = f"epsconst({epsilon_str})"
+            
+            if self.verbose:
+                print(f"Generated MATLAB code with {len(epsilon_complex)} wavelength points")
+            
+            return matlab_code
+        
+        except Exception as e:
+            raise RuntimeError(f"Error processing table material '{filepath}': {e}")
+    
+    def _format_complex_array(self, complex_array):
+        """
+        Format complex numpy array for MATLAB.
+        
+        Args:
+            complex_array (np.ndarray): Complex array
+        
+        Returns:
+            str: MATLAB-formatted array string
+        """
+        # MATLAB format: [real1+imag1i, real2+imag2i, ...]
+        values = []
+        for val in complex_array:
+            real_part = val.real
+            imag_part = val.imag
+            
+            # Format: real+imagi or real-imagi
+            if imag_part >= 0:
+                values.append(f"{real_part:.6f}+{imag_part:.6f}i")
+            else:
+                values.append(f"{real_part:.6f}{imag_part:.6f}i")  # minus sign included
+        
+        # Join with commas
+        return "[" + ", ".join(values) + "]"
     
     def _generate_inout(self):
         """Generate inout matrix based on structure."""

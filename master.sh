@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # MNPBEM Automation Pipeline
-# Usage: ./master.sh --config ./config/config.py
+# Usage: ./master.sh --structure ./config/structures/config_structure.py --simulation ./config/simulations/config_simulation.py
 
 set -e  # Exit on error
 
@@ -18,13 +18,18 @@ print_msg() {
 }
 
 # Parse command line arguments
-CONFIG_FILE=""
+STRUCTURE_FILE=""
+SIMULATION_FILE=""
 VERBOSE=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --config)
-            CONFIG_FILE="$2"
+        --structure)
+            STRUCTURE_FILE="$2"
+            shift 2
+            ;;
+        --simulation)
+            SIMULATION_FILE="$2"
             shift 2
             ;;
         --verbose)
@@ -34,17 +39,19 @@ while [[ $# -gt 0 ]]; do
         --help|-h)
             echo "MNPBEM Automation Pipeline"
             echo ""
-            echo "Usage: ./master.sh --config <config_file> [options]"
+            echo "Usage: ./master.sh --structure <structure_file> --simulation <simulation_file> [options]"
             echo ""
             echo "Required arguments:"
-            echo "  --config <file>     Configuration file path"
+            echo "  --structure <file>   Structure configuration file path"
+            echo "  --simulation <file>  Simulation configuration file path"
             echo ""
             echo "Optional arguments:"
-            echo "  --verbose          Enable verbose output"
-            echo "  --help, -h         Show this help message"
+            echo "  --verbose           Enable verbose output"
+            echo "  --help, -h          Show this help message"
             echo ""
             echo "Example:"
-            echo "  ./master.sh --config ./config/config.py"
+            echo "  ./master.sh --structure ./config/structures/config_structure.py \\"
+            echo "              --simulation ./config/simulations/config_simulation.py"
             exit 0
             ;;
         *)
@@ -55,15 +62,27 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Validate config file
-if [ -z "$CONFIG_FILE" ]; then
-    print_msg "Error: --config option is required" "$RED"
-    echo "Usage: ./master.sh --config <config_file>"
+# Validate required arguments
+if [ -z "$STRUCTURE_FILE" ]; then
+    print_msg "Error: --structure option is required" "$RED"
+    echo "Usage: ./master.sh --structure <structure_file> --simulation <simulation_file>"
     exit 1
 fi
 
-if [ ! -f "$CONFIG_FILE" ]; then
-    print_msg "Error: Config file not found: $CONFIG_FILE" "$RED"
+if [ -z "$SIMULATION_FILE" ]; then
+    print_msg "Error: --simulation option is required" "$RED"
+    echo "Usage: ./master.sh --structure <structure_file> --simulation <simulation_file>"
+    exit 1
+fi
+
+# Validate files exist
+if [ ! -f "$STRUCTURE_FILE" ]; then
+    print_msg "Error: Structure config file not found: $STRUCTURE_FILE" "$RED"
+    exit 1
+fi
+
+if [ ! -f "$SIMULATION_FILE" ]; then
+    print_msg "Error: Simulation config file not found: $SIMULATION_FILE" "$RED"
     exit 1
 fi
 
@@ -72,7 +91,8 @@ print_msg "╔══════════════════════
 print_msg "║         MNPBEM Automation Pipeline Started               ║" "$BLUE"
 print_msg "╚════════════════════════════════════════════════════════════╝" "$BLUE"
 echo ""
-print_msg "📄 Config file: $CONFIG_FILE" "$BLUE"
+print_msg "📄 Structure config:  $STRUCTURE_FILE" "$BLUE"
+print_msg "📄 Simulation config: $SIMULATION_FILE" "$BLUE"
 echo ""
 
 # Create necessary directories
@@ -87,16 +107,17 @@ MATLAB_LOG="$LOG_DIR/matlab_$TIMESTAMP.log"
 PYTHON_LOG="$LOG_DIR/pipeline_$TIMESTAMP.log"
 
 # Export environment variables
-export MNPBEM_CONFIG="$CONFIG_FILE"
+export MNPBEM_STRUCTURE="$STRUCTURE_FILE"
+export MNPBEM_SIMULATION="$SIMULATION_FILE"
 export MNPBEM_TIMESTAMP="$TIMESTAMP"
 export MNPBEM_LOG_DIR="$LOG_DIR"
 
 # Step 1: Generate MATLAB simulation code
 print_msg "🔧 Step 1/3: Generating MATLAB simulation code..." "$YELLOW"
 if [ "$VERBOSE" = true ]; then
-    python run_simulation.py --config "$CONFIG_FILE" 2>&1 | tee -a "$PYTHON_LOG"
+    python run_simulation.py --structure "$STRUCTURE_FILE" --simulation "$SIMULATION_FILE" --verbose 2>&1 | tee -a "$PYTHON_LOG"
 else
-    python run_simulation.py --config "$CONFIG_FILE" >> "$PYTHON_LOG" 2>&1
+    python run_simulation.py --structure "$STRUCTURE_FILE" --simulation "$SIMULATION_FILE" >> "$PYTHON_LOG" 2>&1
 fi
 
 if [ $? -ne 0 ]; then
@@ -143,9 +164,9 @@ echo ""
 # Step 3: Postprocess results
 print_msg "📊 Step 3/3: Processing and analyzing results..." "$YELLOW"
 if [ "$VERBOSE" = true ]; then
-    python run_postprocess.py --config "$CONFIG_FILE" 2>&1 | tee -a "$PYTHON_LOG"
+    python run_postprocess.py --structure "$STRUCTURE_FILE" --simulation "$SIMULATION_FILE" --verbose 2>&1 | tee -a "$PYTHON_LOG"
 else
-    python run_postprocess.py --config "$CONFIG_FILE" >> "$PYTHON_LOG" 2>&1
+    python run_postprocess.py --structure "$STRUCTURE_FILE" --simulation "$SIMULATION_FILE" >> "$PYTHON_LOG" 2>&1
 fi
 
 if [ $? -ne 0 ]; then

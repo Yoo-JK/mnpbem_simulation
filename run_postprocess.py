@@ -21,10 +21,16 @@ def parse_arguments():
         description='Postprocess MNPBEM simulation results'
     )
     parser.add_argument(
-        '--config',
+        '--structure',
         type=str,
         required=True,
-        help='Path to configuration file'
+        help='Path to structure configuration file'
+    )
+    parser.add_argument(
+        '--simulation',
+        type=str,
+        required=True,
+        help='Path to simulation configuration file'
     )
     parser.add_argument(
         '--verbose',
@@ -45,9 +51,20 @@ def load_config(config_path):
         exec(f.read(), config_dict)
     
     if 'args' not in config_dict:
-        raise ValueError("Config file must contain 'args' dictionary")
+        raise ValueError(f"Config file must contain 'args' dictionary: {config_path}")
     
     return config_dict['args']
+
+
+def merge_configs(structure_path, simulation_path):
+    """Merge structure and simulation configs."""
+    structure_args = load_config(structure_path)
+    simulation_args = load_config(simulation_path)
+    
+    # Merge
+    merged = {**structure_args, **simulation_args}
+    
+    return merged
 
 
 def main():
@@ -61,9 +78,10 @@ def main():
     print()
     
     # Load configuration
-    print(f"Loading configuration from: {args_cli.config}")
+    print(f"Loading structure config: {args_cli.structure}")
+    print(f"Loading simulation config: {args_cli.simulation}")
     try:
-        config = load_config(args_cli.config)
+        config = merge_configs(args_cli.structure, args_cli.simulation)
         print(f"✓ Configuration loaded successfully")
     except Exception as e:
         print(f"✗ Error loading configuration: {e}")
@@ -120,7 +138,9 @@ def main():
     print("Postprocessing Complete")
     print("=" * 60)
     summary = postproc_manager.get_summary()
-    print(f"Output directory: {config['output_dir']}")
+    print(f"Structure:            {config.get('structure_name', 'N/A')}")
+    print(f"Simulation:           {config.get('simulation_name', 'N/A')}")
+    print(f"Output directory:     {config['output_dir']}")
     print(f"Number of wavelengths: {summary['n_wavelengths']}")
     print(f"Number of polarizations: {summary['n_polarizations']}")
     

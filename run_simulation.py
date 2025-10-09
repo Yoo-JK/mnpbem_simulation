@@ -1,8 +1,7 @@
 """
 MNPBEM Simulation Runner
 
-This script generates MATLAB code based on the configuration file
-and prepares everything for MATLAB execution.
+This script generates MATLAB code based on structure and simulation configuration files.
 """
 
 import argparse
@@ -21,17 +20,25 @@ def parse_arguments():
     parser = argparse.ArgumentParser(
         description='Generate and prepare MNPBEM simulation'
     )
+    
     parser.add_argument(
-        '--config',
+        '--structure',
         type=str,
         required=True,
-        help='Path to configuration file'
+        help='Path to structure configuration file'
+    )
+    parser.add_argument(
+        '--simulation',
+        type=str,
+        required=True,
+        help='Path to simulation configuration file'
     )
     parser.add_argument(
         '--verbose',
         action='store_true',
         help='Enable verbose output'
     )
+    
     return parser.parse_args()
 
 
@@ -46,9 +53,25 @@ def load_config(config_path):
         exec(f.read(), config_dict)
     
     if 'args' not in config_dict:
-        raise ValueError("Config file must contain 'args' dictionary")
+        raise ValueError(f"Config file must contain 'args' dictionary: {config_path}")
     
     return config_dict['args']
+
+
+def merge_configs(structure_path, simulation_path):
+    """Merge structure and simulation configs."""
+    print(f"Loading structure config: {structure_path}")
+    structure_args = load_config(structure_path)
+    
+    print(f"Loading simulation config: {simulation_path}")
+    simulation_args = load_config(simulation_path)
+    
+    # Merge: simulation settings override structure if there's overlap
+    merged = {**structure_args, **simulation_args}
+    
+    print(f"✓ Configurations loaded and merged successfully")
+    
+    return merged
 
 
 def validate_config(args):
@@ -56,29 +79,22 @@ def validate_config(args):
     required_keys = [
         'structure',
         'simulation_type',
-        'materials',
         'excitation_type',
         'wavelength_range',
         'output_dir'
     ]
     
+    missing_keys = []
     for key in required_keys:
         if key not in args:
-            raise ValueError(f"Required configuration key missing: {key}")
+            missing_keys.append(key)
+    
+    if missing_keys:
+        raise ValueError(f"Required configuration keys missing: {', '.join(missing_keys)}")
     
     # Validate simulation type
     if args['simulation_type'] not in ['stat', 'ret']:
         raise ValueError(f"Invalid simulation_type: {args['simulation_type']}")
-    
-    # Validate structure type
-    valid_structures = [
-        'sphere', 'cube', 'rod', 'ellipsoid', 'triangle',
-        'dimer_sphere', 'dimer_cube',
-        'core_shell_sphere', 'core_shell_cube',
-        'dimer_core_shell_cube'
-    ]
-    if args['structure'] not in valid_structures:
-        raise ValueError(f"Invalid structure: {args['structure']}")
     
     # Validate excitation type
     if args['excitation_type'] not in ['planewave', 'dipole', 'eels']:
@@ -97,11 +113,9 @@ def main():
     print("=" * 60)
     print()
     
-    # Load configuration
-    print(f"Loading configuration from: {args_cli.config}")
+    # Load and merge configurations
     try:
-        config = load_config(args_cli.config)
-        print(f"✓ Configuration loaded successfully")
+        config = merge_configs(args_cli.structure, args_cli.simulation)
     except Exception as e:
         print(f"✗ Error loading configuration: {e}")
         sys.exit(1)
@@ -145,10 +159,12 @@ def main():
     print("\n" + "=" * 60)
     print("Simulation Preparation Complete")
     print("=" * 60)
-    print(f"Structure:        {config['structure']}")
+    print(f"Structure:        {config.get('structure_name', config.get('structure', 'N/A'))}")
+    print(f"Structure type:   {config.get('structure', 'N/A')}")
+    print(f"Simulation:       {config.get('simulation_name', 'N/A')}")
     print(f"Simulation type:  {config['simulation_type']}")
     print(f"Excitation:       {config['excitation_type']}")
-    print(f"Wavelength range: {config['wavelength_range'][0]}-{config['wavelength_range'][1]} nm")
+    print(f"Wavelength range: {config['wavelength_range'][0]}-{config['wavelength_range'][1]} nm ({config['wavelength_range'][2]} points)")
     print(f"Output directory: {config['output_dir']}")
     print()
     print("Ready for MATLAB execution!")
