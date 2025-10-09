@@ -5,13 +5,28 @@ This file defines simulation parameters: excitation, wavelengths,
 numerical settings, and output options.
 """
 
+from pathlib import Path
+
 args = {}
+
+# ============================================================================
+# MNPBEM TOOLBOX PATH (REQUIRED)
+# ============================================================================
+# Path to your MNPBEM installation directory
+# This path will be added to MATLAB's search path during execution
+
+args['mnpbem_path'] = '/home/yoojk20/workspace/MNPBEM'
+
+# Examples:
+# args['mnpbem_path'] = '/usr/local/MNPBEM17'
+# args['mnpbem_path'] = Path.home() / 'MNPBEM'
+# args['mnpbem_path'] = '/opt/mnpbem/MNPBEM17'
 
 # ============================================================================
 # SIMULATION NAME (IDENTIFIER)
 # ============================================================================
 # Give your simulation a descriptive name
-args['simulation_name'] = 'vis_nir_spectrum'
+args['simulation_name'] = 'au_sphere_spectrum'
 
 # ============================================================================
 # SIMULATION TYPE
@@ -44,150 +59,109 @@ args['waitbar'] = 0
 
 args['excitation_type'] = 'planewave'
 
-# --- PLANEWAVE EXCITATION ---
-# Define polarization and propagation directions
+# --- Plane Wave Configuration ---
+# Only used if excitation_type == 'planewave'
 
-# Polarization directions (list of [x, y, z] unit vectors)
-# Common configurations:
-#   [[1,0,0]]                    : x-polarization only
-#   [[0,1,0]]                    : y-polarization only
-#   [[1,0,0], [0,1,0]]          : x and y polarizations
-#   [[1,0,0], [0,1,0], [0,0,1]] : all three directions
-
+# Polarization direction(s) - can specify multiple
+# Each polarization is a 3D vector [x, y, z]
 args['polarizations'] = [
-    [1, 0, 0],  # x-polarization (e.g., along dimer axis)
-    [0, 1, 0],  # y-polarization (perpendicular)
-    [0, 0, 1],  # z-polarization (perpendicular)
+    [1, 0, 0],  # x-polarization
+    # [0, 1, 0],  # y-polarization (uncomment to add)
+    # [0, 0, 1],  # z-polarization
 ]
 
-# Propagation directions (list of [x, y, z] unit vectors, one per polarization)
-# Must have same length as polarizations list
-# Common: [0, 0, 1] for normal incidence from above
-
+# Propagation direction(s) - can specify multiple
+# Each direction is a 3D unit vector [x, y, z]
 args['propagation_dirs'] = [
-    [0, 0, 1],  # z-direction for x-pol
-    [0, 0, 1],  # z-direction for y-pol
-    [1, 0, 0],  # x-direction for z-pol (different angle)
+    [0, 0, 1],  # Propagating in +z direction
+    # [0, 0, -1],  # Propagating in -z direction
+    # [1, 0, 0],   # Propagating in +x direction
 ]
 
-# Example: Normal incidence, x-pol only
-# args['polarizations'] = [[1, 0, 0]]
-# args['propagation_dirs'] = [[0, 0, 1]]
+# --- Dipole Configuration ---
+# Only used if excitation_type == 'dipole'
 
-# Example: Angular dependence (45° incidence)
-# args['polarizations'] = [[1, 0, 0]]
-# args['propagation_dirs'] = [[0, 0.707, 0.707]]  # 45° from normal
+# args['dipole_position'] = [0, 0, 15]  # Position in nm [x, y, z]
+# args['dipole_moment'] = [0, 0, 1]     # Dipole moment direction [x, y, z]
 
-# --- DIPOLE EXCITATION ---
-# (Only used if excitation_type = 'dipole')
-# args['dipole_position'] = [0, 0, 15]  # [x, y, z] position in nm
-# args['dipole_moment'] = [1, 0, 0]     # [x, y, z] dipole moment direction
+# --- EELS Configuration ---
+# Only used if excitation_type == 'eels'
 
-# Example: Dipole 10nm above particle
-# args['dipole_position'] = [0, 0, 10]
-# args['dipole_moment'] = [0, 0, 1]  # z-oriented dipole
-
-# --- EELS EXCITATION ---
-# (Only used if excitation_type = 'eels')
-# args['impact_parameter'] = [10, 0]  # [x, y] impact parameter in nm
-# args['beam_energy'] = 200e3         # Electron beam energy in eV (e.g., 200 keV)
+# args['impact_parameter'] = [10, 0]  # Impact parameter in nm [x, y]
+# args['beam_energy'] = 200e3         # Beam energy in eV
 # args['beam_width'] = 0.2            # Beam width in nm
 
 # ============================================================================
 # WAVELENGTH RANGE
 # ============================================================================
-# Define the wavelength range for spectrum calculation
+# Wavelength range for spectrum calculation
+# Format: [start_nm, end_nm, num_points]
 
-# Format: [min, max, num_points] in nanometers
-args['wavelength_range'] = [400, 800, 80]  # 400-800nm, 80 points
+args['wavelength_range'] = [400, 800, 100]  # 400-800 nm, 100 points
 
 # Examples:
-# args['wavelength_range'] = [300, 1000, 140]  # UV to near-IR
-# args['wavelength_range'] = [500, 700, 40]    # Visible only
-# args['wavelength_range'] = [700, 1500, 80]   # Near-IR
+# args['wavelength_range'] = [300, 1500, 240]  # Broad UV to NIR
+# args['wavelength_range'] = [550, 550, 1]     # Single wavelength
 
-# Alternative: Specify exact wavelengths (uncomment to use)
-# args['wavelengths'] = [400, 450, 500, 550, 600, 650, 700, 750, 800]
+# ============================================================================
+# NUMERICAL ACCURACY PARAMETERS
+# ============================================================================
+
+# Refinement level for numerical integration
+# Higher = more accurate but slower
+# Typical values: 1-3
+args['refine'] = 2
+
+# Relative cutoff for interaction matrices
+# Higher = more accurate but more memory
+# Typical values: 2-3
+args['relcutoff'] = 2
+
+# ============================================================================
+# CALCULATION OPTIONS
+# ============================================================================
+
+# Calculate optical cross sections (scattering, absorption, extinction)
+args['calculate_cross_sections'] = True
+
+# Calculate electric field distribution
+args['calculate_fields'] = False
+
+# Field calculation region (only used if calculate_fields=True)
+# args['field_region'] = {
+#     'x_range': [-100, 100, 201],  # [min, max, num_points]
+#     'y_range': [-100, 100, 201],
+#     'z_range': [0, 0, 1]          # Single slice at z=0
+# }
 
 # ============================================================================
 # OUTPUT SETTINGS
 # ============================================================================
 
-# Output directory (relative or absolute path)
+# Output directory for results
 args['output_dir'] = './results'
 
-# Output file prefix (will be prepended to all output files)
-args['output_prefix'] = 'simulation'
+# Save formats
+# Available: 'txt', 'mat', 'csv', 'json'
+args['save_format'] = ['txt', 'mat', 'csv']
 
-# Save MATLAB script? (for debugging or manual execution)
-args['save_matlab_script'] = True
-
-# Output formats for numerical data
-# Options: 'txt', 'csv', 'json', 'mat'
-args['output_formats'] = ['txt', 'csv', 'json']
-
-# Generate plots?
+# Generate plots
 args['save_plots'] = True
 
 # Plot formats
-# Options: 'png', 'pdf', 'svg', 'eps'
-args['plot_formats'] = ['png', 'pdf']
+# Available: 'png', 'pdf', 'eps', 'svg'
+args['plot_format'] = ['png', 'pdf']
 
-# Plot resolution (DPI) for raster formats (png, jpg)
+# Plot DPI (resolution)
 args['plot_dpi'] = 300
 
 # ============================================================================
-# POSTPROCESSING OPTIONS
+# ADVANCED OPTIONS
 # ============================================================================
 
-# Calculate absorption cross-section?
-# Note: absorption = extinction - scattering
-args['calculate_absorption'] = True
-
-# Calculate electromagnetic field enhancement?
-# Warning: This is time-consuming, only enable if needed
-args['calculate_fields'] = False
-
-# Field calculation region (only used if calculate_fields=True)
-args['field_region'] = {
-    'x_range': [-60, 60, 121],  # [min, max, num_points] in nm
-    'y_range': [-60, 60, 121],
-    'z_range': [0, 0, 1],        # Single plane at z=0
-}
-
-# Example: Calculate fields in xz-plane
-# args['field_region'] = {
-#     'x_range': [-100, 100, 201],
-#     'y_range': [0, 0, 1],      # Single slice at y=0
-#     'z_range': [-50, 50, 101],
-# }
-
-# Peak detection in spectrum
-args['peak_detection'] = {
-    'enabled': True,
-    'prominence': 0.1,  # Minimum peak prominence (0-1)
-}
-
-# ============================================================================
-# ADVANCED NUMERICAL OPTIONS
-# ============================================================================
-
-# Refine parameter (integration accuracy)
-# Controls the number of integration points for boundary elements
-# Higher = more accurate but slower
-# Recommended: 1-3 for most cases, increase for very small gaps or high accuracy
-args['refine'] = 2
-
-# Relative cutoff (integration distance)
-# Determines which boundary elements need refined integration
-# Default: 2
-# Increase if accuracy issues occur
-args['relcutoff'] = 2
-
-# Mirror symmetry (only if structure has perfect mirror symmetry)
-# Can significantly speed up calculations
-# Options: False, 'x', 'y', 'xy'
-# Warning: Use only if structure AND excitation preserve symmetry!
+# Mirror symmetry (for reducing computation time)
+# Options: False, 'x', 'y', 'z', 'xy', 'xz', 'yz'
+# Only use if your structure and excitation have the appropriate symmetry
 args['use_mirror_symmetry'] = False
 
 # Example: Use x-symmetry for symmetric dimer with x-polarization
@@ -260,5 +234,5 @@ args['matlab_options'] = '-nodisplay -nosplash -nodesktop'
 # Example 6: High accuracy calculation
 # args['refine'] = 3
 # args['relcutoff'] = 3
-# args['mesh_density'] = 288  # Double standard density
+# args['mesh_density'] = 288  # Double standard density (set in structure config)
 # args['simulation_type'] = 'ret'

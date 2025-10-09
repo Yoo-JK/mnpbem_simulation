@@ -13,7 +13,27 @@ args = {}
 # STRUCTURE NAME (IDENTIFIER)
 # ============================================================================
 # Give your structure a descriptive name for easy identification
-args['structure_name'] = 'au_ag_agcl_dimer'
+args['structure_name'] = 'simple_au_sphere'
+
+# ============================================================================
+# REFRACTIVE INDEX FILE PATHS
+# ============================================================================
+# Override default refractive index data file paths
+# Default built-in materials use MNPBEM's internal .dat files
+# Use this to specify custom paths for refractive index data files
+
+args['refractive_index_paths'] = {
+    # Built-in material overrides (optional)
+    # 'gold': '/custom/path/to/gold.dat',
+    # 'silver': '/custom/path/to/silver.dat',
+    # 'aluminum': '/custom/path/to/aluminum.dat',
+}
+
+# Examples:
+# args['refractive_index_paths'] = {
+#     'gold': Path.home() / 'research' / 'materials' / 'gold_custom.dat',
+#     'silver': '/usr/local/materials/silver_jc.dat',
+# }
 
 # ============================================================================
 # STRUCTURE TYPE
@@ -30,18 +50,18 @@ args['structure_name'] = 'au_ag_agcl_dimer'
 # Core-shell structures:
 #   - 'core_shell_sphere'         : Core-shell sphere (2 layers)
 #   - 'core_shell_cube'           : Core-shell cube (2 layers)
-#   - 'multi_shell_sphere'        : Multi-shell sphere (3+ layers) **NEW**
-#   - 'multi_shell_cube'          : Multi-shell cube (3+ layers) **NEW**
+#   - 'multi_shell_sphere'        : Multi-shell sphere (3+ layers)
+#   - 'multi_shell_cube'          : Multi-shell cube (3+ layers)
 #
 # Dimers:
 #   - 'dimer_sphere'              : Two spheres
 #   - 'dimer_cube'                : Two cubes
 #   - 'dimer_core_shell_sphere'   : Two core-shell spheres
 #   - 'dimer_core_shell_cube'     : Two core-shell cubes
-#   - 'dimer_multi_shell_sphere'  : Two multi-shell spheres **NEW**
-#   - 'dimer_multi_shell_cube'    : Two multi-shell cubes **NEW**
+#   - 'dimer_multi_shell_sphere'  : Two multi-shell spheres
+#   - 'dimer_multi_shell_cube'    : Two multi-shell cubes
 
-args['structure'] = 'dimer_multi_shell_sphere'
+args['structure'] = 'sphere'
 
 # ============================================================================
 # MESH DENSITY
@@ -62,7 +82,7 @@ args['mesh_density'] = 144
 # Uncomment and modify the section for your chosen structure
 
 # --- For 'sphere' ---
-# args['diameter'] = 50  # nm
+args['diameter'] = 50  # nm
 
 # --- For 'cube' ---
 # args['size'] = 40  # nm (edge length)
@@ -98,128 +118,52 @@ args['mesh_density'] = 144
 # args['rounding'] = 0.25
 
 # ============================================================================
-# MULTI-SHELL STRUCTURE (3+ LAYERS) **NEW**
+# MULTI-SHELL STRUCTURE (3+ LAYERS)
 # ============================================================================
 # For structures like Au@Ag@AgCl, define layers from core to outermost shell
 # Each layer is a dictionary with material and size information
 
-# **ACTIVE CONFIGURATION: Au@Ag@AgCl Multi-shell Dimer**
-args['layers'] = [
-    {
-        'name': 'core',           # Layer name (for reference)
-        'material': 'gold',       # Material name or custom dict
-        'radius': 47,             # Core radius in nm (for first layer only)
-    },
-    {
-        'name': 'shell_1',        # First shell
-        'material': 'silver',     # Material name or custom dict
-        'thickness': 3,           # Shell thickness in nm (total radius: 47+3=50)
-    },
-    {
-        'name': 'shell_2',        # Second shell (outermost)
-        'material': 'agcl',       # Custom material (defined below)
-        'thickness': 1,           # Shell thickness in nm (total radius: 50+1=51)
-    }
-]
-
-# Notes on layers:
-# - First layer MUST have 'radius' (this is the core)
-# - Subsequent layers MUST have 'thickness'
-# - Layers are built from inside out
-# - Total radius = core_radius + sum(all shell thicknesses)
-# - For cube structures, 'radius' → 'size' and it refers to edge length
-
-# Example: 4-layer structure (Au@Ag@AgCl@SiO2)
+# Example: Au@Ag@AgCl Multi-shell Dimer
 # args['layers'] = [
-#     {'name': 'core',    'material': 'gold',   'radius': 40},
-#     {'name': 'shell_1', 'material': 'silver', 'thickness': 5},
-#     {'name': 'shell_2', 'material': 'agcl',   'thickness': 2},
-#     {'name': 'shell_3', 'material': 'sio2',   'thickness': 3},
+#     {
+#         'name': 'core',
+#         'material': 'gold',
+#         'diameter': 30  # nm (for sphere) or 'size' for cube
+#     },
+#     {
+#         'name': 'shell1',
+#         'material': 'silver',
+#         'thickness': 5  # nm
+#     },
+#     {
+#         'name': 'shell2',
+#         'material': 'agcl',
+#         'thickness': 3  # nm
+#     }
 # ]
 
 # ============================================================================
 # DIMER CONFIGURATION (FOR DIMER STRUCTURES)
 # ============================================================================
-# Define how two particles are arranged and transformed
+# Advanced dimer positioning and orientation
 
-args['dimer'] = {
-    # Gap between particles (surface-to-surface distance in nm)
-    'gap': 5,
-    
-    # Particle 1 configuration (reference particle)
-    'particle1': {
-        'position': [0, 0, 0],          # [x, y, z] position in nm
-        'rotation': [0, 0, 0],          # [rx, ry, rz] rotation in degrees
-        'rotation_order': 'xyz',        # Order of rotation axes ('xyz', 'zyx', etc.)
-    },
-    
-    # Particle 2 configuration (transformed particle)
-    'particle2': {
-        'position': None,               # None = auto-calculate based on gap
-                                        # Or specify [x, y, z] manually
-        
-        'rotation': [0, 0, 0],          # [rx, ry, rz] rotation in degrees
-        'rotation_order': 'xyz',        # Order of rotation axes
-        
-        'offset': [0, 0, 0],            # Additional offset [x, y, z] in nm
-                                        # Applied after automatic positioning
-    }
-}
-
-# Detailed explanation of dimer positioning:
-#
-# 1. Automatic positioning (position=None):
-#    - Particle 1 is placed at particle1['position']
-#    - Particle 2 is automatically placed along x-axis with specified gap
-#    - Additional offset can be applied via particle2['offset']
-#
-# 2. Manual positioning (position=[x,y,z]):
-#    - Both particles are placed exactly at specified positions
-#    - 'gap' parameter is ignored
-#    - Use this for custom arrangements
-#
-# 3. Rotation:
-#    - Applied around particle's own center
-#    - Rotation order matters: 'xyz' means rotate around x, then y, then z
-#    - Angles in degrees
-#
-# 4. Complete transformation order:
-#    - Create particle → Rotate → Translate to position → Apply offset
-
-# Example: Tilted dimer
 # args['dimer'] = {
-#     'gap': 10,
+#     'gap': 10,  # Surface-to-surface gap in nm
 #     'particle1': {
 #         'position': [0, 0, 0],
-#         'rotation': [0, 0, 0],
-#         'rotation_order': 'xyz',
+#         'rotation': [0, 0, 0],  # Rotation angles in degrees [x, y, z]
+#         'rotation_order': 'xyz'
 #     },
 #     'particle2': {
-#         'position': None,              # Auto-calculate
-#         'rotation': [0, 15, 0],        # Tilt 15° around y-axis
+#         'position': None,  # Auto-calculated from gap if None
+#         'rotation': [0, 15, 0],
 #         'rotation_order': 'xyz',
-#         'offset': [0, 5, 0],           # Shift 5nm in y-direction
-#     }
-# }
-
-# Example: Custom arrangement (L-shaped dimer)
-# args['dimer'] = {
-#     'gap': None,  # Ignored when using manual positions
-#     'particle1': {
-#         'position': [0, 0, 0],
-#         'rotation': [0, 0, 0],
-#         'rotation_order': 'xyz',
-#     },
-#     'particle2': {
-#         'position': [0, 60, 0],        # Place along y-axis instead of x
-#         'rotation': [0, 0, 90],        # Rotate 90° around z-axis
-#         'rotation_order': 'xyz',
-#         'offset': [0, 0, 0],
+#         'offset': [0, 0, 0]  # Additional offset after gap calculation
 #     }
 # }
 
 # ============================================================================
-# MATERIALS
+# CUSTOM MATERIALS
 # ============================================================================
 # Define custom materials used in the structure
 # Built-in materials (no definition needed): 
@@ -237,10 +181,10 @@ args['custom_materials'] = {
     # },
     
     # Example 2: From data file (wavelength-dependent with interpolation)
-    'agcl': {
-        'type': 'table',
-        'file': Path.home() / 'research' / 'materials' / 'agcl.dat'
-    },
+    # 'agcl': {
+    #     'type': 'table',
+    #     'file': Path.home() / 'research' / 'materials' / 'agcl.dat'
+    # },
     
     # Example 3: Relative path
     # 'custom_metal': {
@@ -287,7 +231,7 @@ args['custom_materials'] = {
 #   - Custom constant: {'type': 'constant', 'epsilon': 1.77}
 #   - Custom from file: {'type': 'table', 'file': 'medium.dat'}
 
-args['medium'] = 'air'
+args['medium'] = 'water'
 
 # Example: Nanoparticles in water
 # args['medium'] = 'water'
@@ -296,9 +240,24 @@ args['medium'] = 'air'
 # args['medium'] = {'type': 'constant', 'epsilon': 1.33**2}  # epsilon = n^2
 
 # ============================================================================
+# PARTICLE MATERIALS
+# ============================================================================
+# Materials for the nanoparticle(s)
+# Order depends on structure type
+
+# For single particle: [particle_material]
+args['materials'] = ['gold']
+
+# For core-shell: [shell_material, core_material]
+# args['materials'] = ['silver', 'gold']  # Silver shell, gold core
+
+# For multi-shell: defined in args['layers'] above
+
+# ============================================================================
 # SUBSTRATE (OPTIONAL)
 # ============================================================================
 # Use substrate below the nanoparticles?
+
 args['use_substrate'] = False
 
 # Substrate configuration (only used if use_substrate=True)
@@ -326,11 +285,12 @@ args['substrate'] = {
 # ADDITIONAL STRUCTURE EXAMPLES
 # ============================================================================
 
-# Example 1: Simple gold sphere
+# Example 1: Simple gold sphere in water
 # args['structure'] = 'sphere'
 # args['diameter'] = 50
 # args['mesh_density'] = 144
 # args['medium'] = 'water'
+# args['materials'] = ['gold']
 
 # Example 2: Silver nanocube
 # args['structure'] = 'cube'
@@ -338,6 +298,7 @@ args['substrate'] = {
 # args['rounding'] = 0.25
 # args['mesh_density'] = 12
 # args['medium'] = 'air'
+# args['materials'] = ['silver']
 
 # Example 3: Core-shell nanoparticle (Au@Ag)
 # args['structure'] = 'core_shell_sphere'
@@ -345,7 +306,7 @@ args['substrate'] = {
 # args['shell_thickness'] = 10
 # args['mesh_density'] = 144
 # args['medium'] = 'air'
-# # Materials will be: [medium, shell, core] = ['air', 'silver', 'gold']
+# args['materials'] = ['silver', 'gold']  # [shell, core]
 
 # Example 4: Simple dimer
 # args['structure'] = 'dimer_sphere'
@@ -353,6 +314,7 @@ args['substrate'] = {
 # args['gap'] = 5
 # args['mesh_density'] = 144
 # args['medium'] = 'air'
+# args['materials'] = ['gold']
 
 # Example 5: Rotated dimer
 # args['structure'] = 'dimer_cube'

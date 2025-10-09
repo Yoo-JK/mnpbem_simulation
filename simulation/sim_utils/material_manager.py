@@ -4,6 +4,7 @@ Material Manager
 Manages material definitions and generates corresponding MATLAB code.
 NEW: Supports medium, materials, and substrate as separate configs.
 NEW: Enhanced 'table' type with automatic interpolation.
+NEW: Supports custom refractive_index_paths from config.
 """
 
 import numpy as np
@@ -139,6 +140,7 @@ end
         """
         Convert material specification to MATLAB epsilon code.
         
+        NEW: Supports custom refractive_index_paths from config.
         NEW: For 'table' type, loads file in Python, interpolates to simulation 
         wavelengths, and generates epsconst array directly.
         
@@ -190,8 +192,21 @@ end
         
         elif isinstance(material, str):
             # Built-in material
-            if material.lower() in material_map:
-                return material_map[material.lower()]
+            material_lower = material.lower()
+            
+            # NEW: Check for custom refractive index paths
+            refractive_index_paths = self.config.get('refractive_index_paths', {})
+            
+            if material_lower in refractive_index_paths:
+                # Use custom path for this material
+                custom_path = str(Path(refractive_index_paths[material_lower]).expanduser())
+                if self.verbose:
+                    print(f"Using custom refractive index path for '{material}': {custom_path}")
+                return f"epstable('{custom_path}')"
+            
+            # Use default built-in
+            if material_lower in material_map:
+                return material_map[material_lower]
             else:
                 raise ValueError(f"Unknown material: {material}")
         
@@ -302,7 +317,11 @@ end
             'dimer_cube': self._inout_dimer(),
             'core_shell_sphere': self._inout_core_shell_single(),
             'core_shell_cube': self._inout_core_shell_single(),
-            'dimer_core_shell_cube': self._inout_dimer_core_shell()
+            'dimer_core_shell_cube': self._inout_dimer_core_shell(),
+            'multi_shell_sphere': self._inout_multi_shell(),
+            'multi_shell_cube': self._inout_multi_shell(),
+            'dimer_multi_shell_sphere': self._inout_dimer_multi_shell(),
+            'dimer_multi_shell_cube': self._inout_dimer_multi_shell()
         }
         
         if self.structure not in structure_inout_map:
@@ -351,6 +370,58 @@ end
 ];"""
         return code
     
+    def _inout_multi_shell(self):
+        """Inout for multi-shell structure."""
+        # Get number of layers
+        layers = self.config.get('layers', [])
+        n_layers = len(layers)
+        
+        # Generate inout matrix
+        # Layer ordering: outermost to innermost
+        inout_lines = []
+        for i in range(n_layers):
+            if i == 0:
+                # Outermost shell: outside is medium (index 1)
+                inout_lines.append(f"    {i+2}, 1;  % Layer {i+1} (outermost): outside=medium")
+            else:
+                # Inner shells: outside is previous layer
+                inout_lines.append(f"    {i+2}, {i+1};  % Layer {i+1}: outside=layer{i}")
+        
+        # Remove trailing semicolon from last line
+        inout_lines[-1] = inout_lines[-1].rstrip(';')
+        
+        code = "inout = [\n" + "\n".join(inout_lines) + "\n];"
+        return code
+    
+    def _inout_dimer_multi_shell(self):
+        """Inout for dimer of multi-shell structures."""
+        # Get number of layers
+        layers = self.config.get('layers', [])
+        n_layers = len(layers)
+        
+        # Generate inout matrix for two particles
+        inout_lines = []
+        
+        # First particle
+        for i in range(n_layers):
+            if i == 0:
+                inout_lines.append(f"    {i+2}, 1;  % P1-Layer{i+1}: outside=medium")
+            else:
+                inout_lines.append(f"    {i+2}, {i+1};  % P1-Layer{i+1}: outside=layer{i}")
+        
+        # Second particle (same structure)
+        for i in range(n_layers):
+            if i == 0:
+                inout_lines.append(f"    {i+2}, 1;  % P2-Layer{i+1}: outside=medium")
+            else:
+                inout_lines.append(f"    {i+2}, {i+1};  % P2-Layer{i+1}: outside=layer{i}")
+        
+        # Remove trailing semicolon from last line
+        inout_lines[-1] = inout_lines[-1].rstrip(';')
+        
+        code = "inout = [\n" + "\n".join(inout_lines) + "\n];"
+        return code
+    
     def _generate_closed(self):
         """Generate closed surfaces specification."""
         structure_closed_map = {
@@ -363,10 +434,30 @@ end
             'dimer_cube': "closed = [1, 2];",
             'core_shell_sphere': "closed = [1, 2];",
             'core_shell_cube': "closed = [1, 2];",
-            'dimer_core_shell_cube': "closed = [1, 2, 3, 4];"
+            'dimer_core_shell_cube': "closed = [1, 2, 3, 4];",
+            'multi_shell_sphere': self._closed_multi_shell(),
+            'multi_shell_cube': self._closed_multi_shell(),
+            'dimer_multi_shell_sphere': self._closed_dimer_multi_shell(),
+            'dimer_multi_shell_cube': self._closed_dimer_multi_shell()
         }
         
         if self.structure not in structure_closed_map:
             raise ValueError(f"Unknown structure: {self.structure}")
         
         return structure_closed_map[self.structure]
+    
+    def _closed_multi_shell(self):
+        """Closed surfaces for multi-shell structure."""
+        layers = self.config.get('layers', [])
+        n_layers = len(layers)
+        # All surfaces are closed
+        closed_indices = list(range(1, n_layers + 1))
+        return f"closed = [{', '.join(map(str, closed_indices))}];"
+    
+    def _closed_dimer_multi_shell(self):
+        """Closed surfaces for dimer multi-shell structure."""
+        layers = self.config.get('layers', [])
+        n_layers = len(layers)
+        # Two particles, each with n_layers closed surfaces
+        closed_indices = list(range(1, 2 * n_layers + 1))
+        return f"closed = [{', '.join(map(str, closed_indices))}];"

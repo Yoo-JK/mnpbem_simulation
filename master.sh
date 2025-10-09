@@ -128,6 +128,41 @@ fi
 print_msg "✓ MATLAB code generated successfully" "$GREEN"
 echo ""
 
+# Extract MNPBEM path from simulation config
+print_msg "📂 Reading MNPBEM path from configuration..." "$YELLOW"
+MNPBEM_PATH=$(python3 -c "
+import sys
+sys.path.insert(0, '.')
+try:
+    exec(open('$SIMULATION_FILE').read())
+    if 'args' in dir() and 'mnpbem_path' in args:
+        print(args['mnpbem_path'])
+    else:
+        print('/home/yoojk20/workspace/MNPBEM')
+except Exception as e:
+    print('/home/yoojk20/workspace/MNPBEM')
+" 2>/dev/null)
+
+if [ -z "$MNPBEM_PATH" ]; then
+    print_msg "✗ Error: MNPBEM path not found in config" "$RED"
+    print_msg "   Please set 'mnpbem_path' in your simulation config file" "$RED"
+    exit 1
+fi
+
+# Expand ~ to home directory if present
+MNPBEM_PATH="${MNPBEM_PATH/#\~/$HOME}"
+
+print_msg "   MNPBEM Path: $MNPBEM_PATH" "$BLUE"
+
+# Verify MNPBEM path exists
+if [ ! -d "$MNPBEM_PATH" ]; then
+    print_msg "✗ Error: MNPBEM directory not found: $MNPBEM_PATH" "$RED"
+    print_msg "   Please check 'mnpbem_path' in your simulation config" "$RED"
+    exit 1
+fi
+print_msg "✓ MNPBEM path verified" "$GREEN"
+echo ""
+
 # Step 2: Run MATLAB simulation
 print_msg "⚡ Step 2/3: Running MATLAB simulation..." "$YELLOW"
 
@@ -143,12 +178,12 @@ if [ ! -f "./simulation/simulation_script.m" ]; then
     exit 1
 fi
 
-# Run MATLAB
+# Run MATLAB with dynamic MNPBEM path
 cd simulation
 if [ "$VERBOSE" = true ]; then
-    matlab -nodisplay -nodesktop -r "addpath(genpath('/home/yoojk20/workspace/MNPBEM')); run('simulation_script.m'); quit" 2>&1 | tee "../$MATLAB_LOG"
+    matlab -nodisplay -nodesktop -r "addpath(genpath('$MNPBEM_PATH')); run('simulation_script.m'); quit" 2>&1 | tee "../$MATLAB_LOG"
 else
-    matlab -nodisplay -nodesktop -r "addpath(genpath('/home/yoojk20/workspace/MNPBEM')); run('simulation_script.m'); quit" > "../$MATLAB_LOG" 2>&1
+    matlab -nodisplay -nodesktop -r "addpath(genpath('$MNPBEM_PATH')); run('simulation_script.m'); quit" > "../$MATLAB_LOG" 2>&1
 fi
 MATLAB_EXIT_CODE=$?
 cd ..
