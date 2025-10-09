@@ -140,6 +140,27 @@ def main():
         traceback.print_exc()
         sys.exit(1)
     
+    # Create run folder
+    print("\nCreating run folder...")
+    try:
+        run_folder = sim_manager.create_run_folder()
+        print(f"✓ Run folder created: {run_folder}")
+    except Exception as e:
+        print(f"✗ Error creating run folder: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+    
+    # Save config snapshot
+    print("\nSaving config snapshot...")
+    try:
+        sim_manager.save_config_snapshot()
+    except Exception as e:
+        print(f"✗ Error saving config snapshot: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+    
     # Generate MATLAB code
     print("\nGenerating MATLAB simulation code...")
     try:
@@ -152,11 +173,10 @@ def main():
     
     print("✓ MATLAB code generated successfully")
     
-    # Save MATLAB script
+    # Save MATLAB script to run folder
     print("\nSaving MATLAB script...")
     try:
         output_path = sim_manager.save_matlab_script()
-        print(f"✓ MATLAB script saved to: {output_path}")
     except Exception as e:
         print(f"✗ Error saving MATLAB script: {e}")
         import traceback
@@ -173,10 +193,13 @@ def main():
     print(f"Simulation type:  {config['simulation_type']}")
     print(f"Excitation:       {config['excitation_type']}")
     print(f"Wavelength range: {config['wavelength_range'][0]}-{config['wavelength_range'][1]} nm ({config['wavelength_range'][2]} points)")
-    print(f"Output directory: {config['output_dir']}")
+    print(f"Run folder:       {run_folder}")
     print()
     print("Ready for MATLAB execution!")
     print("=" * 60)
+    
+    # Export run folder path to environment for master.sh to use
+    print(f"\nRUN_FOLDER={run_folder}")
 
 
 if __name__ == '__main__':

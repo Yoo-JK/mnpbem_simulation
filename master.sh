@@ -134,18 +134,38 @@ export MNPBEM_OUTPUT_DIR="$OUTPUT_DIR"
 
 # Step 1: Generate MATLAB simulation code
 print_msg "🔧 Step 1/3: Generating MATLAB simulation code..." "$YELLOW"
+
+# Run simulation generator and capture the run folder
+TEMP_OUTPUT=$(mktemp)
 if [ "$VERBOSE" = true ]; then
-    python run_simulation.py --structure "$STRUCTURE_FILE" --simulation "$SIMULATION_FILE" --verbose 2>&1 | tee -a "$PYTHON_LOG"
+    python run_simulation.py --structure "$STRUCTURE_FILE" --simulation "$SIMULATION_FILE" --verbose 2>&1 | tee "$TEMP_OUTPUT" | tee -a "$PYTHON_LOG"
 else
-    python run_simulation.py --structure "$STRUCTURE_FILE" --simulation "$SIMULATION_FILE" >> "$PYTHON_LOG" 2>&1
+    python run_simulation.py --structure "$STRUCTURE_FILE" --simulation "$SIMULATION_FILE" 2>&1 | tee "$TEMP_OUTPUT" >> "$PYTHON_LOG"
 fi
 
-if [ $? -ne 0 ]; then
+PYTHON_EXIT_CODE=$?
+if [ $PYTHON_EXIT_CODE -ne 0 ]; then
     print_msg "✗ Error: Failed to generate MATLAB code" "$RED"
     print_msg "Check log file: $PYTHON_LOG" "$RED"
+    rm -f "$TEMP_OUTPUT"
     exit 1
 fi
+
+# Extract RUN_FOLDER from output
+RUN_FOLDER=$(grep "^RUN_FOLDER=" "$TEMP_OUTPUT" | cut -d'=' -f2)
+rm -f "$TEMP_OUTPUT"
+
+if [ -z "$RUN_FOLDER" ]; then
+    print_msg "✗ Error: Could not determine run folder" "$RED"
+    exit 1
+fi
+
 print_msg "✓ MATLAB code generated successfully" "$GREEN"
+print_msg "   Run folder: $RUN_FOLDER" "$BLUE"
+
+# Update log paths to use run folder
+MATLAB_LOG="$RUN_FOLDER/logs/matlab.log"
+PYTHON_LOG="$RUN_FOLDER/logs/pipeline.log"
 echo ""
 
 # Extract MNPBEM path from simulation config
