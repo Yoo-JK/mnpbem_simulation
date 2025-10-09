@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 args = {}
@@ -17,7 +18,7 @@ args['refine'] = 2
 args['relcutoff'] = 2
 args['calculate_cross_sections'] = True
 args['calculate_fields'] = False
-args['output_dir'] = './results'
+args['output_dir'] = os.path.join(Path.home(), 'research/mnpbem/sphere_test')
 args['save_format'] = ['txt', 'mat', 'csv']
 args['save_plots'] = True
 args['plot_format'] = ['png', 'pdf']

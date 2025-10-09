@@ -218,7 +218,7 @@ fprintf('EELS excitation configured\\n');
         return code
     
     def _generate_wavelength_loop(self):
-        """Generate wavelength loop for BEM simulation."""
+        """Generate wavelength loop for BEM simulation with enhanced progress display."""
         wavelength_range = self.config['wavelength_range']
         
         code = f"""
@@ -228,50 +228,134 @@ enei = linspace(wavelength_range(1), wavelength_range(2), wavelength_range(3));
 n_wavelengths = length(enei);
 n_polarizations = size(pol, 1);
 
-fprintf('\\n=== Starting BEM Calculation ===\\n');
+fprintf('\\n');
+fprintf('================================================================\\n');
+fprintf('              Starting BEM Calculation\\n');
+fprintf('================================================================\\n');
 fprintf('Wavelength range: %.1f - %.1f nm\\n', wavelength_range(1), wavelength_range(2));
 fprintf('Number of wavelengths: %d\\n', n_wavelengths);
 fprintf('Number of polarizations: %d\\n', n_polarizations);
+fprintf('----------------------------------------------------------------\\n');
 
 % Initialize result arrays
 sca = zeros(n_wavelengths, n_polarizations);
 ext = zeros(n_wavelengths, n_polarizations);
 abs_cross = zeros(n_wavelengths, n_polarizations);
 
+% Start timer
+calculation_start = tic;
+
 % Loop over wavelengths
 for ien = 1:n_wavelengths
-    fprintf('\\nProcessing wavelength %d/%d: %.2f nm\\n', ien, n_wavelengths, enei(ien));
+    % Calculate progress percentage
+    progress_pct = (ien-1) / n_wavelengths * 100;
     
-    % Solve BEM system
+    % Create progress bar (simple text-based)
+    bar_length = 40;
+    filled = floor(bar_length * (ien-1) / n_wavelengths);
+    bar = ['[' repmat('=', 1, filled) repmat('.', 1, bar_length-filled) ']'];
+    
+    % Print progress header
+    fprintf('\\n');
+    fprintf('Progress: %s %.1f%%\\n', bar, progress_pct);
+    fprintf('Wavelength %d/%d: %.2f nm', ien, n_wavelengths, enei(ien));
+    
+    % Solve BEM system (with timing)
+    wavelength_start = tic;
     sig = bem \\ exc(p, enei(ien));
+    wavelength_time = toc(wavelength_start);
     
     % Calculate cross sections
     sca(ien, :) = exc.sca(sig);
     ext(ien, :) = exc.ext(sig);
     abs_cross(ien, :) = exc.abs(sig);
     
-    fprintf('  Scattering: %.6e nm^2\\n', sca(ien, 1));
-    fprintf('  Extinction: %.6e nm^2\\n', ext(ien, 1));
-    fprintf('  Absorption: %.6e nm^2\\n', abs_cross(ien, 1));
+    % Print results for first polarization
+    fprintf(' - Completed in %.2f sec\\n', wavelength_time);
+    fprintf('  Scattering: %.4e nm^2\\n', sca(ien, 1));
+    fprintf('  Extinction: %.4e nm^2\\n', ext(ien, 1));
+    fprintf('  Absorption: %.4e nm^2\\n', abs_cross(ien, 1));
+    
+    % Estimate remaining time
+    if ien > 1
+        elapsed_time = toc(calculation_start);
+        avg_time_per_wavelength = elapsed_time / ien;
+        remaining_wavelengths = n_wavelengths - ien;
+        estimated_remaining = avg_time_per_wavelength * remaining_wavelengths;
+        
+        % Format time
+        if estimated_remaining < 60
+            time_str = sprintf('%.0f sec', estimated_remaining);
+        elseif estimated_remaining < 3600
+            time_str = sprintf('%.1f min', estimated_remaining/60);
+        else
+            time_str = sprintf('%.1f hr', estimated_remaining/3600);
+        end
+        
+        fprintf('  Estimated time remaining: %s\\n', time_str);
+    end
 end
 
-fprintf('\\n=== BEM Calculation Complete ===\\n');
+% Final progress bar
+fprintf('\\n');
+fprintf('Progress: [%s] 100.0%%\\n', repmat('=', 1, 40));
+fprintf('----------------------------------------------------------------\\n');
+
+% Calculate total time
+total_time = toc(calculation_start);
+if total_time < 60
+    time_str = sprintf('%.2f seconds', total_time);
+elseif total_time < 3600
+    time_str = sprintf('%.2f minutes', total_time/60);
+else
+    time_str = sprintf('%.2f hours', total_time/3600);
+end
+
+fprintf('\\n');
+fprintf('================================================================\\n');
+fprintf('              BEM Calculation Complete\\n');
+fprintf('================================================================\\n');
+fprintf('Total computation time: %s\\n', time_str);
+fprintf('Average time per wavelength: %.2f sec\\n', total_time/n_wavelengths);
+fprintf('----------------------------------------------------------------\\n');
 """
         return code
     
     def _generate_save_results(self):
         """Generate code to save results."""
+        import os
         output_dir = self.config['output_dir']
         output_prefix = self.config.get('output_prefix', 'simulation')
         
-        code = f"""
+        # Convert to absolute path if it's relative
+        if not os.path.isabs(output_dir):
+            # It's a relative path - make it relative to project root
+            code = f"""
 %% Save Results
-fprintf('Saving results...\\n');
+fprintf('\\nSaving results...\\n');
 
-% Create output directory if it doesn't exist
+% Get absolute path to output directory
+% MATLAB is running in simulation/ folder, so we need to go up one level
+current_dir = pwd;
+parent_dir = fileparts(current_dir);
+output_dir = fullfile(parent_dir, '{output_dir}');
+"""
+        else:
+            # It's already an absolute path - use it directly
+            code = f"""
+%% Save Results
+fprintf('\\nSaving results...\\n');
+
+% Use absolute path directly
 output_dir = '{output_dir}';
+"""
+        
+        # Common code for both cases
+        code += f"""
+% Create output directory if it doesn't exist
 if ~exist(output_dir, 'dir')
     mkdir(output_dir);
+    fprintf('Created output directory: %s\\n', output_dir);
 end
 
 % Save results as text file
@@ -307,12 +391,12 @@ for ien = 1:n_wavelengths
 end
 
 fclose(fid);
-fprintf('Results saved to: %s\\n', output_file);
+fprintf('✓ Results saved to: %s\\n', output_file);
 
 % Also save as .mat file for MATLAB
 mat_file = fullfile(output_dir, '{output_prefix}_results.mat');
 save(mat_file, 'enei', 'sca', 'ext', 'abs_cross', 'pol', 'dir');
-fprintf('MATLAB data saved to: %s\\n', mat_file);
+fprintf('✓ MATLAB data saved to: %s\\n', mat_file);
 """
         return code
     
@@ -320,7 +404,11 @@ fprintf('MATLAB data saved to: %s\\n', mat_file);
         """Generate script footer."""
         code = """
 %% Simulation Complete
-fprintf('\\n=== MNPBEM Simulation Finished Successfully ===\\n');
+fprintf('\\n');
+fprintf('================================================================\\n');
+fprintf('         MNPBEM Simulation Finished Successfully!\\n');
+fprintf('================================================================\\n');
 fprintf('Results have been saved to the output directory.\\n');
+fprintf('\\n');
 """
         return code

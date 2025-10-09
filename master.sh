@@ -86,6 +86,24 @@ if [ ! -f "$SIMULATION_FILE" ]; then
     exit 1
 fi
 
+# Extract output_dir from simulation config
+OUTPUT_DIR=$(python3 -c "
+import sys
+sys.path.insert(0, '.')
+try:
+    exec(open('$SIMULATION_FILE').read())
+    if 'args' in dir() and 'output_dir' in args:
+        print(args['output_dir'])
+    else:
+        print('./results')
+except Exception as e:
+    print('./results')
+" 2>/dev/null)
+
+if [ -z "$OUTPUT_DIR" ]; then
+    OUTPUT_DIR="./results"
+fi
+
 # Start pipeline
 print_msg "╔════════════════════════════════════════════════════════════╗" "$BLUE"
 print_msg "║         MNPBEM Automation Pipeline Started               ║" "$BLUE"
@@ -93,16 +111,17 @@ print_msg "╚══════════════════════
 echo ""
 print_msg "📄 Structure config:  $STRUCTURE_FILE" "$BLUE"
 print_msg "📄 Simulation config: $SIMULATION_FILE" "$BLUE"
+print_msg "📁 Output directory:  $OUTPUT_DIR" "$BLUE"
 echo ""
 
 # Create necessary directories
-mkdir -p ./logs
-mkdir -p ./results
+mkdir -p "$OUTPUT_DIR"
+mkdir -p "$OUTPUT_DIR/logs"
 mkdir -p ./simulation
 
 # Generate timestamp for logs
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-LOG_DIR="./logs"
+LOG_DIR="$OUTPUT_DIR/logs"
 MATLAB_LOG="$LOG_DIR/matlab_$TIMESTAMP.log"
 PYTHON_LOG="$LOG_DIR/pipeline_$TIMESTAMP.log"
 
@@ -111,6 +130,7 @@ export MNPBEM_STRUCTURE="$STRUCTURE_FILE"
 export MNPBEM_SIMULATION="$SIMULATION_FILE"
 export MNPBEM_TIMESTAMP="$TIMESTAMP"
 export MNPBEM_LOG_DIR="$LOG_DIR"
+export MNPBEM_OUTPUT_DIR="$OUTPUT_DIR"
 
 # Step 1: Generate MATLAB simulation code
 print_msg "🔧 Step 1/3: Generating MATLAB simulation code..." "$YELLOW"
@@ -217,7 +237,8 @@ print_msg "╔══════════════════════
 print_msg "║         Pipeline Completed Successfully! 🎉              ║" "$GREEN"
 print_msg "╚════════════════════════════════════════════════════════════╝" "$GREEN"
 echo ""
-print_msg "📁 Results saved in: ./results/" "$BLUE"
-print_msg "📝 Logs saved in: $LOG_DIR/" "$BLUE"
+print_msg "📁 Results and logs saved in: $OUTPUT_DIR/" "$BLUE"
+print_msg "   ├─ Results: $OUTPUT_DIR/" "$BLUE"
+print_msg "   └─ Logs: $OUTPUT_DIR/logs/" "$BLUE"
 echo ""
 print_msg "Timestamp: $TIMESTAMP" "$BLUE"

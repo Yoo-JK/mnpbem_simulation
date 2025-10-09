@@ -307,27 +307,29 @@ end
     
     def _generate_inout(self):
         """Generate inout matrix based on structure."""
+        # ✅ 수정: 함수 호출이 아닌 함수 객체를 저장
         structure_inout_map = {
-            'sphere': self._inout_single(),
-            'cube': self._inout_single(),
-            'rod': self._inout_single(),
-            'ellipsoid': self._inout_single(),
-            'triangle': self._inout_single(),
-            'dimer_sphere': self._inout_dimer(),
-            'dimer_cube': self._inout_dimer(),
-            'core_shell_sphere': self._inout_core_shell_single(),
-            'core_shell_cube': self._inout_core_shell_single(),
-            'dimer_core_shell_cube': self._inout_dimer_core_shell(),
-            'multi_shell_sphere': self._inout_multi_shell(),
-            'multi_shell_cube': self._inout_multi_shell(),
-            'dimer_multi_shell_sphere': self._inout_dimer_multi_shell(),
-            'dimer_multi_shell_cube': self._inout_dimer_multi_shell()
+            'sphere': self._inout_single,
+            'cube': self._inout_single,
+            'rod': self._inout_single,
+            'ellipsoid': self._inout_single,
+            'triangle': self._inout_single,
+            'dimer_sphere': self._inout_dimer,
+            'dimer_cube': self._inout_dimer,
+            'core_shell_sphere': self._inout_core_shell_single,
+            'core_shell_cube': self._inout_core_shell_single,
+            'dimer_core_shell_cube': self._inout_dimer_core_shell,
+            'multi_shell_sphere': self._inout_multi_shell,
+            'multi_shell_cube': self._inout_multi_shell,
+            'dimer_multi_shell_sphere': self._inout_dimer_multi_shell,
+            'dimer_multi_shell_cube': self._inout_dimer_multi_shell
         }
         
         if self.structure not in structure_inout_map:
             raise ValueError(f"Unknown structure: {self.structure}")
         
-        return structure_inout_map[self.structure]
+        # ✅ 수정: 여기서 함수를 호출
+        return structure_inout_map[self.structure]()
     
     def _inout_single(self):
         """Inout for single particle."""
@@ -388,7 +390,8 @@ end
                 inout_lines.append(f"    {i+2}, {i+1};  % Layer {i+1}: outside=layer{i}")
         
         # Remove trailing semicolon from last line
-        inout_lines[-1] = inout_lines[-1].rstrip(';')
+        if inout_lines:  # ✅ 추가: 빈 리스트 체크
+            inout_lines[-1] = inout_lines[-1].rstrip(';')
         
         code = "inout = [\n" + "\n".join(inout_lines) + "\n];"
         return code
@@ -417,13 +420,15 @@ end
                 inout_lines.append(f"    {i+2}, {i+1};  % P2-Layer{i+1}: outside=layer{i}")
         
         # Remove trailing semicolon from last line
-        inout_lines[-1] = inout_lines[-1].rstrip(';')
+        if inout_lines:  # ✅ 추가: 빈 리스트 체크
+            inout_lines[-1] = inout_lines[-1].rstrip(';')
         
         code = "inout = [\n" + "\n".join(inout_lines) + "\n];"
         return code
     
     def _generate_closed(self):
         """Generate closed surfaces specification."""
+        # ✅ 수정: 함수 호출이 아닌 함수 객체/문자열을 저장
         structure_closed_map = {
             'sphere': "closed = 1;",
             'cube': "closed = 1;",
@@ -435,16 +440,21 @@ end
             'core_shell_sphere': "closed = [1, 2];",
             'core_shell_cube': "closed = [1, 2];",
             'dimer_core_shell_cube': "closed = [1, 2, 3, 4];",
-            'multi_shell_sphere': self._closed_multi_shell(),
-            'multi_shell_cube': self._closed_multi_shell(),
-            'dimer_multi_shell_sphere': self._closed_dimer_multi_shell(),
-            'dimer_multi_shell_cube': self._closed_dimer_multi_shell()
+            'multi_shell_sphere': self._closed_multi_shell,
+            'multi_shell_cube': self._closed_multi_shell,
+            'dimer_multi_shell_sphere': self._closed_dimer_multi_shell,
+            'dimer_multi_shell_cube': self._closed_dimer_multi_shell
         }
         
         if self.structure not in structure_closed_map:
             raise ValueError(f"Unknown structure: {self.structure}")
         
-        return structure_closed_map[self.structure]
+        # ✅ 수정: 문자열이면 그대로 반환, 함수면 호출
+        result = structure_closed_map[self.structure]
+        if callable(result):
+            return result()
+        else:
+            return result
     
     def _closed_multi_shell(self):
         """Closed surfaces for multi-shell structure."""

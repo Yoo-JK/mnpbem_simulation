@@ -17,7 +17,7 @@ class Visualizer:
         self.verbose = verbose
         self.output_dir = Path(config['output_dir'])
         self.output_prefix = config.get('output_prefix', 'simulation')
-        self.plot_formats = config.get('plot_formats', ['png'])
+        self.plot_formats = config.get('plot_format', ['png'])
         self.dpi = config.get('plot_dpi', 300)
         
         # Set matplotlib style

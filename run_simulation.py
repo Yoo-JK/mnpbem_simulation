@@ -105,6 +105,7 @@ def validate_config(args):
 
 def main():
     """Main execution function."""
+    
     # Parse arguments
     args_cli = parse_arguments()
     
@@ -135,16 +136,21 @@ def main():
         print("✓ Simulation manager initialized")
     except Exception as e:
         print(f"✗ Error initializing simulation manager: {e}")
+        import traceback
+        traceback.print_exc()
         sys.exit(1)
     
     # Generate MATLAB code
     print("\nGenerating MATLAB simulation code...")
     try:
         sim_manager.generate_matlab_code()
-        print("✓ MATLAB code generated successfully")
     except Exception as e:
         print(f"✗ Error generating MATLAB code: {e}")
+        import traceback
+        traceback.print_exc()
         sys.exit(1)
+    
+    print("✓ MATLAB code generated successfully")
     
     # Save MATLAB script
     print("\nSaving MATLAB script...")
@@ -153,6 +159,8 @@ def main():
         print(f"✓ MATLAB script saved to: {output_path}")
     except Exception as e:
         print(f"✗ Error saving MATLAB script: {e}")
+        import traceback
+        traceback.print_exc()
         sys.exit(1)
     
     # Print summary
