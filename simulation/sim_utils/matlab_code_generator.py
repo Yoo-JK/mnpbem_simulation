@@ -196,52 +196,6 @@ fprintf('EELS excitation configured\\n');
 """
         return code
     
-    def _generate_wavelength_loop(self):
-        """Generate wavelength loop for spectrum calculation."""
-        wl_range = self.config['wavelength_range']
-        wl_min, wl_max, wl_points = wl_range[0], wl_range[1], wl_range[2]
-        
-        # Determine number of polarizations
-        exc_type = self.config['excitation_type']
-        if exc_type == 'planewave':
-            n_pol = len(self.config['polarizations'])
-        else:
-            n_pol = 1
-        
-        code = f"""
-%% Wavelength Sweep
-fprintf('Starting wavelength sweep...\\n');
-enei = linspace({wl_min}, {wl_max}, {wl_points});
-n_wavelengths = length(enei);
-n_polarizations = {n_pol};
-
-% Initialize result arrays
-sca = zeros(n_wavelengths, n_polarizations);
-ext = zeros(n_wavelengths, n_polarizations);
-
-% Progress counter
-fprintf('Computing spectrum...\\n');
-for ien = 1:n_wavelengths
-    % Compute surface charge
-    sig = bem \\ exc(p, enei(ien));
-    
-    % Compute cross sections
-    sca(ien, :) = exc.sca(sig);
-    ext(ien, :) = exc.ext(sig);
-    
-    % Progress update
-    if mod(ien, 10) == 0 || ien == n_wavelengths
-        fprintf('  Progress: %d/%d (%.1f%%)\\n', ien, n_wavelengths, ien/n_wavelengths*100);
-    end
-end
-
-% Compute absorption
-abs_cross = ext - sca;
-
-fprintf('Wavelength sweep completed\\n');
-"""
-        return code
-    
     def _generate_save_results(self):
         """Generate code to save results."""
         output_dir = self.config['output_dir']
@@ -283,3 +237,13 @@ for ien = 1:n_wavelengths
     for i = 1:n_polarizations
         fprintf(fid, '%.6e\\t', ext(ien, i));
     end
+    for i = 1:n_polarizations
+        fprintf(fid, '%.6e\\t', abs_cross(ien, i));
+    end
+    fprintf(fid, '\\n');
+end
+
+fclose(fid);
+fprintf('Results saved to: %s\\n', output_file);
+"""
+        return code
