@@ -139,6 +139,27 @@ fprintf('BEM solver initialized\\n');
         else:
             raise ValueError(f"Unknown excitation type: {exc_type}")
     
+    def _format_matlab_array(self, array_2d):
+        """
+        Format 2D array for MATLAB.
+        
+        Args:
+            array_2d: List of lists, e.g., [[1, 0, 0], [0, 1, 0]]
+        
+        Returns:
+            str: MATLAB-formatted array string
+        """
+        if not array_2d:
+            return "[]"
+        
+        rows = []
+        for row in array_2d:
+            row_str = ", ".join(str(val) for val in row)
+            rows.append(row_str)
+        
+        # Join rows with semicolons for MATLAB matrix format
+        return "[" + "; ".join(rows) + "]"
+    
     def _generate_planewave_excitation(self):
         """Generate planewave excitation code."""
         polarizations = self.config['polarizations']
@@ -196,6 +217,48 @@ fprintf('EELS excitation configured\\n');
 """
         return code
     
+    def _generate_wavelength_loop(self):
+        """Generate wavelength loop for BEM simulation."""
+        wavelength_range = self.config['wavelength_range']
+        
+        code = f"""
+%% Wavelength Loop
+wavelength_range = [{wavelength_range[0]}, {wavelength_range[1]}, {wavelength_range[2]}];
+enei = linspace(wavelength_range(1), wavelength_range(2), wavelength_range(3));
+n_wavelengths = length(enei);
+n_polarizations = size(pol, 1);
+
+fprintf('\\n=== Starting BEM Calculation ===\\n');
+fprintf('Wavelength range: %.1f - %.1f nm\\n', wavelength_range(1), wavelength_range(2));
+fprintf('Number of wavelengths: %d\\n', n_wavelengths);
+fprintf('Number of polarizations: %d\\n', n_polarizations);
+
+% Initialize result arrays
+sca = zeros(n_wavelengths, n_polarizations);
+ext = zeros(n_wavelengths, n_polarizations);
+abs_cross = zeros(n_wavelengths, n_polarizations);
+
+% Loop over wavelengths
+for ien = 1:n_wavelengths
+    fprintf('\\nProcessing wavelength %d/%d: %.2f nm\\n', ien, n_wavelengths, enei(ien));
+    
+    % Solve BEM system
+    sig = bem \\ exc(p, enei(ien));
+    
+    % Calculate cross sections
+    sca(ien, :) = exc.sca(sig);
+    ext(ien, :) = exc.ext(sig);
+    abs_cross(ien, :) = exc.abs(sig);
+    
+    fprintf('  Scattering: %.6e nm^2\\n', sca(ien, 1));
+    fprintf('  Extinction: %.6e nm^2\\n', ext(ien, 1));
+    fprintf('  Absorption: %.6e nm^2\\n', abs_cross(ien, 1));
+end
+
+fprintf('\\n=== BEM Calculation Complete ===\\n');
+"""
+        return code
+    
     def _generate_save_results(self):
         """Generate code to save results."""
         output_dir = self.config['output_dir']
@@ -245,5 +308,19 @@ end
 
 fclose(fid);
 fprintf('Results saved to: %s\\n', output_file);
+
+% Also save as .mat file for MATLAB
+mat_file = fullfile(output_dir, '{output_prefix}_results.mat');
+save(mat_file, 'enei', 'sca', 'ext', 'abs_cross', 'pol', 'dir');
+fprintf('MATLAB data saved to: %s\\n', mat_file);
+"""
+        return code
+    
+    def _generate_footer(self):
+        """Generate script footer."""
+        code = """
+%% Simulation Complete
+fprintf('\\n=== MNPBEM Simulation Finished Successfully ===\\n');
+fprintf('Results have been saved to the output directory.\\n');
 """
         return code
