@@ -47,12 +47,17 @@ class SimulationManager:
         # Get base output directory
         base_output_dir = Path(self.config['output_dir'])
         
-        # Create unique folder name
+        # Create folder name (without timestamp)
         sim_name = self.config.get('simulation_name', 'simulation')
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        folder_name = f"{sim_name}_{timestamp}"
+        folder_name = sim_name  # ← 타임스탬프 제거!
         
         self.run_folder = base_output_dir / folder_name
+        
+        # If folder already exists, remove it and create new one
+        if self.run_folder.exists():
+            if self.verbose:
+                print(f"\n⚠ Folder already exists, will be overwritten: {self.run_folder}")
+            shutil.rmtree(self.run_folder)
         
         # Create the folder
         self.run_folder.mkdir(parents=True, exist_ok=True)

@@ -41,8 +41,49 @@ class Visualizer:
         pol_labels = self._get_polarization_labels(n_pol)
         colors = plt.cm.tab10(np.linspace(0, 1, n_pol))
         
-        # Plot scattering
+        # Plot 1: Combined spectrum (Scattering, Extinction, Absorption)
         ax = axes[0]
+        for i in range(n_pol):
+            # Plot all three on the same subplot
+            ax.plot(wavelength, data['scattering'][:, i], 
+                   label=f'{pol_labels[i]} - Scattering', 
+                   color=colors[i], linewidth=2, linestyle='-')
+            ax.plot(wavelength, data['extinction'][:, i],
+                   label=f'{pol_labels[i]} - Extinction', 
+                   color=colors[i], linewidth=2, linestyle='--')
+            ax.plot(wavelength, data['absorption'][:, i],
+                   label=f'{pol_labels[i]} - Absorption', 
+                   color=colors[i], linewidth=2, linestyle=':')
+        
+        ax.set_xlabel('Wavelength (nm)', fontsize=12)
+        ax.set_ylabel('Cross Section (nm²)', fontsize=12)
+        ax.set_title('Complete Optical Spectrum', fontsize=14, fontweight='bold')
+        ax.legend(fontsize=9, loc='best')
+        ax.grid(True, alpha=0.3)
+        
+        # Plot 2: Absorption spectrum
+        ax = axes[1]
+        for i in range(n_pol):
+            ax.plot(wavelength, data['absorption'][:, i],
+                   label=pol_labels[i], color=colors[i], linewidth=2)
+            
+            # Mark peaks if analysis provided
+            if analysis is not None and 'peak_wavelengths' in analysis:
+                peak_wl = analysis['peak_wavelengths'][i]
+                # Find absorption value at peak wavelength
+                peak_idx = np.argmin(np.abs(wavelength - peak_wl))
+                peak_val_abs = data['absorption'][peak_idx, i]
+                ax.plot(peak_wl, peak_val_abs, 'o', color=colors[i], 
+                       markersize=8, markeredgecolor='black', markeredgewidth=1)
+        
+        ax.set_xlabel('Wavelength (nm)', fontsize=12)
+        ax.set_ylabel('Absorption Cross Section (nm²)', fontsize=12)
+        ax.set_title('Absorption Spectrum', fontsize=14, fontweight='bold')
+        ax.legend(fontsize=10)
+        ax.grid(True, alpha=0.3)
+        
+        # Plot 3: Scattering spectrum
+        ax = axes[2]
         for i in range(n_pol):
             ax.plot(wavelength, data['scattering'][:, i], 
                    label=pol_labels[i], color=colors[i], linewidth=2)
@@ -55,8 +96,8 @@ class Visualizer:
                        markersize=8, markeredgecolor='black', markeredgewidth=1)
         
         ax.set_xlabel('Wavelength (nm)', fontsize=12)
-        ax.set_ylabel('Absorption Cross Section (nm²)', fontsize=12)
-        ax.set_title('Absorption Spectrum', fontsize=14, fontweight='bold')
+        ax.set_ylabel('Scattering Cross Section (nm²)', fontsize=12)
+        ax.set_title('Scattering Spectrum', fontsize=14, fontweight='bold')
         ax.legend(fontsize=10)
         ax.grid(True, alpha=0.3)
         

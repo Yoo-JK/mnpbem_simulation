@@ -114,39 +114,21 @@ print_msg "📄 Simulation config: $SIMULATION_FILE" "$BLUE"
 print_msg "📁 Output directory:  $OUTPUT_DIR" "$BLUE"
 echo ""
 
-# Create necessary directories
-mkdir -p "$OUTPUT_DIR"
-mkdir -p "$OUTPUT_DIR/logs"
-mkdir -p ./simulation
-
-# Generate timestamp for logs
-TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-LOG_DIR="$OUTPUT_DIR/logs"
-MATLAB_LOG="$LOG_DIR/matlab_$TIMESTAMP.log"
-PYTHON_LOG="$LOG_DIR/pipeline_$TIMESTAMP.log"
-
-# Export environment variables
-export MNPBEM_STRUCTURE="$STRUCTURE_FILE"
-export MNPBEM_SIMULATION="$SIMULATION_FILE"
-export MNPBEM_TIMESTAMP="$TIMESTAMP"
-export MNPBEM_LOG_DIR="$LOG_DIR"
-export MNPBEM_OUTPUT_DIR="$OUTPUT_DIR"
-
 # Step 1: Generate MATLAB simulation code
 print_msg "🔧 Step 1/3: Generating MATLAB simulation code..." "$YELLOW"
 
 # Run simulation generator and capture the run folder
 TEMP_OUTPUT=$(mktemp)
 if [ "$VERBOSE" = true ]; then
-    python run_simulation.py --structure "$STRUCTURE_FILE" --simulation "$SIMULATION_FILE" --verbose 2>&1 | tee "$TEMP_OUTPUT" | tee -a "$PYTHON_LOG"
+    python run_simulation.py --structure "$STRUCTURE_FILE" --simulation "$SIMULATION_FILE" --verbose 2>&1 | tee "$TEMP_OUTPUT"
 else
-    python run_simulation.py --structure "$STRUCTURE_FILE" --simulation "$SIMULATION_FILE" 2>&1 | tee "$TEMP_OUTPUT" >> "$PYTHON_LOG"
+    python run_simulation.py --structure "$STRUCTURE_FILE" --simulation "$SIMULATION_FILE" 2>&1 | tee "$TEMP_OUTPUT"
 fi
 
 PYTHON_EXIT_CODE=$?
+
 if [ $PYTHON_EXIT_CODE -ne 0 ]; then
     print_msg "✗ Error: Failed to generate MATLAB code" "$RED"
-    print_msg "Check log file: $PYTHON_LOG" "$RED"
     rm -f "$TEMP_OUTPUT"
     exit 1
 fi
@@ -162,10 +144,6 @@ fi
 
 print_msg "✓ MATLAB code generated successfully" "$GREEN"
 print_msg "   Run folder: $RUN_FOLDER" "$BLUE"
-
-# Update log paths to use run folder
-MATLAB_LOG="$RUN_FOLDER/logs/matlab.log"
-PYTHON_LOG="$RUN_FOLDER/logs/pipeline.log"
 echo ""
 
 # Extract MNPBEM path from simulation config
@@ -212,25 +190,25 @@ if ! command -v matlab &> /dev/null; then
     exit 1
 fi
 
-# Check if simulation script exists
-if [ ! -f "./simulation/simulation_script.m" ]; then
-    print_msg "✗ Error: simulation_script.m not found" "$RED"
+# Check if simulation script exists in RUN_FOLDER
+if [ ! -f "$RUN_FOLDER/simulation_script.m" ]; then
+    print_msg "✗ Error: simulation_script.m not found in $RUN_FOLDER" "$RED"
     exit 1
 fi
 
 # Run MATLAB with dynamic MNPBEM path
-cd simulation
+cd "$RUN_FOLDER"
 if [ "$VERBOSE" = true ]; then
-    matlab -nodisplay -nodesktop -r "addpath(genpath('$MNPBEM_PATH')); run('simulation_script.m'); quit" 2>&1 | tee "../$MATLAB_LOG"
+    matlab -nodisplay -nodesktop -r "addpath(genpath('$MNPBEM_PATH')); run('simulation_script.m'); quit" 2>&1 | tee "logs/matlab.log"
 else
-    matlab -nodisplay -nodesktop -r "addpath(genpath('$MNPBEM_PATH')); run('simulation_script.m'); quit" > "../$MATLAB_LOG" 2>&1
+    matlab -nodisplay -nodesktop -r "addpath(genpath('$MNPBEM_PATH')); run('simulation_script.m'); quit" > "logs/matlab.log" 2>&1
 fi
 MATLAB_EXIT_CODE=$?
-cd ..
+cd - > /dev/null
 
 if [ $MATLAB_EXIT_CODE -ne 0 ]; then
     print_msg "✗ Error: MATLAB simulation failed (exit code: $MATLAB_EXIT_CODE)" "$RED"
-    print_msg "Check log file: $MATLAB_LOG" "$RED"
+    print_msg "Check log file: $RUN_FOLDER/logs/matlab.log" "$RED"
     exit 1
 fi
 print_msg "✓ MATLAB simulation completed successfully" "$GREEN"
@@ -238,15 +216,26 @@ echo ""
 
 # Step 3: Postprocess results
 print_msg "📊 Step 3/3: Processing and analyzing results..." "$YELLOW"
+
+# Create a temporary config file with updated output_dir pointing to RUN_FOLDER
+TEMP_SIM_CONFIG=$(mktemp)
+cat "$SIMULATION_FILE" > "$TEMP_SIM_CONFIG"
+echo "" >> "$TEMP_SIM_CONFIG"
+echo "# Override output_dir to use RUN_FOLDER" >> "$TEMP_SIM_CONFIG"
+echo "args['output_dir'] = '$RUN_FOLDER'" >> "$TEMP_SIM_CONFIG"
+
 if [ "$VERBOSE" = true ]; then
-    python run_postprocess.py --structure "$STRUCTURE_FILE" --simulation "$SIMULATION_FILE" --verbose 2>&1 | tee -a "$PYTHON_LOG"
+    python run_postprocess.py --structure "$STRUCTURE_FILE" --simulation "$TEMP_SIM_CONFIG" --verbose 2>&1 | tee -a "$RUN_FOLDER/logs/pipeline.log"
 else
-    python run_postprocess.py --structure "$STRUCTURE_FILE" --simulation "$SIMULATION_FILE" >> "$PYTHON_LOG" 2>&1
+    python run_postprocess.py --structure "$STRUCTURE_FILE" --simulation "$TEMP_SIM_CONFIG" >> "$RUN_FOLDER/logs/pipeline.log" 2>&1
 fi
 
-if [ $? -ne 0 ]; then
+POSTPROCESS_EXIT_CODE=$?
+rm -f "$TEMP_SIM_CONFIG"
+
+if [ $POSTPROCESS_EXIT_CODE -ne 0 ]; then
     print_msg "✗ Error: Failed to process results" "$RED"
-    print_msg "Check log file: $PYTHON_LOG" "$RED"
+    print_msg "Check log file: $RUN_FOLDER/logs/pipeline.log" "$RED"
     exit 1
 fi
 print_msg "✓ Results processed successfully" "$GREEN"
@@ -257,8 +246,8 @@ print_msg "╔══════════════════════
 print_msg "║         Pipeline Completed Successfully! 🎉              ║" "$GREEN"
 print_msg "╚════════════════════════════════════════════════════════════╝" "$GREEN"
 echo ""
-print_msg "📁 Results and logs saved in: $OUTPUT_DIR/" "$BLUE"
-print_msg "   ├─ Results: $OUTPUT_DIR/" "$BLUE"
-print_msg "   └─ Logs: $OUTPUT_DIR/logs/" "$BLUE"
+print_msg "📁 All results saved in: $RUN_FOLDER/" "$BLUE"
+print_msg "   ├─ Data files: simulation_results.txt, .mat, .csv, .json" "$BLUE"
+print_msg "   ├─ Plots: simulation_spectrum.png, .pdf" "$BLUE"
+print_msg "   └─ Logs: logs/matlab.log, pipeline.log" "$BLUE"
 echo ""
-print_msg "Timestamp: $TIMESTAMP" "$BLUE"

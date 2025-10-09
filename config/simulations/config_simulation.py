@@ -141,9 +141,10 @@ args['calculate_fields'] = False
 # Output directory for results
 args['output_dir'] = './results'
 
-# Save formats
-# Available: 'txt', 'mat', 'csv', 'json'
-args['save_format'] = ['txt', 'mat', 'csv']
+# Data file save formats (for postprocessing)
+# Available: 'txt', 'csv', 'json'
+# Note: MATLAB always saves 'txt' and 'mat' formats automatically
+args['output_formats'] = ['txt', 'csv', 'json']  # ← 변경: save_format → output_formats
 
 # Generate plots
 args['save_plots'] = True
