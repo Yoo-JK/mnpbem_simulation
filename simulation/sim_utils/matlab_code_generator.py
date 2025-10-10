@@ -1,7 +1,7 @@
 """
 MATLAB Code Generator
 
-Generates complete MATLAB simulation scripts.
+Generates complete MATLAB simulation scripts with field calculation support.
 """
 
 import numpy as np
@@ -97,22 +97,38 @@ fprintf('Simulation Type: %s\\n', '{sim_type}');
         interp = self.config.get('interp', 'curv')
         waitbar = self.config.get('waitbar', 0)
         refine = self.config.get('refine', 2)
+        relcutoff = self.config.get('relcutoff', 3)  # Default 3
         
         code = f"""
 %% BEM Options
-op = bemoptions('sim', '{sim_type}', 'interp', '{interp}', 'waitbar', {waitbar}, 'refine', {refine});
+op = bemoptions('sim', '{sim_type}', 'interp', '{interp}', 'waitbar', {waitbar}, 'refine', {refine}, 'RelCutoff', {relcutoff});
 fprintf('BEM options configured\\n');
+fprintf('  - Simulation type: {sim_type}\\n');
+fprintf('  - Interpolation: {interp}\\n');
+fprintf('  - Refine: {refine}\\n');
+fprintf('  - RelCutoff: {relcutoff}\\n');
 """
         return code
     
     def _generate_comparticle(self):
         """Generate comparticle object creation."""
-        code = """
-%% Create COMPARTICLE Object
-fprintf('Creating particle structure...\\n');
-p = comparticle(epstab, particles, inout, closed, op);
-fprintf('Particle structure created\\n');
-fprintf('  Total boundary elements: %d\\n', size(p.faces, 1));
+        materials = self.config['materials']
+        
+        # Determine inout configuration based on structure
+        structure = self.config['structure']
+        
+        if 'core_shell' in structure:
+            # Core-shell: [medium, shell, core]
+            inout = '[2, 1]'  # shell material index 2, core material index 3
+        else:
+            # Single material: [medium, particle]
+            inout = '[2, 1]'
+        
+        code = f"""
+%% Create Comparticle Object
+fprintf('\\nCreating comparticle object...\\n');
+p = comparticle(epstab, particles, {inout}, 1, op);
+fprintf('Comparticle created with %d boundary elements\\n', p.n);
 """
         return code
     
@@ -120,107 +136,102 @@ fprintf('  Total boundary elements: %d\\n', size(p.faces, 1));
         """Generate BEM solver initialization."""
         code = """
 %% Initialize BEM Solver
-fprintf('Initializing BEM solver...\\n');
+fprintf('\\nInitializing BEM solver...\\n');
 bem = bemsolver(p, op);
 fprintf('BEM solver initialized\\n');
 """
         return code
     
     def _generate_excitation(self):
-        """Generate excitation code based on type."""
-        exc_type = self.config['excitation_type']
+        """Generate excitation configuration."""
+        excitation_type = self.config['excitation_type']
         
-        if exc_type == 'planewave':
-            return self._generate_planewave_excitation()
-        elif exc_type == 'dipole':
-            return self._generate_dipole_excitation()
-        elif exc_type == 'eels':
-            return self._generate_eels_excitation()
+        if excitation_type == 'planewave':
+            code = self._generate_planewave_excitation()
+        elif excitation_type == 'dipole':
+            code = self._generate_dipole_excitation()
+        elif excitation_type == 'eels':
+            code = self._generate_eels_excitation()
         else:
-            raise ValueError(f"Unknown excitation type: {exc_type}")
-    
-    def _format_matlab_array(self, array_2d):
-        """
-        Format 2D array for MATLAB.
+            raise ValueError(f"Unknown excitation type: {excitation_type}")
         
-        Args:
-            array_2d: List of lists, e.g., [[1, 0, 0], [0, 1, 0]]
-        
-        Returns:
-            str: MATLAB-formatted array string
-        """
-        if not array_2d:
-            return "[]"
-        
-        rows = []
-        for row in array_2d:
-            row_str = ", ".join(str(val) for val in row)
-            rows.append(row_str)
-        
-        # Join rows with semicolons for MATLAB matrix format
-        return "[" + "; ".join(rows) + "]"
+        return code
     
     def _generate_planewave_excitation(self):
-        """Generate planewave excitation code."""
+        """Generate plane wave excitation code."""
         polarizations = self.config['polarizations']
-        prop_dirs = self.config.get('propagation_dirs')
+        propagation_dirs = self.config['propagation_dirs']
         
-        # If propagation directions not specified, use default [0,0,1]
-        if prop_dirs is None:
-            prop_dirs = [[0, 0, 1]] * len(polarizations)
-        
-        # Format polarizations as MATLAB array
-        pol_str = self._format_matlab_array(polarizations)
-        dir_str = self._format_matlab_array(prop_dirs)
+        # Convert to MATLAB arrays
+        pol_str = self._python_list_to_matlab(polarizations)
+        dir_str = self._python_list_to_matlab(propagation_dirs)
         
         code = f"""
 %% Plane Wave Excitation
+fprintf('\\nConfiguring plane wave excitation...\\n');
+
+% Polarization vectors
 pol = {pol_str};
+
+% Propagation directions
 dir = {dir_str};
-exc = planewave(pol, dir, op);
-fprintf('Plane wave excitation configured\\n');
-fprintf('  Number of polarizations: %d\\n', size(pol, 1));
+
+fprintf('Number of polarizations: %d\\n', size(pol, 1));
+fprintf('Number of propagation directions: %d\\n', size(dir, 1));
 """
         return code
     
     def _generate_dipole_excitation(self):
         """Generate dipole excitation code."""
         position = self.config.get('dipole_position', [0, 0, 15])
-        moment = self.config.get('dipole_moment', [1, 0, 0])
+        moment = self.config.get('dipole_moment', [0, 0, 1])
         
-        pos_str = f"[{position[0]}, {position[1]}, {position[2]}]"
-        mom_str = f"[{moment[0]}, {moment[1]}, {moment[2]}]"
+        pos_str = self._python_list_to_matlab([position])
+        mom_str = self._python_list_to_matlab([moment])
         
         code = f"""
 %% Dipole Excitation
-dipole_pos = {pos_str};
-dipole_moment = {mom_str};
-exc = dipole(dipole_moment, dipole_pos, op);
-fprintf('Dipole excitation configured\\n');
+fprintf('\\nConfiguring dipole excitation...\\n');
+
+% Dipole position
+dip_pos = {pos_str};
+
+% Dipole moment
+dip_mom = {mom_str};
+
+fprintf('Dipole position: [%.2f, %.2f, %.2f] nm\\n', dip_pos(1), dip_pos(2), dip_pos(3));
 """
         return code
     
     def _generate_eels_excitation(self):
         """Generate EELS excitation code."""
-        impact_param = self.config.get('impact_parameter', [10, 0])
-        beam_energy = self.config.get('beam_energy', 200e3)
-        beam_width = self.config.get('beam_width', 0.2)
+        impact = self.config.get('impact_parameter', [10, 0])
+        energy = self.config.get('beam_energy', 200e3)
+        width = self.config.get('beam_width', 0.2)
         
         code = f"""
 %% EELS Excitation
-impact_param = [{impact_param[0]}, {impact_param[1]}];
-beam_energy = {beam_energy};
-beam_width = {beam_width};
-vel = eelsbase.ene2vel(beam_energy);
-exc = electronbeam(p, impact_param, beam_width, vel, op);
-fprintf('EELS excitation configured\\n');
+fprintf('\\nConfiguring EELS excitation...\\n');
+
+% Impact parameter
+impact = [{impact[0]}, {impact[1]}];
+
+% Beam parameters
+beam_energy = {energy};
+beam_width = {width};
+
+fprintf('Impact parameter: [%.2f, %.2f] nm\\n', impact(1), impact(2));
+fprintf('Beam energy: %.2e eV\\n', beam_energy);
 """
         return code
     
     def _generate_wavelength_loop(self):
-        """Generate wavelength loop for BEM simulation with enhanced progress display."""
+        """Generate wavelength loop with optional field calculation."""
         wavelength_range = self.config['wavelength_range']
+        calculate_fields = self.config.get('calculate_fields', False)
+        excitation_type = self.config['excitation_type']
         
+        # Base loop setup
         code = f"""
 %% Wavelength Loop
 wavelength_range = [{wavelength_range[0]}, {wavelength_range[1]}, {wavelength_range[2]}];
@@ -241,7 +252,14 @@ fprintf('----------------------------------------------------------------\\n');
 sca = zeros(n_wavelengths, n_polarizations);
 ext = zeros(n_wavelengths, n_polarizations);
 abs_cross = zeros(n_wavelengths, n_polarizations);
-
+"""
+        
+        # Add field setup if needed
+        if calculate_fields:
+            code += self._generate_field_setup()
+        
+        # Main calculation loop
+        code += """
 % Start timer
 calculation_start = tic;
 
@@ -253,162 +271,292 @@ for ien = 1:n_wavelengths
     % Create progress bar (simple text-based)
     bar_length = 40;
     filled = floor(bar_length * (ien-1) / n_wavelengths);
-    bar = ['[' repmat('=', 1, filled) repmat('.', 1, bar_length-filled) ']'];
+    bar = ['[' repmat('=', 1, filled) repmat('.', 1, bar_length - filled) ']'];
     
-    % Print progress header
-    fprintf('\\n');
-    fprintf('Progress: %s %.1f%%\\n', bar, progress_pct);
-    fprintf('Wavelength %d/%d: %.2f nm', ien, n_wavelengths, enei(ien));
+    fprintf('\\r%s %.1f%% | λ = %.1f nm', bar, progress_pct, enei(ien));
     
-    % Solve BEM system (with timing)
-    wavelength_start = tic;
-    sig = bem \\ exc(p, enei(ien));
-    wavelength_time = toc(wavelength_start);
-    
-    % Calculate cross sections
-    sca(ien, :) = exc.sca(sig);
-    ext(ien, :) = exc.ext(sig);
-    abs_cross(ien, :) = exc.abs(sig);
-    
-    % Print results for first polarization
-    fprintf(' - Completed in %.2f sec\\n', wavelength_time);
-    fprintf('  Scattering: %.4e nm^2\\n', sca(ien, 1));
-    fprintf('  Extinction: %.4e nm^2\\n', ext(ien, 1));
-    fprintf('  Absorption: %.4e nm^2\\n', abs_cross(ien, 1));
-    
-    % Estimate remaining time
-    if ien > 1
-        elapsed_time = toc(calculation_start);
-        avg_time_per_wavelength = elapsed_time / ien;
-        remaining_wavelengths = n_wavelengths - ien;
-        estimated_remaining = avg_time_per_wavelength * remaining_wavelengths;
+    % Loop over polarizations
+    for ipol = 1:n_polarizations
+"""
         
-        % Format time
-        if estimated_remaining < 60
-            time_str = sprintf('%.0f sec', estimated_remaining);
-        elseif estimated_remaining < 3600
-            time_str = sprintf('%.1f min', estimated_remaining/60);
-        else
-            time_str = sprintf('%.1f hr', estimated_remaining/3600);
-        end
+        # Add excitation-specific code
+        if excitation_type == 'planewave':
+            code += """
+        % Plane wave excitation
+        exc = planewave(pol(ipol, :), dir(ipol, :), op);
+"""
+        elif excitation_type == 'dipole':
+            code += """
+        % Dipole excitation
+        pt = compoint(p, dip_pos, op);
+        dip = dipole(pt, dip_mom, op);
+        exc = dip;
+"""
+        elif excitation_type == 'eels':
+            code += """
+        % EELS excitation
+        exc = eelsret(p, impact, beam_energy, 'width', beam_width, op);
+"""
         
-        fprintf('  Estimated time remaining: %s\\n', time_str);
+        # BEM solution and cross sections
+        code += """
+        % Solve BEM equation
+        sig = bem \\ exc(p, enei(ien));
+        
+        % Calculate cross sections
+        sca(ien, ipol) = exc.sca(sig);
+        ext(ien, ipol) = exc.ext(sig);
+        abs_cross(ien, ipol) = ext(ien, ipol) - sca(ien, ipol);
+"""
+        
+        # Add field calculation if enabled
+        if calculate_fields:
+            code += self._generate_field_calculation_in_loop()
+        
+        # Close loops
+        code += """
     end
 end
 
-% Final progress bar
-fprintf('\\n');
-fprintf('Progress: [%s] 100.0%%\\n', repmat('=', 1, 40));
-fprintf('----------------------------------------------------------------\\n');
+% Complete progress bar
+fprintf('\\r[');
+fprintf(repmat('=', 1, 40));
+fprintf('] 100.0%%\\n');
 
-% Calculate total time
-total_time = toc(calculation_start);
-if total_time < 60
-    time_str = sprintf('%.2f seconds', total_time);
-elseif total_time < 3600
-    time_str = sprintf('%.2f minutes', total_time/60);
-else
-    time_str = sprintf('%.2f hours', total_time/3600);
-end
-
+calculation_time = toc(calculation_start);
 fprintf('\\n');
 fprintf('================================================================\\n');
-fprintf('              BEM Calculation Complete\\n');
+fprintf('Calculation completed in %.2f seconds (%.2f minutes)\\n', calculation_time, calculation_time/60);
 fprintf('================================================================\\n');
-fprintf('Total computation time: %s\\n', time_str);
-fprintf('Average time per wavelength: %.2f sec\\n', total_time/n_wavelengths);
-fprintf('----------------------------------------------------------------\\n');
+"""
+        
+        return code
+    
+    def _generate_field_setup(self):
+        """Generate field mesh setup code."""
+        field_region = self.config.get('field_region', {})
+        mindist = self.config.get('field_mindist', 0.2)
+        nmax = self.config.get('field_nmax', 2000)
+        field_wl_idx = self.config.get('field_wavelength_idx', 'middle')
+        
+        x_range = field_region.get('x_range', [-50, 50, 101])
+        y_range = field_region.get('y_range', [0, 0, 1])
+        z_range = field_region.get('z_range', [0, 0, 1])
+        
+        code = f"""
+%% Field Calculation Setup
+fprintf('\\nSetting up field calculation mesh...\\n');
+
+% Determine which wavelength index to calculate fields
+"""
+        
+        if field_wl_idx == 'middle':
+            code += "field_wavelength_idx = round(n_wavelengths / 2);\n"
+        elif field_wl_idx == 'peak':
+            code += "% Will determine peak wavelength after first polarization calculation\n"
+            code += "field_wavelength_idx = -1;  % To be determined\n"
+        elif isinstance(field_wl_idx, int):
+            code += f"field_wavelength_idx = {field_wl_idx};\n"
+        else:
+            code += "field_wavelength_idx = round(n_wavelengths / 2);\n"
+        
+        code += f"\nfprintf('Field will be calculated at wavelength index: %d\\n', field_wavelength_idx);\n\n"
+        
+        # Create mesh grid
+        code += "% Create mesh grid for field calculation\n"
+        
+        # Determine plane type
+        if y_range[2] == 1:  # xz-plane
+            code += f"""x_field = linspace({x_range[0]}, {x_range[1]}, {x_range[2]});
+z_field = linspace({z_range[0]}, {z_range[1]}, {z_range[2]});
+[x_grid, z_grid] = meshgrid(x_field, z_field);
+y_grid = {y_range[0]} + 0 * x_grid;  % xz-plane at y={y_range[0]}
+fprintf('Field mesh: xz-plane (y=%.1f), %dx%d points\\n', {y_range[0]}, length(x_field), length(z_field));
+"""
+        elif z_range[2] == 1:  # xy-plane
+            code += f"""x_field = linspace({x_range[0]}, {x_range[1]}, {x_range[2]});
+y_field = linspace({y_range[0]}, {y_range[1]}, {y_range[2]});
+[x_grid, y_grid] = meshgrid(x_field, y_field);
+z_grid = {z_range[0]} + 0 * x_grid;  % xy-plane at z={z_range[0]}
+fprintf('Field mesh: xy-plane (z=%.1f), %dx%d points\\n', {z_range[0]}, length(x_field), length(y_field));
+"""
+        else:  # 3D volume
+            code += f"""x_field = linspace({x_range[0]}, {x_range[1]}, {x_range[2]});
+y_field = linspace({y_range[0]}, {y_range[1]}, {y_range[2]});
+z_field = linspace({z_range[0]}, {z_range[1]}, {z_range[2]});
+[x_grid, y_grid, z_grid] = meshgrid(x_field, y_field, z_field);
+fprintf('Field mesh: 3D volume, %dx%dx%d points\\n', length(x_field), length(y_field), length(z_field));
+"""
+        
+        # Initialize meshfield object
+        code += f"""
+% Initialize meshfield object
+fprintf('Initializing meshfield object...\\n');
+emesh = meshfield(p, x_grid, y_grid, z_grid, op, 'mindist', {mindist}, 'nmax', {nmax});
+fprintf('  - Minimum distance: {mindist} nm\\n');
+fprintf('  - Portion size (nmax): {nmax}\\n');
+fprintf('  - Total field points: %d\\n', numel(x_grid));
+
+% Initialize field data storage structure
+field_data = struct();
+"""
+        
+        return code
+    
+    def _generate_field_calculation_in_loop(self):
+        """Generate field calculation code inside wavelength loop."""
+        code = """
+        % Calculate electromagnetic fields at selected wavelength
+        if ien == field_wavelength_idx
+            fprintf('\\n  → Calculating electromagnetic fields at λ = %.1f nm...\\n', enei(ien));
+            field_calc_start = tic;
+            
+            % Calculate induced fields
+            e_induced = emesh(sig);
+            
+            % Calculate incoming fields
+            e_incoming = emesh(exc.field(emesh.pt, enei(ien)));
+            
+            % Total electric field
+            e_total = e_induced + e_incoming;
+            
+            % Calculate field intensity (|E|^2)
+            e_intensity = dot(e_total, e_total, 3);
+            
+            % Calculate incident field intensity
+            e0_intensity = dot(e_incoming, e_incoming, 3);
+            
+            % Field enhancement |E|/|E0|
+            enhancement = sqrt(e_intensity ./ e0_intensity);
+            
+            % Store field data for this polarization
+            field_data(ipol).polarization = pol(ipol, :);
+            field_data(ipol).wavelength = enei(ien);
+            field_data(ipol).e_total = e_total;
+            field_data(ipol).e_induced = e_induced;
+            field_data(ipol).e_incoming = e_incoming;
+            field_data(ipol).enhancement = enhancement;
+            field_data(ipol).intensity = e_intensity;
+            field_data(ipol).x_grid = x_grid;
+            field_data(ipol).y_grid = y_grid;
+            field_data(ipol).z_grid = z_grid;
+            
+            field_calc_time = toc(field_calc_start);
+            fprintf('  → Field calculation completed in %.2f seconds\\n', field_calc_time);
+        end
 """
         return code
     
     def _generate_save_results(self):
-        """Generate code to save results."""
-        import os
-        output_dir = self.config['output_dir']
-        output_prefix = self.config.get('output_prefix', 'simulation')
+        """Generate code to save simulation results."""
+        calculate_fields = self.config.get('calculate_fields', False)
         
-        # Convert to absolute path if it's relative
-        if not os.path.isabs(output_dir):
-            # It's a relative path - make it relative to project root
-            code = f"""
+        code = """
 %% Save Results
-fprintf('\\nSaving results...\\n');
+fprintf('\\n');
+fprintf('================================================================\\n');
+fprintf('Saving results...\\n');
 
-% Get absolute path to output directory
-% MATLAB is running in simulation/ folder, so we need to go up one level
-current_dir = pwd;
-parent_dir = fileparts(current_dir);
-output_dir = fullfile(parent_dir, '{output_dir}');
-"""
-        else:
-            # It's already an absolute path - use it directly
-            code = f"""
-%% Save Results
-fprintf('\\nSaving results...\\n');
-
-% Use absolute path directly
-output_dir = '{output_dir}';
+% Prepare data structure
+results = struct();
+results.wavelength = enei;
+results.scattering = sca;
+results.extinction = ext;
+results.absorption = abs_cross;
+results.polarizations = pol;
+results.propagation_dirs = dir;
+results.calculation_time = calculation_time;
 """
         
-        # Common code for both cases
-        code += f"""
-% Create output directory if it doesn't exist
-if ~exist(output_dir, 'dir')
-    mkdir(output_dir);
-    fprintf('Created output directory: %s\\n', output_dir);
+        if calculate_fields:
+            code += """
+% Save field data if calculated
+if exist('field_data', 'var') && ~isempty(field_data)
+    results.fields = field_data;
+    fprintf('Field data included in results (polarizations: %d)\\n', length(field_data));
 end
+"""
+        
+        code += """
+% Save to .mat file
+save('simulation_results.mat', 'results');
+fprintf('✓ Results saved to: simulation_results.mat\\n');
 
-% Save results as text file
-output_file = fullfile(output_dir, '{output_prefix}_results.txt');
-fid = fopen(output_file, 'w');
+% Save cross sections to text file
+fid = fopen('simulation_results.txt', 'w');
 fprintf(fid, 'Wavelength(nm)\\t');
-for i = 1:n_polarizations
-    fprintf(fid, 'Sca%d(nm2)\\t', i);
+for ipol = 1:n_polarizations
+    fprintf(fid, 'Sca_pol%d\\t', ipol);
 end
-for i = 1:n_polarizations
-    fprintf(fid, 'Ext%d(nm2)\\t', i);
+for ipol = 1:n_polarizations
+    fprintf(fid, 'Ext_pol%d\\t', ipol);
 end
-for i = 1:n_polarizations
-    if i < n_polarizations
-        fprintf(fid, 'Abs%d(nm2)\\t', i);
+for ipol = 1:n_polarizations
+    if ipol < n_polarizations
+        fprintf(fid, 'Abs_pol%d\\t', ipol);
     else
-        fprintf(fid, 'Abs%d(nm2)\\n', i);
+        fprintf(fid, 'Abs_pol%d', ipol);
     end
 end
+fprintf(fid, '\\n');
 
-for ien = 1:n_wavelengths
-    fprintf(fid, '%.4f\\t', enei(ien));
-    for i = 1:n_polarizations
-        fprintf(fid, '%.6e\\t', sca(ien, i));
+for i = 1:length(enei)
+    fprintf(fid, '%.2f\\t', enei(i));
+    for ipol = 1:n_polarizations
+        fprintf(fid, '%.6e\\t', sca(i, ipol));
     end
-    for i = 1:n_polarizations
-        fprintf(fid, '%.6e\\t', ext(ien, i));
+    for ipol = 1:n_polarizations
+        fprintf(fid, '%.6e\\t', ext(i, ipol));
     end
-    for i = 1:n_polarizations
-        fprintf(fid, '%.6e\\t', abs_cross(ien, i));
+    for ipol = 1:n_polarizations
+        if ipol < n_polarizations
+            fprintf(fid, '%.6e\\t', abs_cross(i, ipol));
+        else
+            fprintf(fid, '%.6e', abs_cross(i, ipol));
+        end
     end
     fprintf(fid, '\\n');
 end
-
 fclose(fid);
-fprintf('✓ Results saved to: %s\\n', output_file);
-
-% Also save as .mat file for MATLAB
-mat_file = fullfile(output_dir, '{output_prefix}_results.mat');
-save(mat_file, 'enei', 'sca', 'ext', 'abs_cross', 'pol', 'dir');
-fprintf('✓ MATLAB data saved to: %s\\n', mat_file);
+fprintf('✓ Cross sections saved to: simulation_results.txt\\n');
 """
+        
+        if calculate_fields:
+            code += """
+% Save field data to separate MAT file
+if exist('field_data', 'var') && ~isempty(field_data)
+    save('field_data.mat', 'field_data', '-v7.3');
+    fprintf('✓ Field data saved to: field_data.mat\\n');
+end
+"""
+        
+        code += """
+fprintf('================================================================\\n');
+"""
+        
         return code
     
     def _generate_footer(self):
         """Generate script footer."""
         code = """
-%% Simulation Complete
 fprintf('\\n');
-fprintf('================================================================\\n');
-fprintf('         MNPBEM Simulation Finished Successfully!\\n');
-fprintf('================================================================\\n');
-fprintf('Results have been saved to the output directory.\\n');
+fprintf('=== MNPBEM Simulation Completed Successfully ===\\n');
 fprintf('\\n');
 """
         return code
+    
+    def _python_list_to_matlab(self, python_list):
+        """Convert Python list to MATLAB array string."""
+        if not python_list:
+            return '[]'
+        
+        # Handle 2D array (list of lists)
+        if isinstance(python_list[0], (list, tuple)):
+            rows = []
+            for row in python_list:
+                row_str = ', '.join([str(x) for x in row])
+                rows.append(row_str)
+            return '[' + '; '.join(rows) + ']'
+        else:
+            # Handle 1D array
+            return '[' + ', '.join([str(x) for x in python_list]) + ']'

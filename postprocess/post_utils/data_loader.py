@@ -1,168 +1,148 @@
 """
-Data Loader
+Data Loading Utilities
 
-Handles loading and saving of simulation data.
+Loads and parses MATLAB output files.
 """
 
 import numpy as np
-import pandas as pd
-import json
-from pathlib import Path
+import scipy.io as sio
+import os
 
 
 class DataLoader:
-    """Loads and saves simulation data."""
+    """Handles loading of MATLAB output files."""
     
     def __init__(self, config, verbose=False):
         self.config = config
         self.verbose = verbose
-        self.output_dir = Path(config['output_dir'])
-        self.output_prefix = config.get('output_prefix', 'simulation')
+        self.output_dir = config.get('output_dir', './results')
     
-    def load(self):
-        """Load simulation results from text file."""
-        # Try to load from text file first
-        result_file = self.output_dir / f"{self.output_prefix}_results.txt"
+    def load_simulation_results(self):
+        """Load simulation results from MATLAB output."""
+        mat_file = os.path.join(self.output_dir, 'simulation_results.mat')
         
-        if not result_file.exists():
-            raise FileNotFoundError(f"Results file not found: {result_file}")
+        if not os.path.exists(mat_file):
+            raise FileNotFoundError(f"Results file not found: {mat_file}")
         
         if self.verbose:
-            print(f"Loading results from: {result_file}")
+            print(f"Loading results from: {mat_file}")
         
-        # Read data
-        data = np.loadtxt(result_file, skiprows=1)
-        
-        # Parse data
-        n_wavelengths = data.shape[0]
-        n_cols = data.shape[1]
-        
-        # First column is wavelength
-        wavelength = data[:, 0]
-        
-        # Determine number of polarizations
-        # Columns: wavelength, sca1, sca2, ..., ext1, ext2, ..., abs1, abs2, ...
-        n_polarizations = (n_cols - 1) // 3
+        # Load MATLAB file
+        mat_data = sio.loadmat(mat_file, struct_as_record=False, squeeze_me=True)
+        results = mat_data['results']
         
         # Extract data
-        sca_cols = list(range(1, 1 + n_polarizations))
-        ext_cols = list(range(1 + n_polarizations, 1 + 2 * n_polarizations))
-        abs_cols = list(range(1 + 2 * n_polarizations, 1 + 3 * n_polarizations))
+        data = {
+            'wavelength': self._extract_array(results.wavelength),
+            'scattering': self._extract_array(results.scattering),
+            'extinction': self._extract_array(results.extinction),
+            'absorption': self._extract_array(results.absorption),
+            'polarizations': self._extract_array(results.polarizations),
+            'propagation_dirs': self._extract_array(results.propagation_dirs),
+        }
         
-        scattering = data[:, sca_cols]
-        extinction = data[:, ext_cols]
-        absorption = data[:, abs_cols]
+        # Add calculation time if available
+        if hasattr(results, 'calculation_time'):
+            data['calculation_time'] = float(results.calculation_time)
         
-        result = {
-            'wavelength': wavelength,
-            'scattering': scattering,
-            'extinction': extinction,
-            'absorption': absorption,
-            'n_polarizations': n_polarizations
+        # Ensure 2D arrays for cross sections
+        for key in ['scattering', 'extinction', 'absorption']:
+            if data[key].ndim == 1:
+                data[key] = data[key].reshape(-1, 1)
+        
+        if self.verbose:
+            print(f"  Loaded {len(data['wavelength'])} wavelength points")
+            print(f"  Polarizations: {data['scattering'].shape[1]}")
+        
+        # Load field data if available
+        if hasattr(results, 'fields'):
+            data['fields'] = self._load_field_data(results.fields)
+            if self.verbose and data['fields']:
+                print(f"  Field data loaded: {len(data['fields'])} polarization(s)")
+        
+        return data
+    
+    def _load_field_data(self, fields_struct):
+        """Load electromagnetic field data from MATLAB structure."""
+        if fields_struct is None:
+            return []
+        
+        # Handle single polarization vs multiple
+        if not isinstance(fields_struct, np.ndarray):
+            fields_struct = [fields_struct]
+        
+        field_data_list = []
+        
+        for field_item in fields_struct:
+            field_dict = {
+                'wavelength': float(field_item.wavelength),
+                'polarization': self._extract_array(field_item.polarization),
+                'x_grid': self._extract_array(field_item.x_grid),
+                'y_grid': self._extract_array(field_item.y_grid),
+                'z_grid': self._extract_array(field_item.z_grid),
+            }
+            
+            # Electric field components
+            if hasattr(field_item, 'e_total'):
+                field_dict['e_total'] = self._extract_array(field_item.e_total)
+            
+            if hasattr(field_item, 'e_induced'):
+                field_dict['e_induced'] = self._extract_array(field_item.e_induced)
+            
+            if hasattr(field_item, 'e_incoming'):
+                field_dict['e_incoming'] = self._extract_array(field_item.e_incoming)
+            
+            # Enhancement and intensity
+            if hasattr(field_item, 'enhancement'):
+                field_dict['enhancement'] = self._extract_array(field_item.enhancement)
+            
+            if hasattr(field_item, 'intensity'):
+                field_dict['intensity'] = self._extract_array(field_item.intensity)
+            
+            field_data_list.append(field_dict)
+        
+        return field_data_list
+    
+    def _extract_array(self, matlab_array):
+        """Extract numpy array from MATLAB data."""
+        if matlab_array is None:
+            return np.array([])
+        
+        # Convert to numpy array if not already
+        arr = np.array(matlab_array)
+        
+        # Handle scalar
+        if arr.ndim == 0:
+            return arr.item()
+        
+        return arr
+    
+    def load_text_results(self):
+        """Load results from text file (backup method)."""
+        txt_file = os.path.join(self.output_dir, 'simulation_results.txt')
+        
+        if not os.path.exists(txt_file):
+            raise FileNotFoundError(f"Results file not found: {txt_file}")
+        
+        if self.verbose:
+            print(f"Loading results from text file: {txt_file}")
+        
+        # Load data
+        data_array = np.loadtxt(txt_file, skiprows=1)
+        
+        # Parse based on number of columns
+        n_cols = data_array.shape[1]
+        n_pol = (n_cols - 1) // 3
+        
+        data = {
+            'wavelength': data_array[:, 0],
+            'scattering': data_array[:, 1:n_pol+1],
+            'extinction': data_array[:, n_pol+1:2*n_pol+1],
+            'absorption': data_array[:, 2*n_pol+1:],
         }
         
         if self.verbose:
-            print(f"  Wavelengths: {n_wavelengths}")
-            print(f"  Polarizations: {n_polarizations}")
+            print(f"  Loaded {len(data['wavelength'])} wavelength points")
+            print(f"  Polarizations: {n_pol}")
         
-        return result
-    
-    def save_txt(self, data, analysis=None):
-        """Save data in text format with analysis."""
-        output_file = self.output_dir / f"{self.output_prefix}_processed.txt"
-        
-        with open(output_file, 'w') as f:
-            # Write header
-            f.write("# MNPBEM Simulation Results - Processed\n")
-            f.write(f"# Structure: {self.config['structure']}\n")
-            f.write(f"# Simulation type: {self.config['simulation_type']}\n")
-            f.write("#\n")
-            
-            if analysis is not None:
-                f.write("# Analysis Results:\n")
-                if 'peak_wavelengths' in analysis:
-                    for i, wl in enumerate(analysis['peak_wavelengths']):
-                        f.write(f"#   Peak wavelength (pol {i+1}): {wl:.2f} nm\n")
-                if 'peak_values' in analysis:
-                    for i, val in enumerate(analysis['peak_values']):
-                        f.write(f"#   Peak scattering (pol {i+1}): {val:.6e} nm^2\n")
-                f.write("#\n")
-            
-            # Write column headers
-            f.write("Wavelength(nm)\t")
-            for i in range(data['n_polarizations']):
-                f.write(f"Sca{i+1}(nm2)\t")
-            for i in range(data['n_polarizations']):
-                f.write(f"Ext{i+1}(nm2)\t")
-            for i in range(data['n_polarizations']):
-                if i < data['n_polarizations'] - 1:
-                    f.write(f"Abs{i+1}(nm2)\t")
-                else:
-                    f.write(f"Abs{i+1}(nm2)\n")
-            
-            # Write data
-            for i in range(len(data['wavelength'])):
-                f.write(f"{data['wavelength'][i]:.4f}\t")
-                for j in range(data['n_polarizations']):
-                    f.write(f"{data['scattering'][i, j]:.6e}\t")
-                for j in range(data['n_polarizations']):
-                    f.write(f"{data['extinction'][i, j]:.6e}\t")
-                for j in range(data['n_polarizations']):
-                    if j < data['n_polarizations'] - 1:
-                        f.write(f"{data['absorption'][i, j]:.6e}\t")
-                    else:
-                        f.write(f"{data['absorption'][i, j]:.6e}\n")
-        
-        if self.verbose:
-            print(f"  Saved to: {output_file}")
-    
-    def save_csv(self, data, analysis=None):
-        """Save data in CSV format."""
-        output_file = self.output_dir / f"{self.output_prefix}_processed.csv"
-        
-        # Create DataFrame
-        df_dict = {'Wavelength_nm': data['wavelength']}
-        
-        for i in range(data['n_polarizations']):
-            df_dict[f'Scattering_pol{i+1}_nm2'] = data['scattering'][:, i]
-            df_dict[f'Extinction_pol{i+1}_nm2'] = data['extinction'][:, i]
-            df_dict[f'Absorption_pol{i+1}_nm2'] = data['absorption'][:, i]
-        
-        df = pd.DataFrame(df_dict)
-        df.to_csv(output_file, index=False)
-        
-        if self.verbose:
-            print(f"  Saved to: {output_file}")
-    
-    def save_json(self, data, analysis=None):
-        """Save data and analysis in JSON format."""
-        output_file = self.output_dir / f"{self.output_prefix}_processed.json"
-        
-        # Prepare data for JSON
-        json_data = {
-            'metadata': {
-                'structure': self.config['structure'],
-                'simulation_type': self.config['simulation_type'],
-                'excitation_type': self.config['excitation_type'],
-                'n_wavelengths': len(data['wavelength']),
-                'n_polarizations': data['n_polarizations']
-            },
-            'wavelength_nm': data['wavelength'].tolist(),
-            'scattering_nm2': data['scattering'].tolist(),
-            'extinction_nm2': data['extinction'].tolist(),
-            'absorption_nm2': data['absorption'].tolist()
-        }
-        
-        if analysis is not None:
-            json_data['analysis'] = {}
-            for key, value in analysis.items():
-                if isinstance(value, np.ndarray):
-                    json_data['analysis'][key] = value.tolist()
-                else:
-                    json_data['analysis'][key] = value
-        
-        with open(output_file, 'w') as f:
-            json.dump(json_data, f, indent=2)
-        
-        if self.verbose:
-            print(f"  Saved to: {output_file}")
+        return data

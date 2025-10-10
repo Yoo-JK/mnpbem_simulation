@@ -5,6 +5,7 @@ This file defines simulation parameters: excitation, wavelengths,
 numerical settings, and output options.
 """
 
+import os
 from pathlib import Path
 
 args = {}
@@ -66,16 +67,14 @@ args['excitation_type'] = 'planewave'
 # Each polarization is a 3D vector [x, y, z]
 args['polarizations'] = [
     [1, 0, 0],  # x-polarization
-    # [0, 1, 0],  # y-polarization (uncomment to add)
-    # [0, 0, 1],  # z-polarization
+    [0, 1, 0],  # y-polarization
 ]
 
 # Propagation direction(s) - can specify multiple
 # Each direction is a 3D unit vector [x, y, z]
 args['propagation_dirs'] = [
     [0, 0, 1],  # Propagating in +z direction
-    # [0, 0, -1],  # Propagating in -z direction
-    # [1, 0, 0],   # Propagating in +x direction
+    [0, 0, 1],  # Propagating in +z direction (for 2nd polarization)
 ]
 
 # --- Dipole Configuration ---
@@ -110,12 +109,13 @@ args['wavelength_range'] = [400, 800, 100]  # 400-800 nm, 100 points
 # Refinement level for numerical integration
 # Higher = more accurate but slower
 # Typical values: 1-3
-args['refine'] = 2
+args['refine'] = 3
 
 # Relative cutoff for interaction matrices
+# CORRECTED: Default should be 3 (recommended by MNPBEM)
 # Higher = more accurate but more memory
-# Typical values: 2-3
-args['relcutoff'] = 2
+# Typical values: 2-3, default is 3 for sufficient accuracy
+args['relcutoff'] = 3
 
 # ============================================================================
 # CALCULATION OPTIONS
@@ -125,26 +125,44 @@ args['relcutoff'] = 2
 args['calculate_cross_sections'] = True
 
 # Calculate electric field distribution
-args['calculate_fields'] = False
+args['calculate_fields'] = True
 
 # Field calculation region (only used if calculate_fields=True)
-# args['field_region'] = {
-#     'x_range': [-100, 100, 201],  # [min, max, num_points]
-#     'y_range': [-100, 100, 201],
-#     'z_range': [0, 0, 1]          # Single slice at z=0
-# }
+args['field_region'] = {
+    'x_range': [-80, 80, 161],  # [min, max, num_points] in nm
+    'y_range': [0, 0, 1],       # xz-plane at y=0
+    'z_range': [-80, 80, 161]   # [min, max, num_points] in nm
+}
+
+# Field calculation options
+args['field_mindist'] = 0.5     # Minimum distance from particle surface (nm)
+args['field_nmax'] = 2000       # Work off calculation in portions (for large grids)
+args['field_wavelength_idx'] = 'middle'  # Which wavelength to calculate fields: 'middle', 'peak', or integer index
+
+# ============================================================================
+# FIELD DATA EXPORT OPTIONS (NEW)
+# ============================================================================
+
+# Export field arrays to JSON (can create large files!)
+# Set to True only if you need field data in JSON format
+# Full resolution data is always available in field_data.mat
+args['export_field_arrays'] = False  # Exports downsampled field arrays to JSON
+
+# Field analysis options
+args['field_hotspot_count'] = 10  # Number of hotspots to identify
+args['field_hotspot_min_distance'] = 3  # Minimum distance between hotspots (grid points)
 
 # ============================================================================
 # OUTPUT SETTINGS
 # ============================================================================
 
 # Output directory for results
-args['output_dir'] = './results'
+args['output_dir'] = os.path.join(Path.home(), 'research/mnpbem/sphere_test')
 
 # Data file save formats (for postprocessing)
 # Available: 'txt', 'csv', 'json'
 # Note: MATLAB always saves 'txt' and 'mat' formats automatically
-args['output_formats'] = ['txt', 'csv', 'json']  # ← 변경: save_format → output_formats
+args['output_formats'] = ['txt', 'csv', 'json']
 
 # Generate plots
 args['save_plots'] = True
@@ -232,8 +250,10 @@ args['matlab_options'] = '-nodisplay -nosplash -nodesktop'
 # # For line scan, vary impact_parameter in a loop (not shown here)
 # args['impact_parameter'] = [10, 0]
 
-# Example 6: High accuracy calculation
+# Example 6: High accuracy calculation with field
 # args['refine'] = 3
 # args['relcutoff'] = 3
 # args['mesh_density'] = 288  # Double standard density (set in structure config)
 # args['simulation_type'] = 'ret'
+# args['calculate_fields'] = True
+# args['export_field_arrays'] = True  # Export field arrays to JSON
