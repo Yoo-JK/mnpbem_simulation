@@ -6,6 +6,8 @@ Coordinates all postprocessing tasks.
 
 import os
 import sys
+import json
+import csv
 from pathlib import Path
 
 # Add parent directory to path
@@ -14,8 +16,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from postprocess.post_utils.data_loader import DataLoader
 from postprocess.post_utils.spectrum_analyzer import SpectrumAnalyzer
 from postprocess.post_utils.visualizer import Visualizer
-from postprocess.post_utils.field_analyzer import FieldAnalyzer  # NEW
-from postprocess.post_utils.field_exporter import FieldExporter  # NEW
+from postprocess.post_utils.field_analyzer import FieldAnalyzer
+from postprocess.post_utils.field_exporter import FieldExporter
 
 
 class PostprocessManager:
@@ -30,8 +32,8 @@ class PostprocessManager:
         self.data_loader = DataLoader(config, verbose)
         self.analyzer = SpectrumAnalyzer(config, verbose)
         self.visualizer = Visualizer(config, verbose)
-        self.field_analyzer = FieldAnalyzer(verbose)  # NEW
-        self.field_exporter = FieldExporter(self.output_dir, verbose)  # NEW
+        self.field_analyzer = FieldAnalyzer(verbose)
+        self.field_exporter = FieldExporter(self.output_dir, verbose)
     
     def run(self):
         """Execute complete postprocessing workflow."""
@@ -59,7 +61,7 @@ class PostprocessManager:
         if self.verbose:
             self._print_analysis_summary(analysis)
         
-        # Step 2.5: Analyze fields (NEW)
+        # Step 2.5: Analyze fields
         field_analysis = []
         if 'fields' in data and data['fields']:
             if self.verbose:
@@ -78,7 +80,7 @@ class PostprocessManager:
         if self.verbose and plots:
             print(f"  Created {len(plots)} plot(s)")
         
-        # Step 4: Export field data (NEW)
+        # Step 4: Export field data
         if 'fields' in data and data['fields'] and field_analysis:
             if self.verbose:
                 print("\n[4/5] Exporting field data...")
@@ -92,8 +94,7 @@ class PostprocessManager:
         
         # Step 5: Save processed data
         if self.verbose:
-            step_num = "[5/5]" if 'fields' not in data or not data['fields'] else "[5/5]"
-            print(f"\n{step_num} Saving processed data...")
+            print(f"\n[5/5] Saving processed data...")
         
         self._save_processed_data(data, analysis, field_analysis)
         
@@ -110,21 +111,15 @@ class PostprocessManager:
         print("\n  Spectral Analysis Summary:")
         print("  " + "-"*50)
         
-        for pol_idx, pol_analysis in enumerate(analysis):
-            print(f"\n  Polarization {pol_idx + 1}:")
-            
-            if 'extinction_peak' in pol_analysis:
-                peak = pol_analysis['extinction_peak']
-                print(f"    Extinction Peak:")
-                print(f"      Wavelength: {peak['wavelength']:.2f} nm")
-                print(f"      Value: {peak['value']:.2e} nm²")
-                print(f"      FWHM: {peak.get('fwhm', 'N/A')} nm")
-            
-            if 'scattering_peak' in pol_analysis:
-                peak = pol_analysis['scattering_peak']
-                print(f"    Scattering Peak:")
-                print(f"      Wavelength: {peak['wavelength']:.2f} nm")
-                print(f"      Value: {peak['value']:.2e} nm²")
+        # ✅ FIX: analysis is a single dict, not a list
+        # Extract per-polarization info from arrays
+        n_pol = len(analysis['peak_wavelengths'])
+        
+        for ipol in range(n_pol):
+            print(f"\n  Polarization {ipol + 1}:")
+            print(f"    Peak Wavelength: {analysis['peak_wavelengths'][ipol]:.2f} nm")
+            print(f"    Peak Value: {analysis['peak_values'][ipol]:.2e} nm²")
+            print(f"    FWHM: {analysis['fwhm'][ipol]:.2f} nm")
     
     def _save_processed_data(self, data, analysis, field_analysis):
         """Save processed data in various formats."""
@@ -152,19 +147,17 @@ class PostprocessManager:
             f.write("SPECTRAL ANALYSIS\n")
             f.write("-"*60 + "\n\n")
             
-            for pol_idx, pol_analysis in enumerate(analysis):
-                f.write(f"Polarization {pol_idx + 1}:\n")
-                
-                if 'extinction_peak' in pol_analysis:
-                    peak = pol_analysis['extinction_peak']
-                    f.write(f"  Extinction Peak: {peak['wavelength']:.2f} nm\n")
-                    f.write(f"  Peak Value: {peak['value']:.2e} nm²\n")
-                    if 'fwhm' in peak:
-                        f.write(f"  FWHM: {peak['fwhm']:.2f} nm\n")
-                
+            # ✅ FIX: analysis is a single dict with arrays
+            n_pol = len(analysis['peak_wavelengths'])
+            
+            for ipol in range(n_pol):
+                f.write(f"Polarization {ipol + 1}:\n")
+                f.write(f"  Peak Wavelength: {analysis['peak_wavelengths'][ipol]:.2f} nm\n")
+                f.write(f"  Peak Value: {analysis['peak_values'][ipol]:.2e} nm²\n")
+                f.write(f"  FWHM: {analysis['fwhm'][ipol]:.2f} nm\n")
                 f.write("\n")
             
-            # Write field analysis (NEW)
+            # Write field analysis
             if field_analysis:
                 f.write("\nFIELD ANALYSIS\n")
                 f.write("-"*60 + "\n\n")
@@ -221,8 +214,6 @@ class PostprocessManager:
     
     def _save_csv(self, data, analysis):
         """Save processed data as CSV file."""
-        import csv
-        
         filepath = os.path.join(self.output_dir, 'simulation_processed.csv')
         
         with open(filepath, 'w', newline='') as f:
@@ -256,8 +247,6 @@ class PostprocessManager:
     
     def _save_json(self, data, analysis, field_analysis):
         """Save processed data as JSON file."""
-        import json
-        
         filepath = os.path.join(self.output_dir, 'simulation_processed.json')
         
         # Prepare JSON-serializable data
@@ -266,26 +255,25 @@ class PostprocessManager:
             'extinction': data['extinction'].tolist(),
             'scattering': data['scattering'].tolist(),
             'absorption': data['absorption'].tolist(),
-            'analysis': []
+            'analysis': {}
         }
         
-        # Add analysis results
-        for pol_analysis in analysis:
-            pol_dict = {}
-            for key, value in pol_analysis.items():
-                if isinstance(value, dict):
-                    pol_dict[key] = {k: float(v) if hasattr(v, 'item') else v
-                                     for k, v in value.items()}
-                else:
-                    pol_dict[key] = float(value) if hasattr(value, 'item') else value
-            json_data['analysis'].append(pol_dict)
+        # ✅ FIX: Convert analysis dict properly
+        for key, value in analysis.items():
+            if hasattr(value, 'tolist'):
+                json_data['analysis'][key] = value.tolist()
+            elif isinstance(value, dict):
+                json_data['analysis'][key] = {k: (v.tolist() if hasattr(v, 'tolist') else v) 
+                                               for k, v in value.items()}
+            else:
+                json_data['analysis'][key] = value
         
         # Add field data summary if available
         if 'fields' in data and data['fields']:
             json_data['field_data_available'] = True
-            json_data['field_wavelengths'] = [f['wavelength'] for f in data['fields']]
+            json_data['field_wavelengths'] = [float(f['wavelength']) for f in data['fields']]
             
-            # Add field analysis summary (NEW)
+            # Add field analysis summary
             if field_analysis:
                 json_data['field_analysis_summary'] = []
                 for field_result in field_analysis:

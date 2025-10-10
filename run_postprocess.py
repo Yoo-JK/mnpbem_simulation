@@ -90,7 +90,17 @@ def main():
         postprocess = PostprocessManager(config, verbose=args.verbose)
         
         # Run postprocessing
-        data, analysis = postprocess.run()
+        # ✅ FIX: Handle three return values
+        result = postprocess.run()
+        
+        # Unpack based on return type
+        if len(result) == 3:
+            data, analysis, field_analysis = result
+        elif len(result) == 2:
+            data, analysis = result
+            field_analysis = []
+        else:
+            raise ValueError(f"Unexpected return value from postprocess.run(): {result}")
         
         # Print summary
         if args.verbose:

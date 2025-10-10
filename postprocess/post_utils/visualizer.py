@@ -18,7 +18,7 @@ class Visualizer:
         self.verbose = verbose
         self.output_dir = config.get('output_dir', './results')
         self.save_plots = config.get('save_plots', True)
-        self.plot_format = config.get('plot_format', ['png'])
+        self.plot_format = config.get('plot_format', ['png', 'pdf'])
         self.dpi = config.get('plot_dpi', 300)
     
     def create_all_plots(self, data):
@@ -153,16 +153,39 @@ class Visualizer:
         cbar1.set_label('|E|/|E₀|', fontsize=11)
         
         # Log scale
-        # Avoid log(0) by adding small value
+        # ✅ FIX: Properly handle vmin and vmax for LogNorm
         enhancement_log = np.maximum(enhancement, 1e-10)
-        im2 = ax2.imshow(enhancement_log, extent=extent, origin='lower', 
-                        cmap='hot', aspect='auto', norm=LogNorm(vmin=1e-1, vmax=enhancement.max()))
-        ax2.set_xlabel(x_label, fontsize=11)
-        ax2.set_ylabel(y_label, fontsize=11)
-        ax2.set_title(f'Field Enhancement (Log Scale)\nλ = {wavelength:.1f} nm, Pol {polarization_idx+1}', 
-                     fontsize=12, fontweight='bold')
-        cbar2 = plt.colorbar(im2, ax=ax2)
-        cbar2.set_label('|E|/|E₀|', fontsize=11)
+        enh_max = enhancement.max()
+        enh_min = enhancement_log[enhancement_log > 0].min() if np.any(enhancement_log > 0) else 1e-10
+        
+        # Ensure vmin < vmax for LogNorm
+        if enh_max > enh_min:
+            vmin_log = max(enh_min, 1e-2)  # Use reasonable lower bound
+            vmax_log = enh_max
+            
+            # Ensure vmin < vmax
+            if vmin_log >= vmax_log:
+                vmin_log = vmax_log / 10
+            
+            im2 = ax2.imshow(enhancement_log, extent=extent, origin='lower', 
+                            cmap='hot', aspect='auto', 
+                            norm=LogNorm(vmin=vmin_log, vmax=vmax_log))
+            ax2.set_xlabel(x_label, fontsize=11)
+            ax2.set_ylabel(y_label, fontsize=11)
+            ax2.set_title(f'Field Enhancement (Log Scale)\nλ = {wavelength:.1f} nm, Pol {polarization_idx+1}', 
+                         fontsize=12, fontweight='bold')
+            cbar2 = plt.colorbar(im2, ax=ax2)
+            cbar2.set_label('|E|/|E₀|', fontsize=11)
+        else:
+            # If all values are the same, just show linear scale
+            im2 = ax2.imshow(enhancement, extent=extent, origin='lower', 
+                            cmap='hot', aspect='auto')
+            ax2.set_xlabel(x_label, fontsize=11)
+            ax2.set_ylabel(y_label, fontsize=11)
+            ax2.set_title(f'Field Enhancement\nλ = {wavelength:.1f} nm, Pol {polarization_idx+1}', 
+                         fontsize=12, fontweight='bold')
+            cbar2 = plt.colorbar(im2, ax=ax2)
+            cbar2.set_label('|E|/|E₀|', fontsize=11)
         
         plt.tight_layout()
         
@@ -187,10 +210,27 @@ class Visualizer:
         # Create figure
         fig, ax = plt.subplots(figsize=(9, 7))
         
-        # Log scale for intensity
+        # ✅ FIX: Properly handle vmin and vmax for LogNorm
         intensity_log = np.maximum(intensity, 1e-10)
-        im = ax.imshow(intensity_log, extent=extent, origin='lower', 
-                      cmap='viridis', aspect='auto', norm=LogNorm())
+        int_max = intensity.max()
+        int_min = intensity_log[intensity_log > 0].min() if np.any(intensity_log > 0) else 1e-10
+        
+        # Ensure vmin < vmax for LogNorm
+        if int_max > int_min and int_max > 0:
+            vmin_log = max(int_min, int_max / 1e6)  # Dynamic range
+            vmax_log = int_max
+            
+            # Ensure vmin < vmax
+            if vmin_log >= vmax_log:
+                vmin_log = vmax_log / 10
+            
+            im = ax.imshow(intensity_log, extent=extent, origin='lower', 
+                          cmap='viridis', aspect='auto', 
+                          norm=LogNorm(vmin=vmin_log, vmax=vmax_log))
+        else:
+            # Fallback to linear scale if log doesn't work
+            im = ax.imshow(intensity, extent=extent, origin='lower', 
+                          cmap='viridis', aspect='auto')
         
         ax.set_xlabel(x_label, fontsize=11)
         ax.set_ylabel(y_label, fontsize=11)
@@ -284,54 +324,63 @@ class Visualizer:
     
     def _determine_plane(self, x_grid, y_grid, z_grid):
         """Determine which 2D plane is being plotted."""
-        x_unique = len(np.unique(x_grid))
-        y_unique = len(np.unique(y_grid))
-        z_unique = len(np.unique(z_grid))
+        # Check which coordinate is constant (single value)
+        x_constant = len(np.unique(x_grid)) == 1
+        y_constant = len(np.unique(y_grid)) == 1
+        z_constant = len(np.unique(z_grid)) == 1
         
-        if y_unique == 1:
+        if y_constant:
             # xz-plane
+            plane_type = 'xz'
             x_min, x_max = x_grid.min(), x_grid.max()
             z_min, z_max = z_grid.min(), z_grid.max()
-            return 'xz', [x_min, x_max, z_min, z_max], 'x (nm)', 'z (nm)'
-        elif z_unique == 1:
+            extent = [x_min, x_max, z_min, z_max]
+            x_label = 'x (nm)'
+            y_label = 'z (nm)'
+        elif z_constant:
             # xy-plane
+            plane_type = 'xy'
             x_min, x_max = x_grid.min(), x_grid.max()
             y_min, y_max = y_grid.min(), y_grid.max()
-            return 'xy', [x_min, x_max, y_min, y_max], 'x (nm)', 'y (nm)'
-        elif x_unique == 1:
+            extent = [x_min, x_max, y_min, y_max]
+            x_label = 'x (nm)'
+            y_label = 'y (nm)'
+        elif x_constant:
             # yz-plane
+            plane_type = 'yz'
             y_min, y_max = y_grid.min(), y_grid.max()
             z_min, z_max = z_grid.min(), z_grid.max()
-            return 'yz', [y_min, y_max, z_min, z_max], 'y (nm)', 'z (nm)'
+            extent = [y_min, y_max, z_min, z_max]
+            x_label = 'y (nm)'
+            y_label = 'z (nm)'
         else:
-            # 3D volume - take middle slice
-            z_mid_idx = z_grid.shape[2] // 2
-            x_min, x_max = x_grid[:, :, z_mid_idx].min(), x_grid[:, :, z_mid_idx].max()
-            y_min, y_max = y_grid[:, :, z_mid_idx].min(), y_grid[:, :, z_mid_idx].max()
-            return 'xy_slice', [x_min, x_max, y_min, y_max], 'x (nm)', 'y (nm)'
+            # 3D data or unknown
+            plane_type = '3d'
+            extent = [x_grid.min(), x_grid.max(), y_grid.min(), y_grid.max()]
+            x_label = 'x (nm)'
+            y_label = 'y (nm)'
+        
+        return plane_type, extent, x_label, y_label
     
     def _is_2d_slice(self, field_data):
-        """Check if field data is a 2D slice (not 3D volume)."""
+        """Check if field data is a 2D slice (for vector plots)."""
         x_grid = field_data['x_grid']
         y_grid = field_data['y_grid']
         z_grid = field_data['z_grid']
         
-        x_unique = len(np.unique(x_grid))
-        y_unique = len(np.unique(y_grid))
-        z_unique = len(np.unique(z_grid))
+        # Check if any dimension is constant
+        x_constant = len(np.unique(x_grid)) == 1
+        y_constant = len(np.unique(y_grid)) == 1
+        z_constant = len(np.unique(z_grid)) == 1
         
-        # 2D if one dimension is constant
-        return (x_unique == 1 or y_unique == 1 or z_unique == 1)
+        # It's a 2D slice if exactly one dimension is constant
+        return sum([x_constant, y_constant, z_constant]) == 1
     
     def _save_figure(self, fig, base_filename):
-        """Save figure in specified format(s)."""
-        if not self.save_plots:
-            return []
-        
+        """Save figure in specified formats."""
         saved_files = []
-        formats = self.plot_format if isinstance(self.plot_format, list) else [self.plot_format]
         
-        for fmt in formats:
+        for fmt in self.plot_format:
             filepath = os.path.join(self.output_dir, f'{base_filename}.{fmt}')
             fig.savefig(filepath, dpi=self.dpi, bbox_inches='tight')
             saved_files.append(filepath)

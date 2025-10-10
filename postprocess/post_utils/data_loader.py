@@ -50,9 +50,12 @@ class DataLoader:
             if data[key].ndim == 1:
                 data[key] = data[key].reshape(-1, 1)
         
+        # ✅ FIX: Add n_polarizations to data dictionary
+        data['n_polarizations'] = data['scattering'].shape[1]
+        
         if self.verbose:
             print(f"  Loaded {len(data['wavelength'])} wavelength points")
-            print(f"  Polarizations: {data['scattering'].shape[1]}")
+            print(f"  Polarizations: {data['n_polarizations']}")
         
         # Load field data if available
         if hasattr(results, 'fields'):
@@ -139,6 +142,7 @@ class DataLoader:
             'scattering': data_array[:, 1:n_pol+1],
             'extinction': data_array[:, n_pol+1:2*n_pol+1],
             'absorption': data_array[:, 2*n_pol+1:],
+            'n_polarizations': n_pol,  # ✅ FIX: Add this here too
         }
         
         if self.verbose:
