@@ -219,7 +219,7 @@ args['custom_materials'] = {
 # Notes:
 # - Comments start with '#'
 # - The system automatically interpolates to simulation wavelengths
-# - Linear interpolation is used
+# - Cubic spline interpolation is used (same as MATLAB epstable)  # ← 수정
 # - Wavelengths should be in ascending order
 
 # ============================================================================

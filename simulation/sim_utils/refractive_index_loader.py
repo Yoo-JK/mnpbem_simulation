@@ -7,6 +7,7 @@ Supports various file formats with wavelength-dependent n and k values.
 
 import numpy as np
 from pathlib import Path
+from scipy.interpolate import CubicSpline  # ← 추가
 
 
 class RefractiveIndexLoader:
@@ -89,7 +90,7 @@ class RefractiveIndexLoader:
     
     def interpolate(self, target_wavelengths):
         """
-        Interpolate refractive index at target wavelengths using linear interpolation.
+        Interpolate refractive index at target wavelengths using cubic spline interpolation.
         
         Args:
             target_wavelengths (array-like): Target wavelengths in nm
@@ -99,14 +100,21 @@ class RefractiveIndexLoader:
         """
         target_wavelengths = np.asarray(target_wavelengths)
         
-        # Linear interpolation for n
-        n_interp = np.interp(target_wavelengths, self.wavelengths, self.n_values)
+        # ═══════════════════════════════════════════════════════════
+        # ✅ 수정: Linear → Cubic Spline 보간
+        # ═══════════════════════════════════════════════════════════
         
-        # Linear interpolation for k
-        k_interp = np.interp(target_wavelengths, self.wavelengths, self.k_values)
+        # Cubic spline interpolation for n (MATLAB과 동일)
+        cs_n = CubicSpline(self.wavelengths, self.n_values)
+        n_interp = cs_n(target_wavelengths)
+        
+        # Cubic spline interpolation for k
+        cs_k = CubicSpline(self.wavelengths, self.k_values)
+        k_interp = cs_k(target_wavelengths)
         
         if self.verbose:
             print(f"Interpolated refractive index at {len(target_wavelengths)} wavelengths")
+            print("  Interpolation method: Cubic Spline")
             # Check if extrapolation occurred
             if target_wavelengths.min() < self.wavelengths.min() or \
                target_wavelengths.max() > self.wavelengths.max():
