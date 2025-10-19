@@ -22,13 +22,13 @@ def parse_arguments():
     )
     
     parser.add_argument(
-        '--structure',
+        '--str-conf',
         type=str,
         required=True,
         help='Path to structure configuration file'
     )
     parser.add_argument(
-        '--simulation',
+        '--sim-conf',
         type=str,
         required=True,
         help='Path to simulation configuration file'
@@ -84,7 +84,7 @@ def main():
     
     try:
         # Load and merge configurations
-        config = merge_configs(args.structure, args.simulation)
+        config = merge_configs(args.str_conf, args.sim_conf)
         
         # Initialize postprocessing manager
         postprocess = PostprocessManager(config, verbose=args.verbose)

@@ -22,13 +22,13 @@ def parse_arguments():
     )
     
     parser.add_argument(
-        '--structure',
+        '--str-conf',
         type=str,
         required=True,
         help='Path to structure configuration file'
     )
     parser.add_argument(
-        '--simulation',
+        '--sim-conf',
         type=str,
         required=True,
         help='Path to simulation configuration file'
@@ -116,7 +116,7 @@ def main():
     
     # Load and merge configurations
     try:
-        config = merge_configs(args_cli.structure, args_cli.simulation)
+        config = merge_configs(args_cli.str_conf, args_cli.sim_conf)
     except Exception as e:
         print(f"✗ Error loading configuration: {e}")
         sys.exit(1)
