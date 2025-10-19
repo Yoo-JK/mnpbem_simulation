@@ -74,7 +74,8 @@ p = trirod(diameter, height, [15, 20, 20]);
 particles = {{p}};
 """
         return code
-    
+
+
     def _ellipsoid(self):
         """Generate code for ellipsoid."""
         axes = self.config.get('axes', [10, 15, 20])
@@ -82,8 +83,12 @@ particles = {{p}};
         
         code = f"""
 %% Geometry: Ellipsoid
-axes = [{axes[0]}, {axes[1]}, {axes[2]}];
-p = trispherescale(trisphere({mesh}, 1), axes);
+% Create unit sphere and scale each axis separately
+p = trisphere({mesh}, 1);
+% Scale vertices for ellipsoid: [x, y, z] semi-axes
+p.verts(:, 1) = p.verts(:, 1) * {axes[0]};
+p.verts(:, 2) = p.verts(:, 2) * {axes[1]};
+p.verts(:, 3) = p.verts(:, 3) * {axes[2]};
 particles = {{p}};
 """
         return code

@@ -173,6 +173,7 @@ args['plot_format'] = ['png', 'pdf']
 
 # Plot DPI (resolution)
 args['plot_dpi'] = 300
+args['spectrum_xaxis'] = 'energy'
 
 # ============================================================================
 # ADVANCED OPTIONS

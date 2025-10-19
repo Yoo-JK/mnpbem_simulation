@@ -43,62 +43,164 @@ class Visualizer:
         return plots_created
     
     def plot_spectrum(self, data):
-        """Plot extinction, scattering, and absorption spectra."""
-        wavelength = data['wavelength']
-        extinction = data['extinction'][:, 0]  # First polarization
-        scattering = data['scattering'][:, 0]
-        absorption = data['absorption'][:, 0]
-        
-        fig, ax = plt.subplots(figsize=(10, 6))
-        
-        ax.plot(wavelength, extinction, 'b-', linewidth=2, label='Extinction')
-        ax.plot(wavelength, scattering, 'r--', linewidth=2, label='Scattering')
-        ax.plot(wavelength, absorption, 'g:', linewidth=2, label='Absorption')
-        
-        ax.set_xlabel('Wavelength (nm)', fontsize=12)
-        ax.set_ylabel('Cross Section (nm²)', fontsize=12)
-        ax.set_title('Optical Spectra', fontsize=14, fontweight='bold')
-        ax.legend(fontsize=11)
-        ax.grid(True, alpha=0.3)
-        
-        plt.tight_layout()
-        
-        # Save plot
-        base_filename = 'simulation_spectrum'
-        saved_files = self._save_figure(fig, base_filename)
-        plt.close(fig)
-        
-        return saved_files[0] if saved_files else None
-    
-    def plot_polarization_comparison(self, data):
-        """Plot comparison of different polarizations."""
+        """Plot extinction, scattering, and absorption spectra for each polarization."""
         wavelength = data['wavelength']
         extinction = data['extinction']
+        scattering = data['scattering']
+        absorption = data['absorption']
+        
+        # Check x-axis unit preference
+        xaxis_unit = self.config.get('spectrum_xaxis', 'wavelength')
+        
+        # Convert to energy if requested
+        if xaxis_unit == 'energy':
+            # E(eV) = 1239.84 / λ(nm)
+            xdata = 1239.84 / wavelength
+            xlabel_text = 'Energy (eV)'
+            # Reverse order for energy (high energy = short wavelength)
+            xdata = xdata[::-1]
+            extinction = extinction[::-1, :]
+            scattering = scattering[::-1, :]
+            absorption = absorption[::-1, :]
+        else:
+            xdata = wavelength
+            xlabel_text = 'Wavelength (nm)'
+        
+        n_pol = extinction.shape[1]
+        saved_files_all = []
+        
+        # Create separate plot for each polarization
+        for ipol in range(n_pol):
+            fig, ax = plt.subplots(figsize=(10, 6))
+            
+            ax.plot(xdata, extinction[:, ipol], 'b-', linewidth=2, label='Extinction')
+            ax.plot(xdata, scattering[:, ipol], 'r--', linewidth=2, label='Scattering')
+            ax.plot(xdata, absorption[:, ipol], 'g:', linewidth=2, label='Absorption')
+            
+            ax.set_xlabel(xlabel_text, fontsize=12)
+            ax.set_ylabel('Cross Section (nm²)', fontsize=12)
+            ax.set_title(f'Optical Spectra - Polarization {ipol+1}', fontsize=14, fontweight='bold')
+            ax.legend(fontsize=11)
+            ax.grid(True, alpha=0.3)
+            
+            # Reverse x-axis for energy to show high energy on left
+            if xaxis_unit == 'energy':
+                ax.invert_xaxis()
+            
+            plt.tight_layout()
+            
+            # Save plot with polarization index
+            base_filename = f'simulation_spectrum_pol{ipol+1}'
+            saved_files = self._save_figure(fig, base_filename)
+            if saved_files:
+                saved_files_all.extend(saved_files)
+            plt.close(fig)
+        
+        return saved_files_all
+    
+    def plot_polarization_comparison(self, data):
+        """Plot comparison of different polarizations for all cross sections."""
+        wavelength = data['wavelength']
+        extinction = data['extinction']
+        scattering = data['scattering']
+        absorption = data['absorption']
         n_pol = extinction.shape[1]
         
-        fig, ax = plt.subplots(figsize=(10, 6))
+        # Check x-axis unit preference
+        xaxis_unit = self.config.get('spectrum_xaxis', 'wavelength')
+        
+        # Convert to energy if requested
+        if xaxis_unit == 'energy':
+            xdata = 1239.84 / wavelength
+            xlabel_text = 'Energy (eV)'
+            # Reverse order for energy
+            xdata = xdata[::-1]
+            extinction = extinction[::-1, :]
+            scattering = scattering[::-1, :]
+            absorption = absorption[::-1, :]
+        else:
+            xdata = wavelength
+            xlabel_text = 'Wavelength (nm)'
         
         colors = plt.cm.viridis(np.linspace(0, 1, n_pol))
+        saved_files_all = []
+        
+        # ========== Extinction Comparison ==========
+        fig, ax = plt.subplots(figsize=(10, 6))
         
         for i in range(n_pol):
-            ax.plot(wavelength, extinction[:, i], 
+            ax.plot(xdata, extinction[:, i], 
                    color=colors[i], linewidth=2, 
                    label=f'Polarization {i+1}')
         
-        ax.set_xlabel('Wavelength (nm)', fontsize=12)
+        ax.set_xlabel(xlabel_text, fontsize=12)
         ax.set_ylabel('Extinction Cross Section (nm²)', fontsize=12)
-        ax.set_title('Polarization Comparison', fontsize=14, fontweight='bold')
+        ax.set_title('Polarization Comparison - Extinction', fontsize=14, fontweight='bold')
         ax.legend(fontsize=11)
         ax.grid(True, alpha=0.3)
         
+        if xaxis_unit == 'energy':
+            ax.invert_xaxis()
+        
         plt.tight_layout()
         
-        # Save plot
-        base_filename = 'simulation_polarization_comparison'
+        base_filename = 'simulation_polarization_extinction'
         saved_files = self._save_figure(fig, base_filename)
+        if saved_files:
+            saved_files_all.extend(saved_files)
         plt.close(fig)
         
-        return saved_files[0] if saved_files else None
+        # ========== Scattering Comparison ==========
+        fig, ax = plt.subplots(figsize=(10, 6))
+        
+        for i in range(n_pol):
+            ax.plot(xdata, scattering[:, i], 
+                   color=colors[i], linewidth=2, 
+                   label=f'Polarization {i+1}')
+        
+        ax.set_xlabel(xlabel_text, fontsize=12)
+        ax.set_ylabel('Scattering Cross Section (nm²)', fontsize=12)
+        ax.set_title('Polarization Comparison - Scattering', fontsize=14, fontweight='bold')
+        ax.legend(fontsize=11)
+        ax.grid(True, alpha=0.3)
+        
+        if xaxis_unit == 'energy':
+            ax.invert_xaxis()
+        
+        plt.tight_layout()
+        
+        base_filename = 'simulation_polarization_scattering'
+        saved_files = self._save_figure(fig, base_filename)
+        if saved_files:
+            saved_files_all.extend(saved_files)
+        plt.close(fig)
+        
+        # ========== Absorption Comparison ==========
+        fig, ax = plt.subplots(figsize=(10, 6))
+        
+        for i in range(n_pol):
+            ax.plot(xdata, absorption[:, i], 
+                   color=colors[i], linewidth=2, 
+                   label=f'Polarization {i+1}')
+        
+        ax.set_xlabel(xlabel_text, fontsize=12)
+        ax.set_ylabel('Absorption Cross Section (nm²)', fontsize=12)
+        ax.set_title('Polarization Comparison - Absorption', fontsize=14, fontweight='bold')
+        ax.legend(fontsize=11)
+        ax.grid(True, alpha=0.3)
+        
+        if xaxis_unit == 'energy':
+            ax.invert_xaxis()
+        
+        plt.tight_layout()
+        
+        base_filename = 'simulation_polarization_absorption'
+        saved_files = self._save_figure(fig, base_filename)
+        if saved_files:
+            saved_files_all.extend(saved_files)
+        plt.close(fig)
+        
+        return saved_files_all
     
     def plot_fields(self, data):
         """Plot electromagnetic field distributions."""

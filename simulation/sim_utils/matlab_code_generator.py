@@ -111,17 +111,13 @@ fprintf('  - RelCutoff: {relcutoff}\\n');
         return code
     
     def _generate_comparticle(self):
-        """Generate comparticle object creation."""
+        """Generate comparticle object creation with visualization."""
         materials = self.config['materials']
-        
-        # Determine inout configuration based on structure
         structure = self.config['structure']
         
         if 'core_shell' in structure:
-            # Core-shell: [medium, shell, core]
-            inout = '[2, 1]'  # shell material index 2, core material index 3
+            inout = '[2, 1]'
         else:
-            # Single material: [medium, particle]
             inout = '[2, 1]'
         
         code = f"""
@@ -129,6 +125,168 @@ fprintf('  - RelCutoff: {relcutoff}\\n');
 fprintf('\\nCreating comparticle object...\\n');
 p = comparticle(epstab, particles, {inout}, 1, op);
 fprintf('Comparticle created with %d boundary elements\\n', p.n);
+
+%% Visualize and Save Structure
+fprintf('\\nGenerating structure visualizations...\\n');
+
+try
+    % ========== 3D View with Coordinate System ==========
+    fig = figure('Visible', 'off', 'Position', [100, 100, 1000, 800]);
+    
+    % Main plot
+    subplot('Position', [0.1, 0.1, 0.75, 0.85]);
+    plot(p, 'EdgeColor', 'b', 'FaceColor', [0.8, 0.9, 1.0], 'FaceAlpha', 0.9);
+    axis equal;
+    xlabel('x (nm)', 'FontSize', 12, 'FontWeight', 'bold');
+    ylabel('y (nm)', 'FontSize', 12, 'FontWeight', 'bold');
+    zlabel('z (nm)', 'FontSize', 12, 'FontWeight', 'bold');
+    title('3D View', 'FontSize', 14, 'FontWeight', 'bold');
+    view(45, 30);
+    grid on;
+    box on;
+    lighting gouraud;
+    camlight('headlight');
+    
+    % Coordinate system indicator (small axes in corner)
+    ax_small = axes('Position', [0.85, 0.75, 0.12, 0.2]);
+    hold on;
+    arrow_len = 1;
+    quiver3(0, 0, 0, arrow_len, 0, 0, 'r', 'LineWidth', 3, 'MaxHeadSize', 1);
+    quiver3(0, 0, 0, 0, arrow_len, 0, 'g', 'LineWidth', 3, 'MaxHeadSize', 1);
+    quiver3(0, 0, 0, 0, 0, arrow_len, 'b', 'LineWidth', 3, 'MaxHeadSize', 1);
+    text(arrow_len*1.3, 0, 0, 'x', 'FontSize', 14, 'FontWeight', 'bold', 'Color', 'r');
+    text(0, arrow_len*1.3, 0, 'y', 'FontSize', 14, 'FontWeight', 'bold', 'Color', 'g');
+    text(0, 0, arrow_len*1.3, 'z', 'FontSize', 14, 'FontWeight', 'bold', 'Color', 'b');
+    axis equal;
+    axis off;
+    view(45, 30);
+    xlim([-0.3, 1.5]);
+    ylim([-0.3, 1.5]);
+    zlim([-0.3, 1.5]);
+    
+    print('structure_3D.png', '-dpng', '-r300');
+    fprintf('  ✓ 3D view saved\\n');
+    close(fig);
+    
+    % ========== XY View (Top) ==========
+    fig = figure('Visible', 'off', 'Position', [100, 100, 1000, 800]);
+    
+    % Main plot
+    subplot('Position', [0.1, 0.1, 0.75, 0.85]);
+    plot(p, 'EdgeColor', 'b', 'FaceColor', [0.8, 0.9, 1.0], 'FaceAlpha', 0.9);
+    axis equal;
+    xlabel('x (nm)', 'FontSize', 12, 'FontWeight', 'bold');
+    ylabel('y (nm)', 'FontSize', 12, 'FontWeight', 'bold');
+    title('XY View (Top View)', 'FontSize', 14, 'FontWeight', 'bold');
+    view(0, 90);
+    grid on;
+    box on;
+    lighting gouraud;
+    camlight('headlight');
+    
+    % Coordinate system indicator
+    ax_small = axes('Position', [0.85, 0.75, 0.12, 0.2]);
+    hold on;
+    arrow_len = 1;
+    quiver(0, 0, arrow_len, 0, 'r', 'LineWidth', 3, 'MaxHeadSize', 1);
+    quiver(0, 0, 0, arrow_len, 'g', 'LineWidth', 3, 'MaxHeadSize', 1);
+    text(arrow_len*1.3, 0, 'x', 'FontSize', 14, 'FontWeight', 'bold', 'Color', 'r');
+    text(0, arrow_len*1.3, 'y', 'FontSize', 14, 'FontWeight', 'bold', 'Color', 'g');
+    text(0.1, -0.5, 'z ⊗', 'FontSize', 14, 'FontWeight', 'bold', 'Color', 'b');
+    axis equal;
+    axis off;
+    xlim([-0.3, 1.5]);
+    ylim([-0.7, 1.5]);
+    
+    % Polarization indicators
+    text(0.1, -1.2, 'Pol-X →', 'FontSize', 12, 'FontWeight', 'bold', 'Color', [1, 0.5, 0]);
+    text(0.1, -1.5, 'Pol-Y ↑', 'FontSize', 12, 'FontWeight', 'bold', 'Color', [1, 0, 1]);
+    
+    print('structure_XY.png', '-dpng', '-r300');
+    fprintf('  ✓ XY view saved\\n');
+    close(fig);
+    
+    % ========== YZ View (Side) ==========
+    fig = figure('Visible', 'off', 'Position', [100, 100, 1000, 800]);
+    
+    % Main plot
+    subplot('Position', [0.1, 0.1, 0.75, 0.85]);
+    plot(p, 'EdgeColor', 'b', 'FaceColor', [0.8, 0.9, 1.0], 'FaceAlpha', 0.9);
+    axis equal;
+    ylabel('y (nm)', 'FontSize', 12, 'FontWeight', 'bold');
+    zlabel('z (nm)', 'FontSize', 12, 'FontWeight', 'bold');
+    title('YZ View (Side View)', 'FontSize', 14, 'FontWeight', 'bold');
+    view(0, 0);
+    grid on;
+    box on;
+    lighting gouraud;
+    camlight('headlight');
+    
+    % Coordinate system indicator
+    ax_small = axes('Position', [0.85, 0.75, 0.12, 0.2]);
+    hold on;
+    arrow_len = 1;
+    quiver(0, 0, arrow_len, 0, 'g', 'LineWidth', 3, 'MaxHeadSize', 1);
+    quiver(0, 0, 0, arrow_len, 'b', 'LineWidth', 3, 'MaxHeadSize', 1);
+    text(arrow_len*1.3, 0, 'y', 'FontSize', 14, 'FontWeight', 'bold', 'Color', 'g');
+    text(0, arrow_len*1.3, 'z', 'FontSize', 14, 'FontWeight', 'bold', 'Color', 'b');
+    text(-0.5, 0.1, '⊗ x', 'FontSize', 14, 'FontWeight', 'bold', 'Color', 'r');
+    axis equal;
+    axis off;
+    xlim([-0.7, 1.5]);
+    ylim([-0.3, 1.5]);
+    
+    % Polarization indicator
+    text(0.1, -1.2, 'Pol-Y ↑', 'FontSize', 12, 'FontWeight', 'bold', 'Color', [1, 0, 1]);
+    text(0.1, -1.5, 'k →', 'FontSize', 12, 'FontWeight', 'bold', 'Color', [0, 0.7, 0.7]);
+    
+    print('structure_YZ.png', '-dpng', '-r300');
+    fprintf('  ✓ YZ view saved\\n');
+    close(fig);
+    
+    % ========== ZX View (Front) ==========
+    fig = figure('Visible', 'off', 'Position', [100, 100, 1000, 800]);
+    
+    % Main plot
+    subplot('Position', [0.1, 0.1, 0.75, 0.85]);
+    plot(p, 'EdgeColor', 'b', 'FaceColor', [0.8, 0.9, 1.0], 'FaceAlpha', 0.9);
+    axis equal;
+    xlabel('x (nm)', 'FontSize', 12, 'FontWeight', 'bold');
+    zlabel('z (nm)', 'FontSize', 12, 'FontWeight', 'bold');
+    title('ZX View (Front View)', 'FontSize', 14, 'FontWeight', 'bold');
+    view(90, 0);
+    grid on;
+    box on;
+    lighting gouraud;
+    camlight('headlight');
+    
+    % Coordinate system indicator
+    ax_small = axes('Position', [0.85, 0.75, 0.12, 0.2]);
+    hold on;
+    arrow_len = 1;
+    quiver(0, 0, arrow_len, 0, 'r', 'LineWidth', 3, 'MaxHeadSize', 1);
+    quiver(0, 0, 0, arrow_len, 'b', 'LineWidth', 3, 'MaxHeadSize', 1);
+    text(arrow_len*1.3, 0, 'x', 'FontSize', 14, 'FontWeight', 'bold', 'Color', 'r');
+    text(0, arrow_len*1.3, 'z', 'FontSize', 14, 'FontWeight', 'bold', 'Color', 'b');
+    text(-0.5, 0.1, '⊗ y', 'FontSize', 14, 'FontWeight', 'bold', 'Color', 'g');
+    axis equal;
+    axis off;
+    xlim([-0.7, 1.5]);
+    ylim([-0.3, 1.5]);
+    
+    % Polarization indicator
+    text(0.1, -1.2, 'Pol-X →', 'FontSize', 12, 'FontWeight', 'bold', 'Color', [1, 0.5, 0]);
+    text(0.1, -1.5, 'k →', 'FontSize', 12, 'FontWeight', 'bold', 'Color', [0, 0.7, 0.7]);
+    
+    print('structure_ZX.png', '-dpng', '-r300');
+    fprintf('  ✓ ZX view saved\\n');
+    close(fig);
+    
+    fprintf('  ✓ All structure visualizations completed!\\n');
+    
+catch ME
+    fprintf('  Warning: Could not save structure plots: %s\\n', ME.message);
+end
 """
         return code
     
