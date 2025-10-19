@@ -6,7 +6,7 @@
 # Main execution script for MNPBEM simulations and postprocessing
 #
 # Usage:
-#   ./master.sh --structure <path> --simulation <path> [options]
+#   ./master.sh --str-conf <path> --sim-conf <path> [options]
 #
 # Options:
 #   --reanalyze    Skip MATLAB simulation, only run postprocessing
@@ -41,8 +41,8 @@ print_usage() {
 Usage: $0 [OPTIONS]
 
 Required:
-    --structure PATH       Path to structure configuration file
-    --simulation PATH      Path to simulation configuration file
+    --str-conf PATH       Path to structure configuration file
+    --sim-conf PATH      Path to simulation configuration file
 
 Options:
     --reanalyze            Skip MATLAB simulation, only reanalyze existing results
@@ -51,13 +51,13 @@ Options:
 
 Examples:
   # Run full simulation + postprocessing
-  ./master.sh --structure ./config/structures/sphere.py \\
-              --simulation ./config/simulations/config.py \\
+  ./master.sh --str-conf ./config/structures/sphere.py \\
+              --sim-conf ./config/simulations/config.py \\
               --verbose
 
   # Reanalyze existing results (skip MATLAB)
-  ./master.sh --structure ./config/structures/sphere.py \\
-              --simulation ./config/simulations/config.py \\
+  ./master.sh --str-conf ./config/structures/sphere.py \\
+              --sim-conf ./config/simulations/config.py \\
               --reanalyze \\
               --verbose
 
@@ -71,11 +71,11 @@ EOF
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --structure)
+        --str-conf)
             STRUCTURE_FILE="$2"
             shift 2
             ;;
-        --simulation)
+        --sim-conf)
             SIMULATION_FILE="$2"
             shift 2
             ;;
@@ -104,7 +104,7 @@ done
 # ============================================================================
 
 if [ -z "$STRUCTURE_FILE" ] || [ -z "$SIMULATION_FILE" ]; then
-    print_msg "Error: Both --structure and --simulation are required" "$RED"
+    print_msg "Error: Both --str-conf and --sim-conf are required" "$RED"
     print_usage
     exit 1
 fi
@@ -170,9 +170,9 @@ if [ "$REANALYZE_MODE" = true ]; then
     print_msg "📊 Reanalyzing results..." "$YELLOW"
     
     if [ "$VERBOSE" = true ]; then
-        python run_postprocess.py --structure "$STRUCTURE_FILE" --simulation "$SIMULATION_FILE" --verbose
+        python run_postprocess.py --str-conf "$STRUCTURE_FILE" --sim-conf "$SIMULATION_FILE" --verbose
     else
-        python run_postprocess.py --structure "$STRUCTURE_FILE" --simulation "$SIMULATION_FILE"
+        python run_postprocess.py --str-conf "$STRUCTURE_FILE" --sim-conf "$SIMULATION_FILE"
     fi
     
     POSTPROCESS_EXIT_CODE=$?
@@ -214,9 +214,9 @@ else
     
     TEMP_OUTPUT=$(mktemp)
     if [ "$VERBOSE" = true ]; then
-        python run_simulation.py --structure "$STRUCTURE_FILE" --simulation "$SIMULATION_FILE" --verbose 2>&1 | tee "$TEMP_OUTPUT"
+        python run_simulation.py --str-conf "$STRUCTURE_FILE" --sim-conf "$SIMULATION_FILE" --verbose 2>&1 | tee "$TEMP_OUTPUT"
     else
-        python run_simulation.py --structure "$STRUCTURE_FILE" --simulation "$SIMULATION_FILE" 2>&1 | tee "$TEMP_OUTPUT"
+        python run_simulation.py --str-conf "$STRUCTURE_FILE" --sim-conf "$SIMULATION_FILE" 2>&1 | tee "$TEMP_OUTPUT"
     fi
     
     PYTHON_EXIT_CODE=$?
@@ -319,9 +319,9 @@ except Exception as e:
     echo "args['output_dir'] = '$RUN_FOLDER'" >> "$TEMP_SIM_CONFIG"
     
     if [ "$VERBOSE" = true ]; then
-        python run_postprocess.py --structure "$STRUCTURE_FILE" --simulation "$TEMP_SIM_CONFIG" --verbose 2>&1 | tee -a "$RUN_FOLDER/logs/pipeline.log"
+        python run_postprocess.py --str-conf "$STRUCTURE_FILE" --sim-conf "$TEMP_SIM_CONFIG" --verbose 2>&1 | tee -a "$RUN_FOLDER/logs/pipeline.log"
     else
-        python run_postprocess.py --structure "$STRUCTURE_FILE" --simulation "$TEMP_SIM_CONFIG" >> "$RUN_FOLDER/logs/pipeline.log" 2>&1
+        python run_postprocess.py --str-conf "$STRUCTURE_FILE" --sim-conf "$TEMP_SIM_CONFIG" >> "$RUN_FOLDER/logs/pipeline.log" 2>&1
     fi
     
     POSTPROCESS_EXIT_CODE=$?
