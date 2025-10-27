@@ -1,165 +1,261 @@
 """
-Simulation Configuration for Voxel Structure
+MNPBEM Simulation Configuration
 
-This config defines the electromagnetic simulation parameters
-for extinction/scattering spectra calculation.
+This file defines simulation parameters: excitation, wavelengths, 
+numerical settings, and output options.
 """
+
 import os
 from pathlib import Path
 
 args = {}
 
 # ============================================================================
-# SIMULATION NAME
+# MNPBEM TOOLBOX PATH (REQUIRED)
 # ============================================================================
-args['simulation_name'] = 'voxel_extinction_spectrum'
+# Path to your MNPBEM installation directory
+# This path will be added to MATLAB's search path during execution
 
-# ============================================================================
-# OUTPUT DIRECTORY
-# ============================================================================
-args['output_dir'] = os.path.join(Path.home(), 'research/mnpbem/test')
-
-# ============================================================================
-# MNPBEM PATH (MATLAB Toolbox)
-# ============================================================================
-# UPDATE THIS to your actual MNPBEM installation path
 args['mnpbem_path'] = '/home/yoojk20/workspace/MNPBEM'
 
-# Example paths:
-# args['mnpbem_path'] = '/home/user/MNPBEM17'
-# args['mnpbem_path'] = '/opt/MNPBEM17'
+# Examples:
+# args['mnpbem_path'] = '/usr/local/MNPBEM17'
+# args['mnpbem_path'] = Path.home() / 'MNPBEM'
+# args['mnpbem_path'] = '/opt/mnpbem/MNPBEM17'
+
+# ============================================================================
+# SIMULATION NAME (IDENTIFIER)
+# ============================================================================
+# Give your simulation a descriptive name
+args['simulation_name'] = 'voxel_extinction_spectrum'
 
 # ============================================================================
 # SIMULATION TYPE
 # ============================================================================
-# 'stat' = Quasistatic approximation (fast, for small particles << wavelength)
-# 'ret'  = Full retarded solution (accurate for all sizes)
+# Simulation method:
+#   - 'stat' : Quasistatic approximation (fast, suitable for small particles <50nm)
+#   - 'ret'  : Retarded/full Maxwell equations (accurate, for larger particles >50nm)
+
 args['simulation_type'] = 'ret'
+
+# Interpolation method:
+#   - 'curv' : Curved boundary elements (more accurate, recommended)
+#   - 'flat' : Flat boundary elements (faster, less accurate)
+
+args['interp'] = 'curv'
+
+# Wait bar (progress indicator):
+#   - 0 : Off (recommended for batch jobs)
+#   - 1 : On (shows progress in MATLAB)
+
+args['waitbar'] = 1
 
 # ============================================================================
 # EXCITATION TYPE
 # ============================================================================
+# Type of excitation:
+#   - 'planewave' : Plane wave illumination (most common)
+#   - 'dipole'    : Point dipole excitation (for LDOS, decay rates)
+#   - 'eels'      : Electron energy loss spectroscopy
+
 args['excitation_type'] = 'planewave'
 
-# Plane wave parameters
-# Polarization: [x, y, z] components
-# For x-polarized light: [1, 0, 0]
-# For y-polarized light: [0, 1, 0]
-# For z-polarized light: [0, 0, 1]
-# For circular polarization: [1, 1j, 0] (need to modify code for complex)
+# --- Plane Wave Configuration ---
+# Only used if excitation_type == 'planewave'
+
+# Polarization direction(s) - can specify multiple
+# Each polarization is a 3D vector [x, y, z]
 args['polarizations'] = [
-    [1, 0, 0],  # x-polarized
+    [1, 0, 0],  # x-polarization
+    [0, 1, 0],  # y-polarization
 ]
 
-# Propagation direction: [x, y, z] vector
-# For light propagating along +z: [0, 0, 1]
-# For light propagating along -z: [0, 0, -1]
+# Propagation direction(s) - can specify multiple
+# Each direction is a 3D unit vector [x, y, z]
 args['propagation_dirs'] = [
-    [0, 0, 1],  # propagating along +z axis
+    [0, 0, 1],  # Propagating in +z direction
+    [0, 0, 1],  # Propagating in +z direction (for 2nd polarization)
 ]
 
-# To scan multiple angles, add more entries:
-# args['polarizations'] = [[1, 0, 0]] * 10
+# --- Dipole Configuration ---
+# Only used if excitation_type == 'dipole'
+
+# args['dipole_position'] = [0, 0, 15]  # Position in nm [x, y, z]
+# args['dipole_moment'] = [0, 0, 1]     # Dipole moment direction [x, y, z]
+
+# --- EELS Configuration ---
+# Only used if excitation_type == 'eels'
+
+# args['impact_parameter'] = [10, 0]  # Impact parameter in nm [x, y]
+# args['beam_energy'] = 200e3         # Beam energy in eV
+# args['beam_width'] = 0.2            # Beam width in nm
+
+# ============================================================================
+# WAVELENGTH RANGE
+# ============================================================================
+# Wavelength range for spectrum calculation
+# Format: [start_nm, end_nm, num_points]
+
+args['wavelength_range'] = [400, 800, 100]  # 400-800 nm, 100 points
+
+# Examples:
+# args['wavelength_range'] = [300, 1500, 240]  # Broad UV to NIR
+# args['wavelength_range'] = [550, 550, 1]     # Single wavelength
+
+# ============================================================================
+# NUMERICAL ACCURACY PARAMETERS
+# ============================================================================
+
+# Refinement level for numerical integration
+# Higher = more accurate but slower
+# Typical values: 1-3
+args['refine'] = 0
+
+# Relative cutoff for interaction matrices
+# CORRECTED: Default should be 3 (recommended by MNPBEM)
+# Higher = more accurate but more memory
+# Typical values: 2-3, default is 3 for sufficient accuracy
+args['relcutoff'] = 3
+
+# ============================================================================
+# CALCULATION OPTIONS
+# ============================================================================
+
+# Calculate optical cross sections (scattering, absorption, extinction)
+args['calculate_cross_sections'] = True
+
+# Calculate electric field distribution
+args['calculate_fields'] = True
+
+# Field calculation region (only used if calculate_fields=True)
+args['field_region'] = {
+    'x_range': [-80, 80, 161],  # [min, max, num_points] in nm
+    'y_range': [0, 0, 1],       # xz-plane at y=0
+    'z_range': [-80, 80, 161]   # [min, max, num_points] in nm
+}
+
+# Field calculation options
+args['field_mindist'] = 0.5     # Minimum distance from particle surface (nm)
+args['field_nmax'] = 2000       # Work off calculation in portions (for large grids)
+args['field_wavelength_idx'] = 'middle'  # Which wavelength to calculate fields: 'middle', 'peak', or integer index
+
+# ============================================================================
+# FIELD DATA EXPORT OPTIONS (NEW)
+# ============================================================================
+
+# Export field arrays to JSON (can create large files!)
+# Set to True only if you need field data in JSON format
+# Full resolution data is always available in field_data.mat
+args['export_field_arrays'] = False  # Exports downsampled field arrays to JSON
+
+# Field analysis options
+args['field_hotspot_count'] = 10  # Number of hotspots to identify
+args['field_hotspot_min_distance'] = 3  # Minimum distance between hotspots (grid points)
+
+# ============================================================================
+# OUTPUT SETTINGS
+# ============================================================================
+
+# Output directory for results
+args['output_dir'] = os.path.join(Path.home(), 'research/mnpbem/test')
+
+# Data file save formats (for postprocessing)
+# Available: 'txt', 'csv', 'json'
+# Note: MATLAB always saves 'txt' and 'mat' formats automatically
+args['output_formats'] = ['txt', 'csv', 'json']
+
+# Generate plots
+args['save_plots'] = True
+
+# Plot formats
+# Available: 'png', 'pdf', 'eps', 'svg'
+args['plot_format'] = ['png', 'pdf']
+
+# Plot DPI (resolution)
+args['plot_dpi'] = 300
+args['spectrum_xaxis'] = 'energy'
+
+# ============================================================================
+# ADVANCED OPTIONS
+# ============================================================================
+
+# Mirror symmetry (for reducing computation time)
+# Options: False, 'x', 'y', 'z', 'xy', 'xz', 'yz'
+# Only use if your structure and excitation have the appropriate symmetry
+args['use_mirror_symmetry'] = False
+
+# Example: Use x-symmetry for symmetric dimer with x-polarization
+# args['use_mirror_symmetry'] = 'x'
+
+# Iterative solver (for very large structures with >10,000 elements)
+# Uses less memory but may be slower
+# Enable if you encounter out-of-memory errors
+args['use_iterative_solver'] = True
+
+# Nonlocal effects (advanced, for very small particles <5nm)
+# Includes quantum effects at metal surfaces
+# Requires additional setup
+args['use_nonlocality'] = False
+
+# ============================================================================
+# MATLAB SETTINGS (ADVANCED)
+# ============================================================================
+
+# MATLAB executable path
+# Options:
+#   - 'matlab' : Use system default
+#   - '/path/to/matlab' : Use specific installation
+
+args['matlab_executable'] = 'matlab'
+
+# MATLAB command-line options
+args['matlab_options'] = '-nodisplay -nosplash -nodesktop'
+
+# ============================================================================
+# ADDITIONAL SIMULATION EXAMPLES
+# ============================================================================
+
+# Example 1: Single wavelength field calculation
+# args['wavelength_range'] = [550, 550, 1]  # Single wavelength
+# args['calculate_fields'] = True
+# args['field_region'] = {
+#     'x_range': [-100, 100, 201],
+#     'y_range': [-100, 100, 201],
+#     'z_range': [0, 0, 1]
+# }
+
+# Example 2: Broadband spectrum (UV to NIR)
+# args['wavelength_range'] = [300, 1500, 240]
+# args['simulation_type'] = 'ret'  # Use retarded for broad range
+
+# Example 3: Angle-resolved measurements
+# args['polarizations'] = [[1, 0, 0]] * 37  # Same polarization
+# # Generate angles from 0° to 90°
 # import numpy as np
-# angles = np.linspace(0, 90, 10)
+# angles = np.linspace(0, 90, 37)
 # args['propagation_dirs'] = [
 #     [0, np.sin(np.deg2rad(a)), np.cos(np.deg2rad(a))] 
 #     for a in angles
 # ]
 
-# ============================================================================
-# WAVELENGTH RANGE
-# ============================================================================
-# Format: [start_nm, end_nm, num_points]
-# Visible range (400-800 nm) with 80 points
-args['wavelength_range'] = [400, 800, 80]
-
-# Other common ranges:
-# UV-Vis-NIR: [300, 1500, 240]
-# Visible only: [400, 700, 60]
-# NIR: [700, 1500, 160]
-
-# ============================================================================
-# ACCURACY SETTINGS
-# ============================================================================
-
-# Mesh refinement level (1-3)
-# Higher = more accurate but slower
-# 1: Coarse (fast)
-# 2: Medium (recommended)
-# 3: Fine (accurate but slow)
-args['refine'] = 2
-
-# Relative cutoff for field calculations
-# Higher = more accurate but slower
-# Typical values: 2-4
-args['relcutoff'] = 2
-
-# ============================================================================
-# FIELD CALCULATION (OPTIONAL)
-# ============================================================================
-
-# Set to True to calculate electromagnetic field enhancement
-args['calculate_fields'] = False
-
-# If calculate_fields = True, define the field calculation region:
-# args['calculate_fields'] = True
-# args['field_region'] = {
-#     'x_range': [-100, 100, 101],  # [min, max, num_points] in nm
-#     'y_range': [-100, 100, 101],
-#     'z_range': [0, 0, 1]  # Single z-plane at z=0
-# }
-
-# For a single plane (faster):
-# args['field_region'] = {
-#     'x_range': [-100, 100, 201],
-#     'y_range': [-100, 100, 201],
-#     'z_range': [0, 0, 1]  # z=0 plane only
-# }
-
-# For 3D volume (slow):
-# args['field_region'] = {
-#     'x_range': [-100, 100, 51],
-#     'y_range': [-100, 100, 51],
-#     'z_range': [-100, 100, 51]
-# }
-
-# ============================================================================
-# VISUALIZATION
-# ============================================================================
-
-# Save figures
-args['save_figures'] = True
-
-# Figure format: 'png', 'pdf', or 'both'
-args['figure_format'] = 'both'
-
-# Figure resolution (DPI)
-args['dpi'] = 300
-
-# ============================================================================
-# ADVANCED OPTIONS (Usually don't need to change)
-# ============================================================================
-
-# Interpolation method
-# args['interp'] = 'curv'  # Default: 'curv'
-
-# Show waitbar during MATLAB execution
-# args['waitbar'] = 0  # 0=off, 1=on
-
-# ============================================================================
-# ALTERNATIVE EXCITATION TYPES
-# ============================================================================
-
-# --- Dipole Excitation ---
-# Uncomment to use dipole source instead of plane wave
+# Example 4: Dipole emission study
 # args['excitation_type'] = 'dipole'
-# args['dipole_position'] = [0, 0, 10]  # Position in nm
-# args['dipole_moment'] = [0, 0, 1]     # Moment direction [x, y, z]
+# args['dipole_position'] = [0, 0, 10]
+# args['dipole_moment'] = [0, 0, 1]
+# args['wavelength_range'] = [400, 800, 80]
 
-# --- EELS (Electron Energy Loss Spectroscopy) ---
-# Uncomment to simulate EELS
+# Example 5: EELS line scan
 # args['excitation_type'] = 'eels'
-# args['beam_energy'] = 200e3  # Electron beam energy in eV (e.g., 200 keV)
-# args['beam_width'] = 0.2     # Beam width in nm
-# args['impact_parameter'] = [10, 0]  # Impact parameter [b, phi] in nm
+# args['beam_energy'] = 200e3
+# args['beam_width'] = 0.2
+# # For line scan, vary impact_parameter in a loop (not shown here)
+# args['impact_parameter'] = [10, 0]
+
+# Example 6: High accuracy calculation with field
+# args['refine'] = 3
+# args['relcutoff'] = 3
+# args['mesh_density'] = 288  # Double standard density (set in structure config)
+# args['simulation_type'] = 'ret'
+# args['calculate_fields'] = True
+# args['export_field_arrays'] = True  # Export field arrays to JSON
+
