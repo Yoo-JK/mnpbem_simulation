@@ -510,10 +510,4 @@ end
     def _closed_from_shape(self):
         """Closed surfaces for DDA shape file."""
         # For DDA shape files, all particles are closed
-        n_materials = len(self.config.get('materials', []))
-        
-        if n_materials == 1:
-            return "closed = 1;"
-        else:
-            closed_indices = list(range(1, n_materials + 1))
-            return f"closed = [{', '.join(map(str, closed_indices))}];"
+        return "closed = [];"

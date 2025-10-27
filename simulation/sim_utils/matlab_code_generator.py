@@ -112,18 +112,10 @@ fprintf('  - RelCutoff: {relcutoff}\\n');
     
     def _generate_comparticle(self):
         """Generate comparticle object creation with visualization."""
-        materials = self.config['materials']
-        structure = self.config['structure']
-        
-        if 'core_shell' in structure:
-            inout = '[2, 1]'
-        else:
-            inout = '[2, 1]'
-        
         code = f"""
 %% Create Comparticle Object
 fprintf('\\nCreating comparticle object...\\n');
-p = comparticle(epstab, particles, {inout}, 1, op);
+p = comparticle(epstab, particles, inout, closed, op);
 fprintf('Comparticle created with %d boundary elements\\n', p.n);
 
 %% Visualize and Save Structure
