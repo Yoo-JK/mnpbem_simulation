@@ -5,6 +5,7 @@ Generates MATLAB code for creating various nanoparticle geometries.
 Supports:
   - Built-in structures (MNPBEM predefined shapes)
   - DDA .shape files (with material indices)
+  - Large mesh support via .mat file export
 """
 
 import numpy as np
@@ -214,14 +215,16 @@ class ShapeFileLoader:
         
         return np.array(all_verts), np.array(all_faces)
     
-    def generate_matlab_code(self, material_names):
+    def generate_matlab_code(self, material_names, output_dir=None):
         """
         Generate MATLAB code for all material particles.
+        For large meshes, saves data to .mat files instead of inline arrays.
         
         Args:
             material_names: List or dict of material names
                            If list: materials[0] corresponds to mat_idx=1, etc.
                            If dict: {mat_idx: material_name}
+            output_dir: Directory to save .mat files (for large meshes)
         
         Returns:
             str: MATLAB code for creating all particles
@@ -249,7 +252,20 @@ fprintf('  Number of materials: %d\\n', {n_materials});
             n_materials=len(self.unique_materials)
         )
         
-        # Generate code for each material
+        # Check if we need to use .mat files (large meshes)
+        use_mat_files = False
+        total_vertices = sum(len(data['vertices']) for data in self.material_particles.values())
+        
+        # Use .mat files if total vertices > 100k
+        if total_vertices > 100000:
+            use_mat_files = True
+            if output_dir is None:
+                raise ValueError("output_dir must be provided for large meshes (>100k vertices)")
+            
+            if self.verbose:
+                print(f"  Large mesh detected ({total_vertices} vertices)")
+                print(f"  Saving geometry data to .mat files in {output_dir}")
+        
         particles_list = []
         
         for mat_idx in sorted(self.unique_materials):
@@ -259,10 +275,45 @@ fprintf('  Number of materials: %d\\n', {n_materials});
             
             mat_name = mat_name_dict.get(mat_idx, f'material_{mat_idx}')
             
-            # Generate MATLAB arrays
-            verts_str, faces_str = self._arrays_to_matlab(vertices, faces)
-            
-            code += f"""
+            if use_mat_files:
+                # Save to .mat file
+                try:
+                    import scipy.io as sio
+                except ImportError:
+                    raise ImportError("scipy is required for saving large meshes. Install with: pip install scipy")
+                
+                mat_filename = f'geometry_mat{mat_idx}.mat'
+                mat_filepath = Path(output_dir) / mat_filename
+                
+                # Save with compression
+                sio.savemat(
+                    str(mat_filepath),
+                    {
+                        f'verts_{mat_idx}': vertices,
+                        f'faces_{mat_idx}': faces
+                    },
+                    do_compression=True
+                )
+                
+                if self.verbose:
+                    print(f"    Saved material {mat_idx} to {mat_filename}")
+                
+                # Generate MATLAB code to load from file
+                code += f"""
+% Material index {mat_idx}: {mat_name}
+fprintf('  Loading material {mat_idx} ({mat_name}) from file...\\n');
+geom_data_{mat_idx} = load('{mat_filename}');
+verts_{mat_idx} = geom_data_{mat_idx}.verts_{mat_idx};
+faces_{mat_idx} = geom_data_{mat_idx}.faces_{mat_idx};
+p{mat_idx} = particle(verts_{mat_idx}, faces_{mat_idx});
+fprintf('  Material {mat_idx} ({mat_name}): %d vertices, %d faces\\n', ...
+        size(verts_{mat_idx}, 1), size(faces_{mat_idx}, 1));
+"""
+            else:
+                # Generate inline MATLAB arrays (original method)
+                verts_str, faces_str = self._arrays_to_matlab(vertices, faces)
+                
+                code += f"""
 % Material index {mat_idx}: {mat_name}
 verts_{mat_idx} = {verts_str};
 faces_{mat_idx} = {faces_str};
@@ -270,6 +321,7 @@ p{mat_idx} = particle(verts_{mat_idx}, faces_{mat_idx});
 fprintf('  Material {mat_idx} ({mat_name}): %d vertices, %d faces\\n', ...
         size(verts_{mat_idx}, 1), size(faces_{mat_idx}, 1));
 """
+            
             particles_list.append(f'p{mat_idx}')
         
         # Create particles cell array
@@ -546,6 +598,9 @@ particles = {{shell1, core1, shell2, core2}};
         if not materials:
             raise ValueError("'materials' list must be specified for DDA shape files")
         
+        # Get output directory for saving .mat files
+        output_dir = self.config.get('output_dir', './results')
+        
         if self.verbose:
             print(f"Loading DDA shape file...")
         
@@ -553,7 +608,7 @@ particles = {{shell1, core1, shell2, core2}};
         loader = ShapeFileLoader(shape_file, voxel_size=voxel_size, method=method, verbose=self.verbose)
         loader.load()
         
-        # Generate MATLAB code with material names
-        code = loader.generate_matlab_code(materials)
+        # Generate MATLAB code with material names and output directory
+        code = loader.generate_matlab_code(materials, output_dir=output_dir)
         
         return code
