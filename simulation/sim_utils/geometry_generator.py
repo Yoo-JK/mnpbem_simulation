@@ -50,7 +50,37 @@ class ShapeFileLoader:
         
         # Load shape file: expected format [i, j, k, mat_type]
         # Some DDA files have additional columns (Jx, Jy, Jz), we only need first 4
-        data = np.loadtxt(self.shape_path, dtype=int)
+        # Also skip header lines like "Nmat=2"
+        
+        # Read file and skip non-numeric lines
+        data_lines = []
+        with open(self.shape_path, 'r') as f:
+            for line in f:
+                line = line.strip()
+                # Skip empty lines
+                if not line:
+                    continue
+                # Skip lines that don't start with a digit or minus sign
+                if not (line[0].isdigit() or line[0] == '-'):
+                    if self.verbose:
+                        print(f"    Skipping header/comment line: {line}")
+                    continue
+                # Try to parse the line
+                try:
+                    parts = line.split()
+                    if len(parts) >= 4:
+                        # Convert first 4 columns to integers
+                        i, j, k, mat_type = int(parts[0]), int(parts[1]), int(parts[2]), int(parts[3])
+                        data_lines.append([i, j, k, mat_type])
+                except (ValueError, IndexError):
+                    if self.verbose:
+                        print(f"    Skipping invalid line: {line}")
+                    continue
+        
+        if not data_lines:
+            raise ValueError(f"No valid voxel data found in {self.shape_path}")
+        
+        data = np.array(data_lines, dtype=int)
         
         if data.ndim == 1:
             data = data.reshape(1, -1)
