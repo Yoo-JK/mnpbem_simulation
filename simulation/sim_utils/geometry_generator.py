@@ -189,6 +189,7 @@ class ShapeFileLoader:
             [0, 0, 1], [1, 0, 1], [1, 1, 1], [0, 1, 1]
         ], dtype=float)
         
+        # MATLAB uses 1-based indexing, so face indices start from 1
         cube_face_template = np.array([
             [1, 2, 3], [1, 3, 4],  # bottom
             [5, 8, 7], [5, 7, 6],  # top
@@ -209,6 +210,7 @@ class ShapeFileLoader:
             cube_verts[:, 1] += j * self.voxel_size
             cube_verts[:, 2] += k * self.voxel_size
             
+            # Vertex offset in 1-based indexing
             vert_offset = len(all_verts)
             all_verts.extend(cube_verts)
             all_faces.extend(cube_face_template + vert_offset)
@@ -285,12 +287,19 @@ fprintf('  Number of materials: %d\\n', {n_materials});
                 mat_filename = f'geometry_mat{mat_idx}.mat'
                 mat_filepath = Path(output_dir) / mat_filename
                 
+                # IMPORTANT: MATLAB uses 1-based indexing
+                # Check if faces need conversion (0-based to 1-based)
+                faces_matlab = faces.copy()
+                if faces_matlab.min() == 0:
+                    # Convert 0-based to 1-based indexing
+                    faces_matlab = faces_matlab + 1
+                
                 # Save with compression
                 sio.savemat(
                     str(mat_filepath),
                     {
                         f'verts_{mat_idx}': vertices,
-                        f'faces_{mat_idx}': faces
+                        f'faces_{mat_idx}': faces_matlab
                     },
                     do_compression=True
                 )
@@ -305,7 +314,7 @@ fprintf('  Loading material {mat_idx} ({mat_name}) from file...\\n');
 geom_data_{mat_idx} = load('{mat_filename}');
 verts_{mat_idx} = geom_data_{mat_idx}.verts_{mat_idx};
 faces_{mat_idx} = geom_data_{mat_idx}.faces_{mat_idx};
-p{mat_idx} = particle(verts_{mat_idx}, faces_{mat_idx});
+p{mat_idx} = particle(verts_{mat_idx}, faces_{mat_idx}, op);
 fprintf('  Material {mat_idx} ({mat_name}): %d vertices, %d faces\\n', ...
         size(verts_{mat_idx}, 1), size(faces_{mat_idx}, 1));
 """
@@ -317,7 +326,7 @@ fprintf('  Material {mat_idx} ({mat_name}): %d vertices, %d faces\\n', ...
 % Material index {mat_idx}: {mat_name}
 verts_{mat_idx} = {verts_str};
 faces_{mat_idx} = {faces_str};
-p{mat_idx} = particle(verts_{mat_idx}, faces_{mat_idx});
+p{mat_idx} = particle(verts_{mat_idx}, faces_{mat_idx}, op);
 fprintf('  Material {mat_idx} ({mat_name}): %d vertices, %d faces\\n', ...
         size(verts_{mat_idx}, 1), size(faces_{mat_idx}, 1));
 """
