@@ -176,9 +176,9 @@ class ShapeFileLoader:
                         
                         vert_indices.append(vertex_map[vert_key] + 1)  # MATLAB 1-indexing
                     
-                    # Split quad to triangles
-                    faces_list.append([vert_indices[0], vert_indices[1], vert_indices[2]])
-                    faces_list.append([vert_indices[0], vert_indices[2], vert_indices[3]])
+                    # Split quad to triangles (with NaN for 4th column to mark as triangles)
+                    faces_list.append([vert_indices[0], vert_indices[1], vert_indices[2], np.nan])
+                    faces_list.append([vert_indices[0], vert_indices[2], vert_indices[3], np.nan])
         
         return np.array(vertices_list), np.array(faces_list)
     
@@ -190,13 +190,14 @@ class ShapeFileLoader:
         ], dtype=float)
         
         # MATLAB uses 1-based indexing, so face indices start from 1
+        # Add NaN as 4th column to mark triangular faces
         cube_face_template = np.array([
-            [1, 2, 3], [1, 3, 4],  # bottom
-            [5, 8, 7], [5, 7, 6],  # top
-            [1, 5, 6], [1, 6, 2],  # front
-            [4, 3, 7], [4, 7, 8],  # back
-            [1, 4, 8], [1, 8, 5],  # left
-            [2, 6, 7], [2, 7, 3]   # right
+            [1, 2, 3, np.nan], [1, 3, 4, np.nan],  # bottom
+            [5, 8, 7, np.nan], [5, 7, 6, np.nan],  # top
+            [1, 5, 6, np.nan], [1, 6, 2, np.nan],  # front
+            [4, 3, 7, np.nan], [4, 7, 8, np.nan],  # back
+            [1, 4, 8, np.nan], [1, 8, 5, np.nan],  # left
+            [2, 6, 7, np.nan], [2, 7, 3, np.nan]   # right
         ])
         
         all_verts = []
@@ -220,49 +221,37 @@ class ShapeFileLoader:
     def generate_matlab_code(self, material_names, output_dir=None):
         """
         Generate MATLAB code for all material particles.
-        For large meshes, saves data to .mat files instead of inline arrays.
-        
-        Args:
-            material_names: List or dict of material names
-                           If list: materials[0] corresponds to mat_idx=1, etc.
-                           If dict: {mat_idx: material_name}
-            output_dir: Directory to save .mat files (for large meshes)
-        
-        Returns:
-            str: MATLAB code for creating all particles
         """
         if self.material_particles is None:
             raise RuntimeError("Shape file not loaded. Call load() first.")
         
         # Convert material_names to dict if it's a list
         if isinstance(material_names, list):
-            # Map: mat_idx (1-based in DDA) → material name
             mat_name_dict = {i+1: name for i, name in enumerate(material_names)}
         else:
             mat_name_dict = material_names
         
         code = """
-%% Geometry: From DDA Shape File
-fprintf('Creating particles from DDA shape file...\\n');
-fprintf('  Voxel size: %.2f nm\\n', {voxel_size});
-fprintf('  Method: {method}\\n');
-fprintf('  Number of materials: %d\\n', {n_materials});
+    %% Geometry: From DDA Shape File
+    fprintf('Creating particles from DDA shape file...\\n');
+    fprintf('  Voxel size: %.2f nm\\n', {voxel_size});
+    fprintf('  Method: {method}\\n');
+    fprintf('  Number of materials: %d\\n', {n_materials});
 
-""".format(
+    """.format(
             voxel_size=self.voxel_size,
             method=self.method,
             n_materials=len(self.unique_materials)
         )
         
-        # Check if we need to use .mat files (large meshes)
+        # Check if we need to use .mat files
         use_mat_files = False
         total_vertices = sum(len(data['vertices']) for data in self.material_particles.values())
         
-        # Use .mat files if total vertices > 100k
         if total_vertices > 100000:
             use_mat_files = True
             if output_dir is None:
-                raise ValueError("output_dir must be provided for large meshes (>100k vertices)")
+                raise ValueError("output_dir must be provided for large meshes")
             
             if self.verbose:
                 print(f"  Large mesh detected ({total_vertices} vertices)")
@@ -278,23 +267,18 @@ fprintf('  Number of materials: %d\\n', {n_materials});
             mat_name = mat_name_dict.get(mat_idx, f'material_{mat_idx}')
             
             if use_mat_files:
-                # Save to .mat file
                 try:
                     import scipy.io as sio
                 except ImportError:
-                    raise ImportError("scipy is required for saving large meshes. Install with: pip install scipy")
+                    raise ImportError("scipy is required for saving large meshes")
                 
                 mat_filename = f'geometry_mat{mat_idx}.mat'
                 mat_filepath = Path(output_dir) / mat_filename
                 
-                # IMPORTANT: MATLAB uses 1-based indexing
-                # Check if faces need conversion (0-based to 1-based)
                 faces_matlab = faces.copy()
                 if faces_matlab.min() == 0:
-                    # Convert 0-based to 1-based indexing
                     faces_matlab = faces_matlab + 1
                 
-                # Save with compression
                 sio.savemat(
                     str(mat_filepath),
                     {
@@ -307,33 +291,36 @@ fprintf('  Number of materials: %d\\n', {n_materials});
                 if self.verbose:
                     print(f"    Saved material {mat_idx} to {mat_filename}")
                 
-                # Generate MATLAB code to load from file
+                # ===== 수정 부분: 'flat' interpolation 명시 =====
                 code += f"""
-% Material index {mat_idx}: {mat_name}
-fprintf('  Loading material {mat_idx} ({mat_name}) from file...\\n');
-geom_data_{mat_idx} = load('{mat_filename}');
-verts_{mat_idx} = geom_data_{mat_idx}.verts_{mat_idx};
-faces_{mat_idx} = geom_data_{mat_idx}.faces_{mat_idx};
-p{mat_idx} = particle(verts_{mat_idx}, faces_{mat_idx}, op);
-fprintf('  Material {mat_idx} ({mat_name}): %d vertices, %d faces\\n', ...
-        size(verts_{mat_idx}, 1), size(faces_{mat_idx}, 1));
-"""
+    % Material index {mat_idx}: {mat_name}
+    fprintf('  Loading material {mat_idx} ({mat_name}) from file...\\n');
+    geom_data_{mat_idx} = load('{mat_filename}');
+    verts_{mat_idx} = geom_data_{mat_idx}.verts_{mat_idx};
+    faces_{mat_idx} = geom_data_{mat_idx}.faces_{mat_idx};
+
+    % DDA meshes use flat triangular faces only
+    p{mat_idx} = particle(verts_{mat_idx}, faces_{mat_idx}, op, 'interp', 'flat');
+    fprintf('  Material {mat_idx} ({mat_name}): %d vertices, %d faces\\n', ...
+            size(verts_{mat_idx}, 1), size(faces_{mat_idx}, 1));
+    """
             else:
-                # Generate inline MATLAB arrays (original method)
                 verts_str, faces_str = self._arrays_to_matlab(vertices, faces)
                 
+                # ===== 수정 부분: 'flat' interpolation 명시 =====
                 code += f"""
-% Material index {mat_idx}: {mat_name}
-verts_{mat_idx} = {verts_str};
-faces_{mat_idx} = {faces_str};
-p{mat_idx} = particle(verts_{mat_idx}, faces_{mat_idx}, op);
-fprintf('  Material {mat_idx} ({mat_name}): %d vertices, %d faces\\n', ...
-        size(verts_{mat_idx}, 1), size(faces_{mat_idx}, 1));
-"""
+    % Material index {mat_idx}: {mat_name}
+    verts_{mat_idx} = {verts_str};
+    faces_{mat_idx} = {faces_str};
+
+    % DDA meshes use flat triangular faces only
+    p{mat_idx} = particle(verts_{mat_idx}, faces_{mat_idx}, op, 'interp', 'flat');
+    fprintf('  Material {mat_idx} ({mat_name}): %d vertices, %d faces\\n', ...
+            size(verts_{mat_idx}, 1), size(faces_{mat_idx}, 1));
+    """
             
             particles_list.append(f'p{mat_idx}')
         
-        # Create particles cell array
         particles_str = ', '.join(particles_list)
         code += f"\nparticles = {{{particles_str}}};\n"
         
@@ -347,10 +334,18 @@ fprintf('  Material {mat_idx} ({mat_name}): %d vertices, %d faces\\n', ...
             verts_str += f"    {v[0]:.6f}, {v[1]:.6f}, {v[2]:.6f};\n"
         verts_str += "]"
         
-        # Faces
+        # Faces (with 4th column for MNPBEM format: NaN for triangles)
         faces_str = "[\n"
         for f in faces:
-            faces_str += f"    {f[0]}, {f[1]}, {f[2]};\n"
+            if len(f) >= 4:
+                # Check if 4th element is NaN
+                if np.isnan(f[3]):
+                    faces_str += f"    {int(f[0])}, {int(f[1])}, {int(f[2])}, NaN;\n"
+                else:
+                    faces_str += f"    {int(f[0])}, {int(f[1])}, {int(f[2])}, {int(f[3])};\n"
+            else:
+                # Old format: 3 columns only, add NaN
+                faces_str += f"    {int(f[0])}, {int(f[1])}, {int(f[2])}, NaN;\n"
         faces_str += "]"
         
         return verts_str, faces_str
