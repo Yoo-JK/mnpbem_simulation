@@ -90,25 +90,49 @@ fprintf('Simulation Type: %s\\n', '{sim_type}');
             sim_type=self.config['simulation_type']
         )
         return code
-    
+
     def _generate_options(self):
-        """Generate BEM options."""
-        sim_type = self.config['simulation_type']
+        """
+        Generate BEM options with proper RelCutoff for iterative solver.
+        
+        The bug occurs when RelCutoff is too low, causing quad() to return
+        empty arrays. We need to increase RelCutoff for iterative solver.
+        """
+        sim_type = self.config.get('simulation_type', 'ret')
         interp = self.config.get('interp', 'curv')
         waitbar = self.config.get('waitbar', 0)
         refine = self.config.get('refine', 2)
-        relcutoff = self.config.get('relcutoff', 3)  # Default 3
+        use_iterative = self.config.get('use_iterative_solver', False)
+        
+        # CRITICAL FIX: Use higher RelCutoff for iterative solver
+        # The default RelCutoff=3 can cause empty quad() results
+        # For iterative solver, use RelCutoff=2 (more conservative)
+        if use_iterative:
+            relcutoff = self.config.get('relcutoff', 2)  # Changed from 3 to 2
+        else:
+            relcutoff = self.config.get('relcutoff', 3)  # Keep 3 for direct solver
         
         code = f"""
-%% BEM Options
-op = bemoptions('sim', '{sim_type}', 'interp', '{interp}', 'waitbar', {waitbar}, 'refine', {refine}, 'RelCutoff', {relcutoff});
-fprintf('BEM options configured\\n');
-fprintf('  - Simulation type: {sim_type}\\n');
-fprintf('  - Interpolation: {interp}\\n');
-fprintf('  - Refine: {refine}\\n');
-fprintf('  - RelCutoff: {relcutoff}\\n');
-"""
+    %% BEM Options
+    op = bemoptions('sim', '{sim_type}', 'interp', '{interp}', 'waitbar', {waitbar}, 'refine', {refine}, 'RelCutoff', {relcutoff});
+    fprintf('BEM options configured\\n');
+    fprintf('  - Simulation type: {sim_type}\\n');
+    fprintf('  - Interpolation: {interp}\\n');
+    fprintf('  - Refine: {refine}\\n');
+    fprintf('  - RelCutoff: {relcutoff}\\n');
+    """
+        
+        if use_iterative:
+            code += """
+    fprintf('  - Using iterative solver: YES\\n');
+    """
+        else:
+            code += """
+    fprintf('  - Using iterative solver: NO\\n');
+    """
+        
         return code
+
     
     def _generate_comparticle(self):
         """Generate comparticle object creation with visualization."""
@@ -283,13 +307,65 @@ end
         return code
     
     def _generate_bem_solver(self):
-        """Generate BEM solver initialization."""
+        """
+        Generate BEM solver initialization with proper iterative solver support.
+        
+        CRITICAL FIX: Initialize op.iter options BEFORE calling bemsolver()
+        to prevent uninitialized iterative solver errors.
+        """
+        use_iterative = self.config.get('use_iterative_solver', False)
+        
         code = """
 %% Initialize BEM Solver
 fprintf('\\nInitializing BEM solver...\\n');
-bem = bemsolver(p, op);
-fprintf('BEM solver initialized\\n');
 """
+        
+        if use_iterative:
+            # Add iterative solver options BEFORE bemsolver() call
+            code += """
+% Configure iterative solver options
+fprintf('  Using iterative BEM solver (for large structures)\\n');
+op.iter = bemiter.options( 'output', 1 );  % Show iteration progress
+op.iter.tol = 1e-4;           % Tolerance for iterative solver
+op.iter.maxit = 200;          % Maximum iterations
+op.iter.solver = 'gmres';     % Use GMRES solver
+op.iter.cleaf = 200;          % Minimum cluster size
+op.iter.htol = 1e-6;          % H-matrix compression tolerance
+op.iter.kmax = [4, 100];      % Maximum rank for H-matrix compression
+
+% Admissibility criterion for cluster pairs
+op.iter.fadmiss = @(rad1,rad2,dist) 2.5 * min(rad1,rad2) < dist;
+
+fprintf('  Iterative solver parameters:\\n');
+fprintf('    - Solver: %s\\n', op.iter.solver);
+fprintf('    - Tolerance: %g\\n', op.iter.tol);
+fprintf('    - Max iterations: %d\\n', op.iter.maxit);
+fprintf('    - H-matrix tolerance: %g\\n', op.iter.htol);
+"""
+        else:
+            code += """
+% Using direct (non-iterative) BEM solver
+fprintf('  Using direct BEM solver\\n');
+"""
+        
+        # Add BEM solver initialization
+        code += """
+% Initialize BEM solver
+try
+    bem = bemsolver(p, op);
+    fprintf('BEM solver initialized successfully\\n');
+    fprintf('  - Boundary elements: %d\\n', size(p.pos, 1));
+catch ME
+    fprintf('Error initializing BEM solver: %s\\n', ME.message);
+    fprintf('Stack trace:\\n');
+    for k = 1:length(ME.stack)
+        fprintf('  File: %s\\n', ME.stack(k).file);
+        fprintf('  Line: %d\\n', ME.stack(k).line);
+    end
+    rethrow(ME);
+end
+"""
+        
         return code
     
     def _generate_excitation(self):
@@ -710,3 +786,4 @@ fprintf('\\n');
         else:
             # Handle 1D array
             return '[' + ', '.join([str(x) for x in python_list]) + ']'
+
