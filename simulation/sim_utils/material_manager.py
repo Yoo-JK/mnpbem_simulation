@@ -322,7 +322,8 @@ end
             'multi_shell_sphere': self._inout_multi_shell,
             'multi_shell_cube': self._inout_multi_shell,
             'dimer_multi_shell_sphere': self._inout_dimer_multi_shell,
-            'dimer_multi_shell_cube': self._inout_dimer_multi_shell
+            'dimer_multi_shell_cube': self._inout_dimer_multi_shell,
+            'from_shape': self._inout_from_shape
         }
         
         if self.structure not in structure_inout_map:
@@ -425,6 +426,39 @@ end
         
         code = "inout = [\n" + "\n".join(inout_lines) + "\n];"
         return code
+
+    def _inout_from_shape(self):
+        """Inout for DDA shape file with multiple materials."""
+        # For DDA shape files, we need to determine inout based on number of materials
+        # complete_materials[0]: medium
+        # complete_materials[1+]: particle materials (from shape file)
+        
+        # Get number of particle materials (excluding medium)
+        n_materials = len(self.config.get('materials', []))
+        
+        if n_materials == 1:
+            # Single material particle
+            code = "inout = [2, 1];"
+        elif n_materials == 2:
+            # Two materials - assume they are separate particles or shell/core
+            code = """inout = [
+        2, 1;  % Material 1: inside=mat1, outside=medium
+        3, 1   % Material 2: inside=mat2, outside=medium
+    ];"""
+        else:
+            # Multiple materials - generate inout for each
+            inout_lines = []
+            for i in range(n_materials):
+                mat_idx = i + 2  # medium is 1, materials start from 2
+                inout_lines.append(f"    {mat_idx}, 1;  % Material {i+1}: outside=medium")
+            
+            # Remove trailing semicolon from last line
+            if inout_lines:
+                inout_lines[-1] = inout_lines[-1].rstrip(';')
+            
+            code = "inout = [\n" + "\n".join(inout_lines) + "\n];"
+        
+        return code
     
     def _generate_closed(self):
         """Generate closed surfaces specification."""
@@ -443,7 +477,8 @@ end
             'multi_shell_sphere': self._closed_multi_shell,
             'multi_shell_cube': self._closed_multi_shell,
             'dimer_multi_shell_sphere': self._closed_dimer_multi_shell,
-            'dimer_multi_shell_cube': self._closed_dimer_multi_shell
+            'dimer_multi_shell_cube': self._closed_dimer_multi_shell,
+            'from_shape': self._closed_from_shape
         }
         
         if self.structure not in structure_closed_map:
@@ -471,3 +506,14 @@ end
         # Two particles, each with n_layers closed surfaces
         closed_indices = list(range(1, 2 * n_layers + 1))
         return f"closed = [{', '.join(map(str, closed_indices))}];"
+
+    def _closed_from_shape(self):
+        """Closed surfaces for DDA shape file."""
+        # For DDA shape files, all particles are closed
+        n_materials = len(self.config.get('materials', []))
+        
+        if n_materials == 1:
+            return "closed = 1;"
+        else:
+            closed_indices = list(range(1, n_materials + 1))
+            return f"closed = [{', '.join(map(str, closed_indices))}];"
