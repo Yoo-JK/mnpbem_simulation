@@ -1,10 +1,4 @@
-"""
-MNPBEM Structure Configuration
-
-Define nanoparticle geometry and materials.
-For detailed guide, see: docs/guide_structure.txt
-"""
-
+import os
 from pathlib import Path
 
 args = {}
@@ -40,7 +34,7 @@ args['diameter'] = 50  # nm
 # Uncomment to use DDA .shape file (with material indices)
 
 # args['structure'] = 'from_shape'
-# args['shape_file'] = './dda/particle.shape'
+# args['shape_file'] = os.path.join(Path.home(), 'dataset/mnpbem/str.shape')
 # args['voxel_size'] = 2.0  # nm
 # args['voxel_method'] = 'surface'  # 'surface' or 'cube'
 
@@ -52,9 +46,9 @@ args['diameter'] = 50  # nm
 args['medium'] = 'air'
 
 # Particle materials
-# - For built-in single particle: ['material']
-# - For built-in core-shell: ['shell', 'core']
-# - For DDA shape: materials[0] = mat_idx 1, materials[1] = mat_idx 2, etc.
+# The order here maps to mat_type indices in .shape file:
+#   materials[0] -> mat_type 1 
+#   materials[1] -> mat_type 2
 
 args['materials'] = ['gold']
 
@@ -68,19 +62,20 @@ args['materials'] = ['gold']
 
 args['refractive_index_paths'] = {}
 
+# Use if you want to use custom refractive index data files
 # Example:
 # args['refractive_index_paths'] = {
-#     'gold': './materials/gold_palik.dat',
+#     'gold': './materials/gold_palik.dat', 'sliver': '.materials/silver_jc.dat'
 # }
 
 # ============================================================================
 # OPTIONAL: Substrate
 # ============================================================================
 
-args['use_substrate'] = False
-
-# If True:
+# Uncomment to add a substrate (half-space) below the nanoparticle
+# args['use_substrate'] = True
 # args['substrate'] = {
 #     'material': 'glass',
 #     'position': 0,
 # }
+# 'position' indicates the z-coordinate of interface (nm)

@@ -1,9 +1,5 @@
-"""
-Voxel Structure Configuration for Au/Ag Nanoparticles
-
-This config file is for loading DDA shape files with voxel data.
-Compatible with shape files that have header lines like "Nmat=2".
-"""
+import os
+from pathlib import Path
 
 args = {}
 
@@ -18,7 +14,7 @@ args['structure_name'] = 'voxel_au_ag_particle'
 args['structure'] = 'from_shape'
 
 # Shape file path - UPDATE THIS to your actual file path
-args['shape_file'] = '/home/yoojk20/dataset/mnpbem/model_Au47.0_Ag4.0_AgCl0.0_gap3.0.shape'
+args['shape_file'] = os.path.join(Path.home(), 'dataset/mnpbem/model_Au47.0_Ag4.0_AgCl0.0_gap3.0.shape')
 
 # Voxel size in nanometers (physical size of each voxel)
 # UPDATE THIS to match your DDA simulation voxel size

@@ -1,10 +1,3 @@
-"""
-MNPBEM Simulation Configuration
-
-This file defines simulation parameters: excitation, wavelengths, 
-numerical settings, and output options.
-"""
-
 import os
 from pathlib import Path
 
@@ -16,7 +9,7 @@ args = {}
 # Path to your MNPBEM installation directory
 # This path will be added to MATLAB's search path during execution
 
-args['mnpbem_path'] = '/home/yoojk20/workspace/MNPBEM'
+args['mnpbem_path'] = os.path.join(Path.home(), 'scratch/bins/MNPBEM')
 
 # Examples:
 # args['mnpbem_path'] = '/usr/local/MNPBEM17'
