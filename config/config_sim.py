@@ -20,7 +20,7 @@ args['mnpbem_path'] = os.path.join(Path.home(), 'scratch/bins/MNPBEM')
 # SIMULATION NAME (IDENTIFIER)
 # ============================================================================
 # Give your simulation a descriptive name
-args['simulation_name'] = 'voxel_extinction_spectrum'
+args['simulation_name'] = 'test_auagcl_dimer'
 
 # ============================================================================
 # SIMULATION TYPE
@@ -102,7 +102,7 @@ args['wavelength_range'] = [400, 800, 100]  # 400-800 nm, 100 points
 # Refinement level for numerical integration
 # Higher = more accurate but slower
 # Typical values: 1-3
-args['refine'] = 0
+args['refine'] = 3
 
 # Relative cutoff for interaction matrices
 # CORRECTED: Default should be 3 (recommended by MNPBEM)
