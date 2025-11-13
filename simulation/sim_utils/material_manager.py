@@ -478,6 +478,7 @@ end
             'multi_shell_cube': self._closed_multi_shell,
             'dimer_multi_shell_sphere': self._closed_dimer_multi_shell,
             'dimer_multi_shell_cube': self._closed_dimer_multi_shell,
+            'advanced_dimer_cube': self._closed_advanced_dimer_cube,
             'from_shape': self._closed_from_shape
         }
         
@@ -505,6 +506,13 @@ end
         n_layers = len(layers)
         # Two particles, each with n_layers closed surfaces
         closed_indices = list(range(1, 2 * n_layers + 1))
+        return f"closed = [{', '.join(map(str, closed_indices))}];"
+
+    def _closed_advanced_dimer_cube(self):
+        """Closed surfaces for advanced dimer cube."""
+        n_shells = len(self.config.get('shell_layers', []))
+        n_particles_total = 2 * (1 + n_shells)  # 2 dimers × (1 core + N shells)
+        closed_indices = list(range(1, n_particles_total + 1))
         return f"closed = [{', '.join(map(str, closed_indices))}];"
 
     def _closed_from_shape(self):

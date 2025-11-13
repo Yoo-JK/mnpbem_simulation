@@ -377,6 +377,7 @@ class GeometryGenerator:
             'core_shell_sphere': self._core_shell_sphere,
             'core_shell_cube': self._core_shell_cube,
             'dimer_core_shell_cube': self._dimer_core_shell_cube,
+            'advanced_dimer_cube': self._advanced_dimer_cube,  # ← 이 줄 추가!
             # DDA shape file
             'from_shape': self._from_shape,
         }
@@ -584,6 +585,173 @@ shell2 = shift(shell2, [shift_distance, 0, 0]);
 particles = {{shell1, core1, shell2, core2}};
 """
         return code
+
+    def _advanced_dimer_cube(self):
+            """
+            Generate advanced dimer cube with full control.
+            
+            Features:
+            - Multi-shell layers (Au@Ag@AgCl, etc.)
+            - Per-layer rounding control
+            - Gap, offset, tilt, rotation control
+            
+            Config parameters:
+            - core_size: Core cube size (nm)
+            - shell_layers: List of shell thicknesses [inner→outer] (nm)
+            - materials: List of materials [core, inner_shell, ..., outer_shell]
+            - roundings: Per-layer rounding [inner→outer] or single 'rounding' value
+            - gap: Surface-to-surface distance (nm)
+            - offset: [x, y, z] additional shift for particle 2 (nm)
+            - tilt_angle: Tilt angle for particle 2 (degrees)
+            - tilt_axis: Tilt rotation axis [x, y, z]
+            - rotation_angle: Z-axis rotation for particle 2 (degrees)
+            - mesh_density: Mesh density
+            """
+            # Get parameters
+            core_size = self.config.get('core_size', 30)
+            shell_layers = self.config.get('shell_layers', [])  # [inner→outer]
+            materials = self.config.get('materials', [])        # [core, inner→outer]
+            mesh = self.config.get('mesh_density', 12)
+            
+            # Validation
+            if len(materials) != 1 + len(shell_layers):
+                raise ValueError(
+                    f"materials length ({len(materials)}) must equal "
+                    f"1 (core) + {len(shell_layers)} (shells) = {1 + len(shell_layers)}"
+                )
+            
+            # Rounding: support both single value and per-layer list
+            if 'roundings' in self.config:
+                # New way: per-layer specification [core, inner→outer]
+                roundings = self.config.get('roundings')
+                if len(roundings) != len(materials):
+                    raise ValueError(
+                        f"roundings length ({len(roundings)}) must equal "
+                        f"materials length ({len(materials)})"
+                    )
+            elif 'rounding' in self.config:
+                # Old way: single value for all layers (backward compatible)
+                single_rounding = self.config.get('rounding', 0.25)
+                roundings = [single_rounding] * len(materials)
+            else:
+                # Default: 0.25 for all
+                roundings = [0.25] * len(materials)
+            
+            # Dimer parameters
+            gap = self.config.get('gap', 10)
+            offset = self.config.get('offset', [0, 0, 0])
+            tilt_angle = self.config.get('tilt_angle', 0)
+            tilt_axis = self.config.get('tilt_axis', [0, 1, 0])
+            rotation_angle = self.config.get('rotation_angle', 0)
+            
+            # Calculate sizes from core outward [core, inner_shell, ..., outer_shell]
+            sizes = [core_size]  # Start with core
+            for thickness in shell_layers:  # Add each shell (inner→outer)
+                sizes.append(sizes[-1] + 2 * thickness)
+            # sizes = [core, core+2*shell1, core+2*shell1+2*shell2, ...]
+            
+            # Total outer size for positioning
+            total_size = sizes[-1]
+            shift_distance = (total_size + gap) / 2
+            
+            # Generate MATLAB code
+            code = f"""
+    %% Geometry: Advanced Dimer Cube
+    % Multi-shell dimer with full transformation control
+    %
+    % Configuration:
+    %   Core size: {core_size} nm
+    %   Shell layers: {shell_layers} nm (inner→outer)
+    %   Materials: {materials} (core→outer)
+    %   Roundings: {roundings} (core→outer)
+    %   Gap: {gap} nm
+    %   Offset: [{offset[0]}, {offset[1]}, {offset[2]}] nm
+    %   Tilt: {tilt_angle}° around [{tilt_axis[0]}, {tilt_axis[1]}, {tilt_axis[2]}]
+    %   Rotation: {rotation_angle}° around z-axis
+    %
+    % Transformation order for Particle 2:
+    %   1. Rotation ({rotation_angle}° around z)
+    %   2. Tilt ({tilt_angle}° around custom axis)
+    %   3. Shift (gap positioning)
+    %   4. Offset (fine-tuning)
+
+    mesh_density = {mesh};
+    gap = {gap};
+    shift_distance = {shift_distance};
+
+    """
+            
+            # === Particle 1 (Left) ===
+            code += "\n%% === Particle 1 (Left) ===\n"
+            particles_list = []
+            
+            # Generate from inner to outer: core, then each shell
+            for i, (size, material, rounding) in enumerate(zip(sizes, materials, roundings)):
+                if i == 0:
+                    # Core
+                    code += f"% Core: {material} (size: {size} nm, rounding: {rounding})\n"
+                    code += f"p1_core = tricube(mesh_density, {size}, 'e', {rounding});\n"
+                    code += f"p1_core = shift(p1_core, [-shift_distance, 0, 0]);\n"
+                    particles_list.append("p1_core")
+                else:
+                    # Shell
+                    shell_num = i
+                    shell_thickness = shell_layers[i-1]
+                    code += f"\n% Shell {shell_num}: {material} (thickness: {shell_thickness} nm, total size: {size} nm, rounding: {rounding})\n"
+                    code += f"p1_shell{shell_num} = tricube(mesh_density, {size}, 'e', {rounding});\n"
+                    code += f"p1_shell{shell_num} = shift(p1_shell{shell_num}, [-shift_distance, 0, 0]);\n"
+                    particles_list.append(f"p1_shell{shell_num}")
+            
+            # === Particle 2 (Right with transformations) ===
+            code += "\n%% === Particle 2 (Right with transformations) ===\n"
+            code += f"% Transformation order: Rotation → Tilt → Shift (gap) → Offset\n\n"
+            
+            for i, (size, material, rounding) in enumerate(zip(sizes, materials, roundings)):
+                if i == 0:
+                    # Core
+                    code += f"% Core: {material} (size: {size} nm, rounding: {rounding})\n"
+                    code += f"p2_core = tricube(mesh_density, {size}, 'e', {rounding});\n"
+                    
+                    # Transformations
+                    code += f"% 1. Rotation around z-axis\n"
+                    code += f"p2_core = rot(p2_core, {rotation_angle}, [0, 0, 1]);\n"
+                    code += f"% 2. Tilt around custom axis\n"
+                    code += f"p2_core = rot(p2_core, {tilt_angle}, [{tilt_axis[0]}, {tilt_axis[1]}, {tilt_axis[2]}]);\n"
+                    code += f"% 3. Shift to gap position\n"
+                    code += f"p2_core = shift(p2_core, [shift_distance, 0, 0]);\n"
+                    code += f"% 4. Additional offset\n"
+                    code += f"p2_core = shift(p2_core, [{offset[0]}, {offset[1]}, {offset[2]}]);\n"
+                    
+                    particles_list.append("p2_core")
+                else:
+                    # Shell
+                    shell_num = i
+                    shell_thickness = shell_layers[i-1]
+                    code += f"\n% Shell {shell_num}: {material} (thickness: {shell_thickness} nm, total size: {size} nm, rounding: {rounding})\n"
+                    code += f"p2_shell{shell_num} = tricube(mesh_density, {size}, 'e', {rounding});\n"
+                    
+                    # Same transformations as core
+                    code += f"p2_shell{shell_num} = rot(p2_shell{shell_num}, {rotation_angle}, [0, 0, 1]);\n"
+                    code += f"p2_shell{shell_num} = rot(p2_shell{shell_num}, {tilt_angle}, [{tilt_axis[0]}, {tilt_axis[1]}, {tilt_axis[2]}]);\n"
+                    code += f"p2_shell{shell_num} = shift(p2_shell{shell_num}, [shift_distance, 0, 0]);\n"
+                    code += f"p2_shell{shell_num} = shift(p2_shell{shell_num}, [{offset[0]}, {offset[1]}, {offset[2]}]);\n"
+                    
+                    particles_list.append(f"p2_shell{shell_num}")
+            
+            # Combine all particles
+            particles_str = ", ".join(particles_list)
+            code += f"\n%% Combine all particles\nparticles = {{{particles_str}}};\n"
+            code += f"% Total particles: {len(particles_list)} (2 dimers × {len(materials)} layers)\n"
+            
+            if self.verbose:
+                print(f"Generated advanced dimer cube:")
+                print(f"  - Core: {materials[0]} ({core_size} nm)")
+                for i, (thickness, material) in enumerate(zip(shell_layers, materials[1:]), 1):
+                    print(f"  - Shell {i}: {material} ({thickness} nm)")
+                print(f"  - Gap: {gap} nm")
+                print(f"  - Total particles: {len(particles_list)}")
+            
+            return code
     
     # ========================================================================
     # DDA Shape File
@@ -616,3 +784,4 @@ particles = {{shell1, core1, shell2, core2}};
         code = loader.generate_matlab_code(materials, output_dir=output_dir)
         
         return code
+
