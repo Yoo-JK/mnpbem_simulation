@@ -1,14 +1,7 @@
-"""
-Visualization Utilities
-
-Creates plots and visualizations for simulation results.
-"""
-
+import os
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
-import os
-
 
 class Visualizer:
     """Handles all visualization tasks."""
@@ -20,6 +13,26 @@ class Visualizer:
         self.save_plots = config.get('save_plots', True)
         self.plot_format = config.get('plot_format', ['png', 'pdf'])
         self.dpi = config.get('plot_dpi', 300)
+        self.polarizations = config.get('polarizations', [])
+        self.propagation_dirs = config.get('propagation_dirs', [])
+    
+    def _format_vector_label(self, vec):
+        """Format vector as compact string."""
+        if vec is None or len(vec) == 0:
+            return ""
+        vec_rounded = np.round(vec, 3)
+        return f"[{vec_rounded[0]:.0f} {vec_rounded[1]:.0f} {vec_rounded[2]:.0f}]"
+
+    def _get_polarization_label(self, ipol):
+        """Get descriptive label for polarization."""
+        if ipol < len(self.polarizations) and ipol < len(self.propagation_dirs):
+            pol_vec = self.polarizations[ipol]
+            prop_vec = self.propagation_dirs[ipol]
+            pol_str = self._format_vector_label(pol_vec)
+            prop_str = self._format_vector_label(prop_vec)
+            return f"Pol{pol_str} Prop{prop_str}"
+        else:
+            return f"Polarization {ipol+1}"
     
     def create_all_plots(self, data):
         """Create all visualization plots."""
@@ -79,7 +92,10 @@ class Visualizer:
             
             ax.set_xlabel(xlabel_text, fontsize=12)
             ax.set_ylabel('Cross Section (nm²)', fontsize=12)
-            ax.set_title(f'Optical Spectra - Polarization {ipol+1}', fontsize=14, fontweight='bold')
+
+            # ✅ FIX: Don't duplicate "Polarization"
+            pol_label = self._get_polarization_label(ipol)
+            ax.set_title(f'Optical Spectra - {pol_label}', fontsize=14, fontweight='bold')
             ax.legend(fontsize=11)
             ax.grid(True, alpha=0.3)
             
@@ -129,14 +145,16 @@ class Visualizer:
         fig, ax = plt.subplots(figsize=(10, 6))
         
         for i in range(n_pol):
+            # ✅ FIX: Use polarization label
+            pol_label = self._get_polarization_label(i)
             ax.plot(xdata, extinction[:, i], 
                    color=colors[i], linewidth=2, 
-                   label=f'Polarization {i+1}')
+                   label=pol_label)
         
         ax.set_xlabel(xlabel_text, fontsize=12)
         ax.set_ylabel('Extinction Cross Section (nm²)', fontsize=12)
         ax.set_title('Polarization Comparison - Extinction', fontsize=14, fontweight='bold')
-        ax.legend(fontsize=11)
+        ax.legend(fontsize=9)  # Smaller for long labels
         ax.grid(True, alpha=0.3)
         
         if xaxis_unit == 'energy':
@@ -154,14 +172,15 @@ class Visualizer:
         fig, ax = plt.subplots(figsize=(10, 6))
         
         for i in range(n_pol):
+            pol_label = self._get_polarization_label(i)
             ax.plot(xdata, scattering[:, i], 
                    color=colors[i], linewidth=2, 
-                   label=f'Polarization {i+1}')
+                   label=pol_label)
         
         ax.set_xlabel(xlabel_text, fontsize=12)
         ax.set_ylabel('Scattering Cross Section (nm²)', fontsize=12)
         ax.set_title('Polarization Comparison - Scattering', fontsize=14, fontweight='bold')
-        ax.legend(fontsize=11)
+        ax.legend(fontsize=9)
         ax.grid(True, alpha=0.3)
         
         if xaxis_unit == 'energy':
@@ -179,14 +198,15 @@ class Visualizer:
         fig, ax = plt.subplots(figsize=(10, 6))
         
         for i in range(n_pol):
+            pol_label = self._get_polarization_label(i)
             ax.plot(xdata, absorption[:, i], 
                    color=colors[i], linewidth=2, 
-                   label=f'Polarization {i+1}')
+                   label=pol_label)
         
         ax.set_xlabel(xlabel_text, fontsize=12)
         ax.set_ylabel('Absorption Cross Section (nm²)', fontsize=12)
         ax.set_title('Polarization Comparison - Absorption', fontsize=14, fontweight='bold')
-        ax.legend(fontsize=11)
+        ax.legend(fontsize=9)
         ax.grid(True, alpha=0.3)
         
         if xaxis_unit == 'energy':
@@ -241,6 +261,9 @@ class Visualizer:
         # Determine plane type
         plane_type, extent, x_label, y_label = self._determine_plane(x_grid, y_grid, z_grid)
         
+        # ✅ FIX: Use polarization label
+        pol_label = self._get_polarization_label(polarization_idx)
+        
         # Create figure
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
         
@@ -249,23 +272,20 @@ class Visualizer:
                         cmap='hot', aspect='auto')
         ax1.set_xlabel(x_label, fontsize=11)
         ax1.set_ylabel(y_label, fontsize=11)
-        ax1.set_title(f'Field Enhancement (Linear)\nλ = {wavelength:.1f} nm, Pol {polarization_idx+1}', 
-                     fontsize=12, fontweight='bold')
+        ax1.set_title(f'Field Enhancement (Linear)\nλ = {wavelength:.1f} nm, {pol_label}', 
+                     fontsize=11, fontweight='bold')
         cbar1 = plt.colorbar(im1, ax=ax1)
         cbar1.set_label('|E|/|E₀|', fontsize=11)
         
         # Log scale
-        # ✅ FIX: Properly handle vmin and vmax for LogNorm
         enhancement_log = np.maximum(enhancement, 1e-10)
         enh_max = enhancement.max()
         enh_min = enhancement_log[enhancement_log > 0].min() if np.any(enhancement_log > 0) else 1e-10
         
-        # Ensure vmin < vmax for LogNorm
         if enh_max > enh_min:
-            vmin_log = max(enh_min, 1e-2)  # Use reasonable lower bound
+            vmin_log = max(enh_min, 1e-2)
             vmax_log = enh_max
             
-            # Ensure vmin < vmax
             if vmin_log >= vmax_log:
                 vmin_log = vmax_log / 10
             
@@ -274,18 +294,17 @@ class Visualizer:
                             norm=LogNorm(vmin=vmin_log, vmax=vmax_log))
             ax2.set_xlabel(x_label, fontsize=11)
             ax2.set_ylabel(y_label, fontsize=11)
-            ax2.set_title(f'Field Enhancement (Log Scale)\nλ = {wavelength:.1f} nm, Pol {polarization_idx+1}', 
-                         fontsize=12, fontweight='bold')
+            ax2.set_title(f'Field Enhancement (Log Scale)\nλ = {wavelength:.1f} nm, {pol_label}', 
+                         fontsize=11, fontweight='bold')
             cbar2 = plt.colorbar(im2, ax=ax2)
             cbar2.set_label('|E|/|E₀|', fontsize=11)
         else:
-            # If all values are the same, just show linear scale
             im2 = ax2.imshow(enhancement, extent=extent, origin='lower', 
                             cmap='hot', aspect='auto')
             ax2.set_xlabel(x_label, fontsize=11)
             ax2.set_ylabel(y_label, fontsize=11)
-            ax2.set_title(f'Field Enhancement\nλ = {wavelength:.1f} nm, Pol {polarization_idx+1}', 
-                         fontsize=12, fontweight='bold')
+            ax2.set_title(f'Field Enhancement\nλ = {wavelength:.1f} nm, {pol_label}', 
+                         fontsize=11, fontweight='bold')
             cbar2 = plt.colorbar(im2, ax=ax2)
             cbar2.set_label('|E|/|E₀|', fontsize=11)
         
@@ -309,20 +328,20 @@ class Visualizer:
         # Determine plane type
         plane_type, extent, x_label, y_label = self._determine_plane(x_grid, y_grid, z_grid)
         
+        # ✅ FIX: Use polarization label
+        pol_label = self._get_polarization_label(polarization_idx)
+        
         # Create figure
         fig, ax = plt.subplots(figsize=(9, 7))
         
-        # ✅ FIX: Properly handle vmin and vmax for LogNorm
         intensity_log = np.maximum(intensity, 1e-10)
         int_max = intensity.max()
         int_min = intensity_log[intensity_log > 0].min() if np.any(intensity_log > 0) else 1e-10
         
-        # Ensure vmin < vmax for LogNorm
         if int_max > int_min and int_max > 0:
-            vmin_log = max(int_min, int_max / 1e6)  # Dynamic range
+            vmin_log = max(int_min, int_max / 1e6)
             vmax_log = int_max
             
-            # Ensure vmin < vmax
             if vmin_log >= vmax_log:
                 vmin_log = vmax_log / 10
             
@@ -330,13 +349,12 @@ class Visualizer:
                           cmap='viridis', aspect='auto', 
                           norm=LogNorm(vmin=vmin_log, vmax=vmax_log))
         else:
-            # Fallback to linear scale if log doesn't work
             im = ax.imshow(intensity, extent=extent, origin='lower', 
                           cmap='viridis', aspect='auto')
         
         ax.set_xlabel(x_label, fontsize=11)
         ax.set_ylabel(y_label, fontsize=11)
-        ax.set_title(f'Field Intensity |E|² (Log Scale)\nλ = {wavelength:.1f} nm, Pol {polarization_idx+1}', 
+        ax.set_title(f'Field Intensity |E|² (Log Scale)\nλ = {wavelength:.1f} nm, {pol_label}', 
                     fontsize=12, fontweight='bold')
         
         cbar = plt.colorbar(im, ax=ax)
@@ -363,57 +381,83 @@ class Visualizer:
         # Determine plane and extract relevant components
         plane_type, extent, x_label, y_label = self._determine_plane(x_grid, y_grid, z_grid)
         
-        # Get field components for the plane
+        # ✅ FIX: Use polarization label
+        pol_label = self._get_polarization_label(polarization_idx)
+        
+        # Properly extract coordinates and field components
         if plane_type == 'xz':
-            # xz-plane: use Ex and Ez
+            x_coord = x_grid[0, :]
+            z_coord = z_grid[:, 0]
             e_x = e_total[:, :, 0].real
             e_z = e_total[:, :, 2].real
-            x_coord = x_grid[:, 0]
-            y_coord = z_grid[0, :]
+            x_plot = x_coord
+            y_plot = z_coord
+            U = e_x
+            V = e_z
+            
         elif plane_type == 'xy':
-            # xy-plane: use Ex and Ey
+            x_coord = x_grid[0, :]
+            y_coord = y_grid[:, 0]
             e_x = e_total[:, :, 0].real
-            e_z = e_total[:, :, 1].real  # Actually Ey
-            x_coord = x_grid[:, 0]
-            y_coord = y_grid[0, :]
+            e_y = e_total[:, :, 1].real
+            x_plot = x_coord
+            y_plot = y_coord
+            U = e_x
+            V = e_y
+            
+        elif plane_type == 'yz':
+            y_coord = y_grid[:, 0]
+            z_coord = z_grid[0, :]
+            e_y = e_total[:, :, 1].real
+            e_z = e_total[:, :, 2].real
+            x_plot = y_coord
+            y_plot = z_coord
+            U = e_y
+            V = e_z
+            
         else:
-            # Can't plot vectors for 3D
             return []
         
-        # Downsample for vector plot (too many arrows)
-        skip = max(1, len(x_coord) // 20)
+        # Downsample for vector plot
+        nx, ny = U.shape
+        skip_x = max(1, nx // 15)
+        skip_y = max(1, ny // 15)
         
+        x_down = x_plot[::skip_y]
+        y_down = y_plot[::skip_x]
+        
+        X, Y = np.meshgrid(x_down, y_down)
+        
+        U_down = U[::skip_x, ::skip_y]
+        V_down = V[::skip_x, ::skip_y]
+        
+        magnitude = np.sqrt(U_down**2 + V_down**2)
+        magnitude_max = np.max(magnitude)
+        
+        if magnitude_max > 1e-10:
+            U_norm = U_down / (magnitude + 1e-10)
+            V_norm = V_down / (magnitude + 1e-10)
+        else:
+            U_norm = U_down
+            V_norm = V_down
+        
+        # Create figure
         fig, ax = plt.subplots(figsize=(10, 8))
         
-        # Background: enhancement
         im = ax.imshow(enhancement, extent=extent, origin='lower', 
                       cmap='hot', aspect='auto', alpha=0.7)
         
-        # Vector field (downsampled)
-        X, Y = np.meshgrid(x_coord[::skip], y_coord[::skip])
-        U = e_x[::skip, ::skip]
-        V = e_z[::skip, ::skip]
-        
-        # Normalize for better visualization
-        magnitude = np.sqrt(U**2 + V**2)
-        magnitude_max = magnitude.max()
-        if magnitude_max > 0:
-            U_norm = U / magnitude_max
-            V_norm = V / magnitude_max
-        else:
-            U_norm = U
-            V_norm = V
-        
-        ax.quiver(X, Y, U_norm, V_norm, magnitude, 
-                 cmap='cool', scale=15, width=0.003, alpha=0.8)
+        q = ax.quiver(X, Y, U_norm, V_norm, magnitude,
+                      cmap='cool', scale=25, width=0.004, 
+                      alpha=0.9, pivot='middle')
         
         ax.set_xlabel(x_label, fontsize=11)
         ax.set_ylabel(y_label, fontsize=11)
-        ax.set_title(f'Electric Field Vectors\nλ = {wavelength:.1f} nm, Pol {polarization_idx+1}', 
+        ax.set_title(f'Electric Field Vectors\nλ = {wavelength:.1f} nm, {pol_label}', 
                     fontsize=12, fontweight='bold')
         
-        cbar = plt.colorbar(im, ax=ax)
-        cbar.set_label('|E|/|E₀|', fontsize=11)
+        cbar1 = plt.colorbar(im, ax=ax, pad=0.12, label='|E|/|E₀|')
+        cbar2 = plt.colorbar(q, ax=ax, label='Field Magnitude')
         
         plt.tight_layout()
         
@@ -426,13 +470,11 @@ class Visualizer:
     
     def _determine_plane(self, x_grid, y_grid, z_grid):
         """Determine which 2D plane is being plotted."""
-        # Check which coordinate is constant (single value)
         x_constant = len(np.unique(x_grid)) == 1
         y_constant = len(np.unique(y_grid)) == 1
         z_constant = len(np.unique(z_grid)) == 1
         
         if y_constant:
-            # xz-plane
             plane_type = 'xz'
             x_min, x_max = x_grid.min(), x_grid.max()
             z_min, z_max = z_grid.min(), z_grid.max()
@@ -440,7 +482,6 @@ class Visualizer:
             x_label = 'x (nm)'
             y_label = 'z (nm)'
         elif z_constant:
-            # xy-plane
             plane_type = 'xy'
             x_min, x_max = x_grid.min(), x_grid.max()
             y_min, y_max = y_grid.min(), y_grid.max()
@@ -448,7 +489,6 @@ class Visualizer:
             x_label = 'x (nm)'
             y_label = 'y (nm)'
         elif x_constant:
-            # yz-plane
             plane_type = 'yz'
             y_min, y_max = y_grid.min(), y_grid.max()
             z_min, z_max = z_grid.min(), z_grid.max()
@@ -456,7 +496,6 @@ class Visualizer:
             x_label = 'y (nm)'
             y_label = 'z (nm)'
         else:
-            # 3D data or unknown
             plane_type = '3d'
             extent = [x_grid.min(), x_grid.max(), y_grid.min(), y_grid.max()]
             x_label = 'x (nm)'
@@ -470,12 +509,10 @@ class Visualizer:
         y_grid = field_data['y_grid']
         z_grid = field_data['z_grid']
         
-        # Check if any dimension is constant
         x_constant = len(np.unique(x_grid)) == 1
         y_constant = len(np.unique(y_grid)) == 1
         z_constant = len(np.unique(z_grid)) == 1
         
-        # It's a 2D slice if exactly one dimension is constant
         return sum([x_constant, y_constant, z_constant]) == 1
     
     def _save_figure(self, fig, base_filename):

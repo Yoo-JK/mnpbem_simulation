@@ -173,44 +173,68 @@ try
     subplot('Position', [0.1, 0.1, 0.75, 0.85]);
     hold on;
     
-    % Plot each particle with progressive transparency
-    for i = 1:n_particles
-        if i == 1
-            % Core: opaque, gold color
-            plot(particles{{i}}, 'EdgeColor', 'none', ...
-                 'FaceColor', core_color, 'FaceAlpha', 1.0);
-        else
-            % Shells: progressively more transparent
-            shell_idx = i - 1;
-            
-            % Select transparency
-            if n_particles == 2
-                alpha = 0.5;
-                color = shell_color_1;
-            elseif n_particles == 3
-                alphas = [0.6, 0.3];
-                colors = {{shell_color_1, shell_color_2}};
-                alpha = alphas(shell_idx);
-                color = colors{{shell_idx}};
-            elseif n_particles == 4
-                alphas = [0.7, 0.5, 0.3];
-                colors = {{shell_color_1, shell_color_2, shell_color_3}};
-                alpha = alphas(shell_idx);
-                color = colors{{shell_idx}};
+    % Check if single or multi-particle structure
+    if n_particles == 1
+        % Single particle: simple plot
+        plot(p, 'EdgeColor', 'b', 'FaceColor', [0.8, 0.9, 1.0], 'FaceAlpha', 0.9);
+    else
+        % Multi-particle (core-shell): plot with progressive transparency
+        for i = 1:n_particles
+            if i == 1
+                % Core: opaque, gold color
+                plot(particles{{i}}, 'EdgeColor', 'none', ...
+                     'FaceColor', core_color, 'FaceAlpha', 1.0);
             else
-                alpha = max(0.2, 0.8 - 0.2 * shell_idx);
-                if shell_idx == 1
+                % Shells: progressively more transparent
+                shell_idx = i - 1;
+                
+                % Select transparency and color
+                if n_particles == 2
+                    alpha = 0.5;
                     color = shell_color_1;
-                elseif shell_idx == 2
-                    color = shell_color_2;
+                elseif n_particles == 3
+                    if shell_idx == 1
+                        alpha = 0.6;
+                        color = shell_color_1;
+                    else
+                        alpha = 0.3;
+                        color = shell_color_2;
+                    end
+                elseif n_particles == 4
+                    if shell_idx == 1
+                        alpha = 0.7;
+                        color = shell_color_1;
+                    elseif shell_idx == 2
+                        alpha = 0.5;
+                        color = shell_color_2;
+                    else
+                        alpha = 0.3;
+                        color = shell_color_3;
+                    end
                 else
-                    color = shell_color_3;
+                    % General case
+                    alpha = max(0.2, 0.8 - 0.2 * shell_idx);
+                    if shell_idx == 1
+                        color = shell_color_1;
+                    elseif shell_idx == 2
+                        color = shell_color_2;
+                    else
+                        color = shell_color_3;
+                    end
                 end
+                
+                plot(particles{{i}}, 'EdgeColor', 'none', ...
+                     'FaceColor', color, 'FaceAlpha', alpha);
             end
-            
-            plot(particles{{i}}, 'EdgeColor', 'none', ...
-                 'FaceColor', color, 'FaceAlpha', alpha);
         end
+        
+        % Add legend for multi-layer structures
+        legend_entries = cell(n_particles, 1);
+        legend_entries{{1}} = 'Core';
+        for i = 2:n_particles
+            legend_entries{{i}} = sprintf('Shell %d', i-1);
+        end
+        legend(legend_entries, 'Location', 'northeast', 'FontSize', 10);
     end
     
     axis equal;
@@ -223,16 +247,6 @@ try
     box on;
     lighting gouraud;
     camlight('headlight');
-    
-    % Add legend for multi-layer structures
-    if n_particles > 1
-        legend_entries = cell(n_particles, 1);
-        legend_entries{{1}} = 'Core';
-        for i = 2:n_particles
-            legend_entries{{i}} = sprintf('Shell %d', i-1);
-        end
-        legend(legend_entries, 'Location', 'northeast', 'FontSize', 10);
-    end
     
     % Coordinate system indicator
     ax_small = axes('Position', [0.85, 0.75, 0.12, 0.2]);
@@ -260,33 +274,50 @@ try
     subplot('Position', [0.1, 0.1, 0.75, 0.85]);
     hold on;
     
-    for i = 1:n_particles
-        if i == 1
-            plot(particles{{i}}, 'EdgeColor', 'none', ...
-                 'FaceColor', core_color, 'FaceAlpha', 1.0);
-        else
-            shell_idx = i - 1;
-            if n_particles == 2
-                alpha = 0.5;
-                color = shell_color_1;
-            elseif n_particles == 3
-                alphas = [0.6, 0.3];
-                colors = {{shell_color_1, shell_color_2}};
-                alpha = alphas(shell_idx);
-                color = colors{{shell_idx}};
-            elseif n_particles == 4
-                alphas = [0.7, 0.5, 0.3];
-                colors = {{shell_color_1, shell_color_2, shell_color_3}};
-                alpha = alphas(shell_idx);
-                color = colors{{shell_idx}};
+    if n_particles == 1
+        plot(p, 'EdgeColor', 'b', 'FaceColor', [0.8, 0.9, 1.0], 'FaceAlpha', 0.9);
+    else
+        for i = 1:n_particles
+            if i == 1
+                plot(particles{{i}}, 'EdgeColor', 'none', ...
+                     'FaceColor', core_color, 'FaceAlpha', 1.0);
             else
-                alpha = max(0.2, 0.8 - 0.2 * shell_idx);
-                if shell_idx == 1, color = shell_color_1;
-                elseif shell_idx == 2, color = shell_color_2;
-                else, color = shell_color_3; end
+                shell_idx = i - 1;
+                if n_particles == 2
+                    alpha = 0.5;
+                    color = shell_color_1;
+                elseif n_particles == 3
+                    if shell_idx == 1
+                        alpha = 0.6;
+                        color = shell_color_1;
+                    else
+                        alpha = 0.3;
+                        color = shell_color_2;
+                    end
+                elseif n_particles == 4
+                    if shell_idx == 1
+                        alpha = 0.7;
+                        color = shell_color_1;
+                    elseif shell_idx == 2
+                        alpha = 0.5;
+                        color = shell_color_2;
+                    else
+                        alpha = 0.3;
+                        color = shell_color_3;
+                    end
+                else
+                    alpha = max(0.2, 0.8 - 0.2 * shell_idx);
+                    if shell_idx == 1
+                        color = shell_color_1;
+                    elseif shell_idx == 2
+                        color = shell_color_2;
+                    else
+                        color = shell_color_3;
+                    end
+                end
+                plot(particles{{i}}, 'EdgeColor', 'none', ...
+                     'FaceColor', color, 'FaceAlpha', alpha);
             end
-            plot(particles{{i}}, 'EdgeColor', 'none', ...
-                 'FaceColor', color, 'FaceAlpha', alpha);
         end
     end
     
@@ -307,33 +338,50 @@ try
     subplot('Position', [0.1, 0.1, 0.75, 0.85]);
     hold on;
     
-    for i = 1:n_particles
-        if i == 1
-            plot(particles{{i}}, 'EdgeColor', 'none', ...
-                 'FaceColor', core_color, 'FaceAlpha', 1.0);
-        else
-            shell_idx = i - 1;
-            if n_particles == 2
-                alpha = 0.5;
-                color = shell_color_1;
-            elseif n_particles == 3
-                alphas = [0.6, 0.3];
-                colors = {{shell_color_1, shell_color_2}};
-                alpha = alphas(shell_idx);
-                color = colors{{shell_idx}};
-            elseif n_particles == 4
-                alphas = [0.7, 0.5, 0.3];
-                colors = {{shell_color_1, shell_color_2, shell_color_3}};
-                alpha = alphas(shell_idx);
-                color = colors{{shell_idx}};
+    if n_particles == 1
+        plot(p, 'EdgeColor', 'b', 'FaceColor', [0.8, 0.9, 1.0], 'FaceAlpha', 0.9);
+    else
+        for i = 1:n_particles
+            if i == 1
+                plot(particles{{i}}, 'EdgeColor', 'none', ...
+                     'FaceColor', core_color, 'FaceAlpha', 1.0);
             else
-                alpha = max(0.2, 0.8 - 0.2 * shell_idx);
-                if shell_idx == 1, color = shell_color_1;
-                elseif shell_idx == 2, color = shell_color_2;
-                else, color = shell_color_3; end
+                shell_idx = i - 1;
+                if n_particles == 2
+                    alpha = 0.5;
+                    color = shell_color_1;
+                elseif n_particles == 3
+                    if shell_idx == 1
+                        alpha = 0.6;
+                        color = shell_color_1;
+                    else
+                        alpha = 0.3;
+                        color = shell_color_2;
+                    end
+                elseif n_particles == 4
+                    if shell_idx == 1
+                        alpha = 0.7;
+                        color = shell_color_1;
+                    elseif shell_idx == 2
+                        alpha = 0.5;
+                        color = shell_color_2;
+                    else
+                        alpha = 0.3;
+                        color = shell_color_3;
+                    end
+                else
+                    alpha = max(0.2, 0.8 - 0.2 * shell_idx);
+                    if shell_idx == 1
+                        color = shell_color_1;
+                    elseif shell_idx == 2
+                        color = shell_color_2;
+                    else
+                        color = shell_color_3;
+                    end
+                end
+                plot(particles{{i}}, 'EdgeColor', 'none', ...
+                     'FaceColor', color, 'FaceAlpha', alpha);
             end
-            plot(particles{{i}}, 'EdgeColor', 'none', ...
-                 'FaceColor', color, 'FaceAlpha', alpha);
         end
     end
     
@@ -354,33 +402,50 @@ try
     subplot('Position', [0.1, 0.1, 0.75, 0.85]);
     hold on;
     
-    for i = 1:n_particles
-        if i == 1
-            plot(particles{{i}}, 'EdgeColor', 'none', ...
-                 'FaceColor', core_color, 'FaceAlpha', 1.0);
-        else
-            shell_idx = i - 1;
-            if n_particles == 2
-                alpha = 0.5;
-                color = shell_color_1;
-            elseif n_particles == 3
-                alphas = [0.6, 0.3];
-                colors = {{shell_color_1, shell_color_2}};
-                alpha = alphas(shell_idx);
-                color = colors{{shell_idx}};
-            elseif n_particles == 4
-                alphas = [0.7, 0.5, 0.3];
-                colors = {{shell_color_1, shell_color_2, shell_color_3}};
-                alpha = alphas(shell_idx);
-                color = colors{{shell_idx}};
+    if n_particles == 1
+        plot(p, 'EdgeColor', 'b', 'FaceColor', [0.8, 0.9, 1.0], 'FaceAlpha', 0.9);
+    else
+        for i = 1:n_particles
+            if i == 1
+                plot(particles{{i}}, 'EdgeColor', 'none', ...
+                     'FaceColor', core_color, 'FaceAlpha', 1.0);
             else
-                alpha = max(0.2, 0.8 - 0.2 * shell_idx);
-                if shell_idx == 1, color = shell_color_1;
-                elseif shell_idx == 2, color = shell_color_2;
-                else, color = shell_color_3; end
+                shell_idx = i - 1;
+                if n_particles == 2
+                    alpha = 0.5;
+                    color = shell_color_1;
+                elseif n_particles == 3
+                    if shell_idx == 1
+                        alpha = 0.6;
+                        color = shell_color_1;
+                    else
+                        alpha = 0.3;
+                        color = shell_color_2;
+                    end
+                elseif n_particles == 4
+                    if shell_idx == 1
+                        alpha = 0.7;
+                        color = shell_color_1;
+                    elseif shell_idx == 2
+                        alpha = 0.5;
+                        color = shell_color_2;
+                    else
+                        alpha = 0.3;
+                        color = shell_color_3;
+                    end
+                else
+                    alpha = max(0.2, 0.8 - 0.2 * shell_idx);
+                    if shell_idx == 1
+                        color = shell_color_1;
+                    elseif shell_idx == 2
+                        color = shell_color_2;
+                    else
+                        color = shell_color_3;
+                    end
+                end
+                plot(particles{{i}}, 'EdgeColor', 'none', ...
+                     'FaceColor', color, 'FaceAlpha', alpha);
             end
-            plot(particles{{i}}, 'EdgeColor', 'none', ...
-                 'FaceColor', color, 'FaceAlpha', alpha);
         end
     end
     
