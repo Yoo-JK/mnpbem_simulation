@@ -4,8 +4,13 @@ MNPBEM STRUCTURE CONFIGURATION GUIDE
 
 Complete guide for configuring nanoparticle structures
 
-Version: 2.0
-Last Updated: 2025-01-XX
+Version: 2.1
+Last Updated: 2025-11-18
+
+CRITICAL UPDATE v2.1:
+  - Core-shell material order changed to [core, shell] (more intuitive!)
+  - Added core_shell_rod structure for plasmonic nanorod applications
+  - Enhanced visualization with semi-transparent shells
 
 ================================================================================
 TABLE OF CONTENTS
@@ -24,6 +29,7 @@ TABLE OF CONTENTS
    4.1 Substrates
 5. Complete Examples
 6. Troubleshooting
+7. Migration Guide (v2.0 → v2.1)
 
 ================================================================================
 1. OVERVIEW
@@ -31,10 +37,15 @@ TABLE OF CONTENTS
 
 Two ways to define particle geometry:
 
-  1. Built-in: Use MNPBEM predefined shapes (spheres, cubes, etc.)
+  1. Built-in: Use MNPBEM predefined shapes (spheres, cubes, rods, etc.)
   2. DDA Shape: Import from DDA simulation .shape files (with materials)
 
 Material configuration is IDENTICAL for both methods.
+
+NEW IN v2.1:
+  - Core-shell structures now use [core, shell] order (changed from [shell, core])
+  - Core-shell rod structure added for plasmonic nanorod studies
+  - Visualization improved with color-coded semi-transparent rendering
 
 ================================================================================
 2. STRUCTURE TYPES
@@ -63,11 +74,13 @@ Available structures:
   Core-shell:
     - 'core_shell_sphere'  : Two concentric spheres
     - 'core_shell_cube'    : Two concentric cubes
+    - 'core_shell_rod'     : Core-shell nanorod (NEW v2.1!)
   
   Dimers:
     - 'dimer_sphere'           : Two spheres
     - 'dimer_cube'             : Two cubes
     - 'dimer_core_shell_cube'  : Two core-shell cubes
+    - 'advanced_dimer_cube'    : Multi-shell dimer with transformations
 
 Geometry parameters by structure:
 
@@ -82,6 +95,13 @@ Geometry parameters by structure:
     args['diameter'] = 20  # nm
     args['height'] = 80  # nm (along z-axis)
   
+  Core-shell rod (NEW v2.1!):
+    args['core_diameter'] = 15  # nm
+    args['shell_thickness'] = 5  # nm
+    args['height'] = 80  # nm (along z-axis)
+    # Total diameter = 15 + 2*5 = 25 nm
+    # Perfect for studying longitudinal/transverse plasmon modes
+  
   Ellipsoid:
     args['axes'] = [20, 30, 40]  # [x, y, z] semi-axes (nm)
   
@@ -94,12 +114,24 @@ Geometry parameters by structure:
     args['shell_thickness'] = 10  # nm
     # Total diameter = 40 + 2*10 = 60 nm
   
+  Core-shell cube:
+    args['core_size'] = 30  # nm
+    args['shell_thickness'] = 5  # nm
+    args['rounding'] = 0.25
+    # Total size = 30 + 2*5 = 40 nm
+  
   Dimer sphere:
     args['diameter'] = 50  # nm
     args['gap'] = 5  # surface-to-surface gap (nm)
+  
+  Dimer core-shell cube:
+    args['core_size'] = 20  # nm
+    args['shell_thickness'] = 5  # nm
+    args['gap'] = 10  # nm
+    args['rounding'] = 0.25
 
 Mesh density guidelines:
-  - Spheres, ellipsoids: 144 (recommended)
+  - Spheres, ellipsoids, rods: 144 (recommended)
   - Cubes: 12-16
   - Complex shapes: increase for higher accuracy
   - Higher values = more accurate but slower
@@ -196,9 +228,9 @@ Creating .shape files:
                 dist = np.linalg.norm(pos - center)
                 
                 if dist <= 5:
-                    mat_type = 2  # Core: silver
+                    mat_type = 1  # Core: gold
                 elif dist <= 10:
-                    mat_type = 1  # Shell: gold
+                    mat_type = 2  # Shell: silver
                 else:
                     continue  # Outside
                 
@@ -211,6 +243,9 @@ Creating .shape files:
 ================================================================================
 
 Material settings are IDENTICAL for built-in and DDA structures.
+
+CRITICAL CHANGE v2.1:
+  Core-shell structures now use [core, shell] order instead of [shell, core]!
 
 --------------------------------------------------------------------------------
 3.1 MEDIUM (ENVIRONMENT)
@@ -250,11 +285,37 @@ How materials are assigned depends on structure type.
 For built-in single particle:
   args['materials'] = ['gold']
 
-For built-in core-shell:
-  args['materials'] = ['shell_material', 'core_material']
+For built-in core-shell (NEW v2.1 ORDER!):
+  args['materials'] = ['core_material', 'shell_material']
   
-  Example (Au@Ag - gold core, silver shell):
-    args['materials'] = ['silver', 'gold']
+  Example 1 (Au@Ag - gold core, silver shell):
+    args['structure'] = 'core_shell_sphere'
+    args['materials'] = ['gold', 'silver']  # [core, shell]
+  
+  Example 2 (Ag@Au - silver core, gold shell):
+    args['structure'] = 'core_shell_cube'
+    args['materials'] = ['silver', 'gold']  # [core, shell]
+  
+  Example 3 (Au@Ag core-shell nanorod):
+    args['structure'] = 'core_shell_rod'
+    args['materials'] = ['gold', 'silver']  # [core, shell]
+
+For dimer core-shell (NEW v2.1 ORDER!):
+  args['materials'] = ['core_material', 'shell_material']
+  
+  Example:
+    args['structure'] = 'dimer_core_shell_cube'
+    args['materials'] = ['gold', 'silver']  # [core, shell]
+    # Creates: {core1, shell1, core2, shell2}
+
+For advanced dimer (unchanged - already correct order):
+  args['materials'] = ['core', 'inner_shell', 'outer_shell', ...]
+  
+  Example:
+    args['structure'] = 'advanced_dimer_cube'
+    args['core_size'] = 30
+    args['shell_layers'] = [5, 3]  # [inner, outer]
+    args['materials'] = ['gold', 'silver', 'agcl']  # [core, inner, outer]
 
 For DDA shape file:
   args['materials'] = [mat1, mat2, mat3, ...]
@@ -267,10 +328,10 @@ For DDA shape file:
 
 Built-in materials:
   Metals:
-    'gold', 'silver', 'aluminum'
+    'gold', 'silver', 'aluminum', 'copper'
   
   Dielectrics:
-    'glass', 'silicon', 'sapphire', 'sio2'
+    'glass', 'silicon', 'sapphire', 'sio2', 'agcl'
   
   Environment:
     'air', 'water', 'vacuum'
@@ -311,17 +372,17 @@ Example 1: Simple two-material structure
 Example 2: Three-material core-shell-shell
 
   .shape file:
-    Core voxels: mat_type = 3
+    Core voxels: mat_type = 1
     Inner shell: mat_type = 2
-    Outer shell: mat_type = 1
+    Outer shell: mat_type = 3
   
   Configuration:
-    args['materials'] = ['sio2', 'silver', 'gold']
+    args['materials'] = ['gold', 'silver', 'sio2']
     
   Result:
-    mat_type 1 → sio2 (outer shell)
-    mat_type 2 → silver (middle shell)
-    mat_type 3 → gold (core)
+    mat_type 1 → gold (core)
+    mat_type 2 → silver (inner shell)
+    mat_type 3 → sio2 (outer shell)
 
 Example 3: Mixing built-in and custom materials
 
@@ -461,7 +522,7 @@ args['medium'] = 'water'
 args['materials'] = ['gold']
 
 --------------------------------------------------------------------------------
-Example 2: Core-shell nanoparticle (built-in)
+Example 2: Core-shell nanoparticle (NEW v2.1 ORDER!)
 --------------------------------------------------------------------------------
 
 args = {}
@@ -471,10 +532,40 @@ args['core_diameter'] = 40
 args['shell_thickness'] = 10
 args['mesh_density'] = 144
 args['medium'] = 'air'
-args['materials'] = ['silver', 'gold']  # [shell, core]
+args['materials'] = ['gold', 'silver']  # [core, shell] ← NEW!
 
 --------------------------------------------------------------------------------
-Example 3: DDA single-material structure
+Example 3: Core-shell nanorod (NEW v2.1!)
+--------------------------------------------------------------------------------
+
+args = {}
+args['structure_name'] = 'au_ag_nanorod'
+args['structure'] = 'core_shell_rod'
+args['core_diameter'] = 15
+args['shell_thickness'] = 5
+args['height'] = 80
+args['mesh_density'] = 144
+args['medium'] = 'water'
+args['materials'] = ['gold', 'silver']  # [core, shell]
+# Perfect for studying longitudinal/transverse plasmon coupling
+
+--------------------------------------------------------------------------------
+Example 4: Dimer core-shell cube (NEW v2.1 ORDER!)
+--------------------------------------------------------------------------------
+
+args = {}
+args['structure_name'] = 'dimer_au_ag'
+args['structure'] = 'dimer_core_shell_cube'
+args['core_size'] = 20
+args['shell_thickness'] = 5
+args['gap'] = 3  # Strong plasmonic coupling
+args['rounding'] = 0.2
+args['mesh_density'] = 12
+args['medium'] = 'water'
+args['materials'] = ['gold', 'silver']  # [core, shell] ← NEW!
+
+--------------------------------------------------------------------------------
+Example 5: DDA single-material structure
 --------------------------------------------------------------------------------
 
 args = {}
@@ -489,7 +580,7 @@ args['materials'] = ['silver']
 # If .shape has all voxels with mat_type=1
 
 --------------------------------------------------------------------------------
-Example 4: DDA multi-material (core-shell from DDA)
+Example 6: DDA multi-material (core-shell from DDA)
 --------------------------------------------------------------------------------
 
 args = {}
@@ -502,11 +593,29 @@ args['medium'] = 'air'
 args['materials'] = ['gold', 'silver']
 
 # .shape file:
-#   Core voxels: mat_type = 2 → silver
-#   Shell voxels: mat_type = 1 → gold
+#   Core voxels: mat_type = 1 → gold
+#   Shell voxels: mat_type = 2 → silver
 
 --------------------------------------------------------------------------------
-Example 5: DDA with custom refractive indices
+Example 7: Advanced multi-shell dimer
+--------------------------------------------------------------------------------
+
+args = {}
+args['structure_name'] = 'au_ag_agcl_dimer'
+args['structure'] = 'advanced_dimer_cube'
+args['core_size'] = 30
+args['shell_layers'] = [5, 3]
+args['materials'] = ['gold', 'silver', 'agcl']  # [core, inner, outer]
+args['roundings'] = [0.25, 0.2, 0.15]  # Progressive sharpening
+args['gap'] = 3
+args['mesh_density'] = 12
+args['medium'] = 'water'
+args['refractive_index_paths'] = {
+    'agcl': {'type': 'constant', 'epsilon': 4.0}
+}
+
+--------------------------------------------------------------------------------
+Example 8: DDA with custom refractive indices
 --------------------------------------------------------------------------------
 
 args = {}
@@ -525,44 +634,26 @@ args['refractive_index_paths'] = {
 # .shape has mat_type 1, 2, 3
 # Custom data for gold and silver, built-in for sio2
 
---------------------------------------------------------------------------------
-Example 6: DDA on substrate
---------------------------------------------------------------------------------
-
-args = {}
-args['structure_name'] = 'dda_on_substrate'
-args['structure'] = 'from_shape'
-args['shape_file'] = './dda/particle.shape'
-args['voxel_size'] = 2.0
-args['voxel_method'] = 'surface'
-args['medium'] = 'air'
-args['materials'] = ['gold']
-args['use_substrate'] = True
-args['substrate'] = {
-    'material': 'glass',
-    'position': 0
-}
-
---------------------------------------------------------------------------------
-Example 7: Complex DDA structure (3 materials)
---------------------------------------------------------------------------------
-
-args = {}
-args['structure_name'] = 'complex_dda'
-args['structure'] = 'from_shape'
-args['shape_file'] = './dda/complex.shape'
-args['voxel_size'] = 1.5
-args['voxel_method'] = 'surface'
-args['medium'] = {'type': 'constant', 'epsilon': 1.5**2}  # Custom medium
-args['materials'] = [
-    'gold',  # mat_type 1
-    {'type': 'table', 'file': './materials/alloy.dat'},  # mat_type 2
-    'sio2'   # mat_type 3
-]
-
 ================================================================================
 6. TROUBLESHOOTING
 ================================================================================
+
+--------------------------------------------------------------------------------
+Problem: Material order confusion after v2.1 update
+--------------------------------------------------------------------------------
+Error: Core and shell seem reversed in visualization/results
+
+OLD CODE (v2.0 and earlier):
+  args['structure'] = 'core_shell_sphere'
+  args['materials'] = ['silver', 'gold']  # [shell, core]
+
+NEW CODE (v2.1+):
+  args['structure'] = 'core_shell_sphere'
+  args['materials'] = ['gold', 'silver']  # [core, shell]
+
+Check visualization:
+  - Core should be opaque (gold/orange color)
+  - Shell should be semi-transparent (blue color)
 
 --------------------------------------------------------------------------------
 Problem: Shape file loading error
@@ -650,29 +741,131 @@ Check:
   2. Verify voxel_size matches DDA setup
   3. Try both 'surface' and 'cube' methods
 
+================================================================================
+7. MIGRATION GUIDE (v2.0 → v2.1)
+================================================================================
+
 --------------------------------------------------------------------------------
-Problem: Built-in structure works, DDA doesn't
+Core-Shell Material Order Change
 --------------------------------------------------------------------------------
 
-Test minimal DDA case:
-  # Create simple test .shape
-  cat > test.shape << 'EOF'
-  0 0 0 1
-  1 0 0 1
-  0 1 0 1
-  0 0 1 1
-  EOF
+AFFECTED STRUCTURES:
+  - core_shell_sphere
+  - core_shell_cube
+  - core_shell_rod (new)
+  - dimer_core_shell_cube
+
+NOT AFFECTED:
+  - advanced_dimer_cube (already used correct order)
+  - DDA structures (user-defined order)
+  - Single particles (no order issue)
+
+MIGRATION STEPS:
+
+1. Identify old code:
+   OLD:
+     args['structure'] = 'core_shell_sphere'
+     args['materials'] = ['silver', 'gold']  # [shell, core]
+   
+   NEW:
+     args['structure'] = 'core_shell_sphere'
+     args['materials'] = ['gold', 'silver']  # [core, shell]
+
+2. Reverse material order:
+   # Find all core-shell configurations
+   grep -r "core_shell" config/
+   
+   # Update material order
+   # OLD: ['shell_mat', 'core_mat']
+   # NEW: ['core_mat', 'shell_mat']
+
+3. Verify visualization:
+   - Run simulation with updated config
+   - Check structure_3D.png:
+     * Core: opaque, gold/orange color
+     * Shell: semi-transparent, blue color
+   - If reversed: swap materials again
+
+4. Update documentation:
+   - Update comments in config files
+   - Note v2.1 changes in your research notes
+
+EXAMPLE CONVERSIONS:
+
+Au@Ag (gold core, silver shell):
+  OLD: args['materials'] = ['silver', 'gold']
+  NEW: args['materials'] = ['gold', 'silver']
+
+Ag@Au (silver core, gold shell):
+  OLD: args['materials'] = ['gold', 'silver']
+  NEW: args['materials'] = ['silver', 'gold']
+
+Au@Ag@AgCl dimer (advanced_dimer_cube):
+  UNCHANGED: args['materials'] = ['gold', 'silver', 'agcl']
+  (This structure already used correct order)
+
+--------------------------------------------------------------------------------
+New Core-Shell Rod Structure
+--------------------------------------------------------------------------------
+
+SYNTAX:
+  args['structure'] = 'core_shell_rod'
+  args['core_diameter'] = 15  # nm
+  args['shell_thickness'] = 5  # nm
+  args['height'] = 80  # nm
+  args['mesh_density'] = 144
+  args['materials'] = ['gold', 'silver']  # [core, shell]
+
+APPLICATIONS:
+  - Longitudinal vs transverse plasmon modes
+  - Tunable optical properties via shell thickness
+  - High aspect ratio nanostructures
+  - Enhanced field confinement at rod ends
+
+CONVERSION FROM SEPARATE FILES:
+  If you previously created core-shell rods using DDA:
   
-  # Minimal config
-  args['structure'] = 'from_shape'
-  args['shape_file'] = './test.shape'
-  args['voxel_size'] = 5.0
-  args['voxel_method'] = 'surface'
-  args['materials'] = ['gold']
+  OLD (DDA):
+    args['structure'] = 'from_shape'
+    args['shape_file'] = './rod_core_shell.shape'
+    args['voxel_size'] = 1.0
+    args['materials'] = ['gold', 'silver']
   
-  # Run
-  If this works → problem is in your .shape file
-  If this fails → check installation
+  NEW (Built-in):
+    args['structure'] = 'core_shell_rod'
+    args['core_diameter'] = 20
+    args['shell_thickness'] = 5
+    args['height'] = 100
+    args['materials'] = ['gold', 'silver']
+  
+  Benefits:
+    - Much faster (built-in MNPBEM mesh)
+    - Smoother surfaces
+    - Smaller mesh (fewer boundary elements)
+    - Easier to modify parameters
+
+--------------------------------------------------------------------------------
+Visualization Improvements
+--------------------------------------------------------------------------------
+
+NEW in v2.1:
+  - Core-shell structures automatically render with:
+    * Core: opaque, gold/orange color [1.0, 0.7, 0.3]
+    * Shell: semi-transparent, blue color [0.3, 0.7, 1.0]
+  - Multi-shell: outer shells progressively more transparent
+  - Legend added to distinguish core/shell
+  - Better lighting and material properties
+
+NO ACTION NEEDED:
+  - Visualization updates are automatic
+  - Previous simulation results unaffected
+  - Only visualization rendering changes
+
+BENEFITS:
+  - Easier to verify geometry correctness
+  - Clear identification of material boundaries
+  - Better for presentations/publications
+  - Immediate visual feedback on core-shell structure
 
 ================================================================================
 APPENDIX: FILE FORMAT SPECIFICATIONS
@@ -739,7 +932,9 @@ For additional help:
 Quick reference:
   Built-in: Fast setup, limited shapes
   DDA shape: Any geometry, multiple materials, DDA comparison
+  v2.1: Intuitive core-shell order, nanorod support, better visualization
 
 Version History:
+  v2.1 (2025-01): Core-shell order change, core_shell_rod added, visualization
   v2.0: DDA .shape support with multi-material
   v1.0: Initial built-in structures only

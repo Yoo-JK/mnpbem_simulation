@@ -428,6 +428,7 @@ end
             'dimer_cube': self._inout_dimer,
             'core_shell_sphere': self._inout_core_shell_single,
             'core_shell_cube': self._inout_core_shell_single,
+            'core_shell_rod': self._inout_core_shell_single,
             'dimer_core_shell_cube': self._inout_dimer_core_shell,
             'advanced_dimer_cube': self._inout_advanced_dimer_cube,
             'from_shape': self._inout_from_shape
@@ -552,6 +553,7 @@ end
             'dimer_cube': "closed = [1, 2];",
             'core_shell_sphere': "closed = [1, 2];",
             'core_shell_cube': "closed = [1, 2];",
+            'core_shell_rod': "closed = [1, 2];",
             'dimer_core_shell_cube': "closed = [1, 2, 3, 4];",
             'advanced_dimer_cube': self._closed_advanced_dimer_cube,
             'from_shape': self._closed_from_shape

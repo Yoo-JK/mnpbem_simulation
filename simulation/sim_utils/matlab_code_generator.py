@@ -708,11 +708,36 @@ fprintf('================================================================\\n');
         return code
     
     def _generate_footer(self):
-        """Generate script footer."""
+        """Generate script footer with proper cleanup and exit."""
         code = """
+%% Cleanup and Exit
+fprintf('\\n');
+fprintf('================================================================\\n');
+fprintf('Cleaning up...\\n');
+
+% Close all waitbars
+try
+    multiWaitbar('CloseAll');
+    fprintf('  ✓ Closed all waitbars\\n');
+catch
+    % multiWaitbar not used or already closed
+end
+
+% Close all figures
+close all;
+fprintf('  ✓ Closed all figures\\n');
+
+% Clear large variables to free memory
+clear bem sig field_data meshfield;
+fprintf('  ✓ Cleared temporary variables\\n');
+
+fprintf('================================================================\\n');
 fprintf('\\n');
 fprintf('=== MNPBEM Simulation Completed Successfully ===\\n');
 fprintf('\\n');
+
+%% Exit MATLAB
+exit;
 """
         return code
     

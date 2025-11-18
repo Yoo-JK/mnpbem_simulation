@@ -72,6 +72,16 @@ args['structure_name'] = 'my_structure'
 # args['mesh_density'] = 12
 # args['materials'] = ['silver', 'gold']  # [shell, core]
 
+# --- Core-Shell Rod (Nanorod) ---
+# args['structure'] = 'core_shell_rod'
+# args['core_diameter'] = 15  # nm
+# args['shell_thickness'] = 5  # nm (total diameter = 25nm)
+# args['height'] = 80  # nm (along z-axis)
+# args['mesh_density'] = 144
+# args['materials'] = ['gold', 'silver']  # [core, shell]
+# Example: Gold core nanorod with silver shell
+# Perfect for studying plasmonic nanorods with tunable properties
+
 # ============================================================================
 # SECTION 3: SIMPLE DIMERS (Two Particles)
 # ============================================================================

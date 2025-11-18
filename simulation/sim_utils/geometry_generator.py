@@ -350,6 +350,7 @@ class GeometryGenerator:
             'dimer_cube': self._dimer_cube,
             'core_shell_sphere': self._core_shell_sphere,
             'core_shell_cube': self._core_shell_cube,
+            'core_shell_rod': self._core_shell_rod,
             'dimer_core_shell_cube': self._dimer_core_shell_cube,
             'advanced_dimer_cube': self._advanced_dimer_cube,
             'from_shape': self._from_shape,
@@ -619,7 +620,7 @@ shell_diameter = core_diameter + 2 * shell_thickness;
 p_core = trisphere({mesh}, core_diameter);
 p_shell = trisphere({mesh}, shell_diameter);
 
-particles = {{p_shell, p_core}};
+particles = {{p_core, p_shell}};
 """
         return code
     
@@ -641,7 +642,32 @@ rounding_param = {rounding};
 p_core = tricube({mesh}, core_size, 'e', rounding_param);
 p_shell = tricube({mesh}, shell_size, 'e', rounding_param);
 
-particles = {{p_shell, p_core}};
+particles = {{p_core, p_shell}};
+"""
+        return code
+
+    def _core_shell_rod(self):
+        """Generate code for core-shell rod. (신규 추가)"""
+        core_diameter = self.config.get('core_diameter', 15)
+        shell_thickness = self.config.get('shell_thickness', 5)
+        height = self.config.get('height', 80)
+        mesh = self.config.get('mesh_density', 144)
+        shell_diameter = core_diameter + 2 * shell_thickness
+        
+        code = f"""
+%% Geometry: Core-Shell Rod
+core_diameter = {core_diameter};
+shell_thickness = {shell_thickness};
+shell_diameter = core_diameter + 2 * shell_thickness;
+height = {height};
+
+% Core rod
+p_core = trirod(core_diameter, height, [15, 20, 20]);
+
+% Shell rod
+p_shell = trirod(shell_diameter, height, [15, 20, 20]);
+
+particles = {{p_core, p_shell}};
 """
         return code
     
@@ -663,19 +689,21 @@ gap = {gap};
 rounding_param = {rounding};
 shift_distance = (shell_size + gap) / 2;
 
+% Particle 1 (Left)
 core1 = tricube({mesh}, core_size, 'e', rounding_param);
 core1 = shift(core1, [-shift_distance, 0, 0]);
 
 shell1 = tricube({mesh}, shell_size, 'e', rounding_param);
 shell1 = shift(shell1, [-shift_distance, 0, 0]);
 
+% Particle 2 (Right)
 core2 = tricube({mesh}, core_size, 'e', rounding_param);
 core2 = shift(core2, [shift_distance, 0, 0]);
 
 shell2 = tricube({mesh}, shell_size, 'e', rounding_param);
 shell2 = shift(shell2, [shift_distance, 0, 0]);
 
-particles = {{shell1, core1, shell2, core2}};
+particles = {{core1, shell1, core2, shell2}};
 """
         return code
     
