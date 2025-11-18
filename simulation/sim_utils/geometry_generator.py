@@ -6,10 +6,12 @@ Supports:
   - Built-in structures (MNPBEM predefined shapes)
   - DDA .shape files (with material indices)
   - Large mesh support via .mat file export
+  - Nonlocal quantum corrections (cover layers)
 """
 
 import numpy as np
 from pathlib import Path
+from .nonlocal_generator import NonlocalGenerator
 
 
 # ============================================================================
@@ -49,28 +51,20 @@ class ShapeFileLoader:
         if self.verbose:
             print(f"  Loading DDA shape file: {self.shape_path}")
         
-        # Load shape file: expected format [i, j, k, mat_type]
-        # Some DDA files have additional columns (Jx, Jy, Jz), we only need first 4
-        # Also skip header lines like "Nmat=2"
-        
         # Read file and skip non-numeric lines
         data_lines = []
         with open(self.shape_path, 'r') as f:
             for line in f:
                 line = line.strip()
-                # Skip empty lines
                 if not line:
                     continue
-                # Skip lines that don't start with a digit or minus sign
                 if not (line[0].isdigit() or line[0] == '-'):
                     if self.verbose:
                         print(f"    Skipping header/comment line: {line}")
                     continue
-                # Try to parse the line
                 try:
                     parts = line.split()
                     if len(parts) >= 4:
-                        # Convert first 4 columns to integers
                         i, j, k, mat_type = int(parts[0]), int(parts[1]), int(parts[2]), int(parts[3])
                         data_lines.append([i, j, k, mat_type])
                 except (ValueError, IndexError):
@@ -92,10 +86,7 @@ class ShapeFileLoader:
                 f"got {data.shape[1]} columns"
             )
         
-        # Extract [i, j, k, mat_type]
         self.voxel_data = data[:, :4]
-        
-        # Find unique materials
         self.unique_materials = np.unique(self.voxel_data[:, 3])
         
         if self.verbose:
@@ -107,13 +98,11 @@ class ShapeFileLoader:
         
         # Convert each material to mesh
         for mat_idx in self.unique_materials:
-            # Get voxels for this material
             mat_voxels = self.voxel_data[self.voxel_data[:, 3] == mat_idx][:, :3]
             
             if self.verbose:
                 print(f"    Converting material {mat_idx}...")
             
-            # Convert to mesh
             if self.method == 'surface':
                 vertices, faces = self._voxels_to_surface_mesh(mat_voxels)
             else:
@@ -137,7 +126,6 @@ class ShapeFileLoader:
         faces_list = []
         vertex_map = {}
         
-        # Cube face definitions
         cube_face_offsets = [
             [[0,0,0], [1,0,0], [1,1,0], [0,1,0]],  # bottom
             [[0,0,1], [0,1,1], [1,1,1], [1,0,1]],  # top
@@ -174,9 +162,8 @@ class ShapeFileLoader:
                             vertex_map[vert_key] = len(vertices_list)
                             vertices_list.append([vx, vy, vz])
                         
-                        vert_indices.append(vertex_map[vert_key] + 1)  # MATLAB 1-indexing
+                        vert_indices.append(vertex_map[vert_key] + 1)
                     
-                    # Split quad to triangles (with NaN for 4th column to mark as triangles)
                     faces_list.append([vert_indices[0], vert_indices[1], vert_indices[2], np.nan])
                     faces_list.append([vert_indices[0], vert_indices[2], vert_indices[3], np.nan])
         
@@ -189,15 +176,13 @@ class ShapeFileLoader:
             [0, 0, 1], [1, 0, 1], [1, 1, 1], [0, 1, 1]
         ], dtype=float)
         
-        # MATLAB uses 1-based indexing, so face indices start from 1
-        # Add NaN as 4th column to mark triangular faces
         cube_face_template = np.array([
-            [1, 2, 3, np.nan], [1, 3, 4, np.nan],  # bottom
-            [5, 8, 7, np.nan], [5, 7, 6, np.nan],  # top
-            [1, 5, 6, np.nan], [1, 6, 2, np.nan],  # front
-            [4, 3, 7, np.nan], [4, 7, 8, np.nan],  # back
-            [1, 4, 8, np.nan], [1, 8, 5, np.nan],  # left
-            [2, 6, 7, np.nan], [2, 7, 3, np.nan]   # right
+            [1, 2, 3, np.nan], [1, 3, 4, np.nan],
+            [5, 8, 7, np.nan], [5, 7, 6, np.nan],
+            [1, 5, 6, np.nan], [1, 6, 2, np.nan],
+            [4, 3, 7, np.nan], [4, 7, 8, np.nan],
+            [1, 4, 8, np.nan], [1, 8, 5, np.nan],
+            [2, 6, 7, np.nan], [2, 7, 3, np.nan]
         ])
         
         all_verts = []
@@ -211,7 +196,6 @@ class ShapeFileLoader:
             cube_verts[:, 1] += j * self.voxel_size
             cube_verts[:, 2] += k * self.voxel_size
             
-            # Vertex offset in 1-based indexing
             vert_offset = len(all_verts)
             all_verts.extend(cube_verts)
             all_faces.extend(cube_face_template + vert_offset)
@@ -219,32 +203,28 @@ class ShapeFileLoader:
         return np.array(all_verts), np.array(all_faces)
     
     def generate_matlab_code(self, material_names, output_dir=None):
-        """
-        Generate MATLAB code for all material particles.
-        """
+        """Generate MATLAB code for all material particles."""
         if self.material_particles is None:
             raise RuntimeError("Shape file not loaded. Call load() first.")
         
-        # Convert material_names to dict if it's a list
         if isinstance(material_names, list):
             mat_name_dict = {i+1: name for i, name in enumerate(material_names)}
         else:
             mat_name_dict = material_names
         
         code = """
-    %% Geometry: From DDA Shape File
-    fprintf('Creating particles from DDA shape file...\\n');
-    fprintf('  Voxel size: %.2f nm\\n', {voxel_size});
-    fprintf('  Method: {method}\\n');
-    fprintf('  Number of materials: %d\\n', {n_materials});
+%% Geometry: From DDA Shape File
+fprintf('Creating particles from DDA shape file...\\n');
+fprintf('  Voxel size: %.2f nm\\n', {voxel_size});
+fprintf('  Method: {method}\\n');
+fprintf('  Number of materials: %d\\n', {n_materials});
 
-    """.format(
+""".format(
             voxel_size=self.voxel_size,
             method=self.method,
             n_materials=len(self.unique_materials)
         )
         
-        # Check if we need to use .mat files
         use_mat_files = False
         total_vertices = sum(len(data['vertices']) for data in self.material_particles.values())
         
@@ -291,33 +271,31 @@ class ShapeFileLoader:
                 if self.verbose:
                     print(f"    Saved material {mat_idx} to {mat_filename}")
                 
-                # ===== 수정 부분: 'flat' interpolation 명시 =====
                 code += f"""
-    % Material index {mat_idx}: {mat_name}
-    fprintf('  Loading material {mat_idx} ({mat_name}) from file...\\n');
-    geom_data_{mat_idx} = load('{mat_filename}');
-    verts_{mat_idx} = geom_data_{mat_idx}.verts_{mat_idx};
-    faces_{mat_idx} = geom_data_{mat_idx}.faces_{mat_idx};
+% Material index {mat_idx}: {mat_name}
+fprintf('  Loading material {mat_idx} ({mat_name}) from file...\\n');
+geom_data_{mat_idx} = load('{mat_filename}');
+verts_{mat_idx} = geom_data_{mat_idx}.verts_{mat_idx};
+faces_{mat_idx} = geom_data_{mat_idx}.faces_{mat_idx};
 
-    % DDA meshes use flat triangular faces only
-    p{mat_idx} = particle(verts_{mat_idx}, faces_{mat_idx}, op, 'interp', 'flat');
-    fprintf('  Material {mat_idx} ({mat_name}): %d vertices, %d faces\\n', ...
-            size(verts_{mat_idx}, 1), size(faces_{mat_idx}, 1));
-    """
+% DDA meshes use flat triangular faces only
+p{mat_idx} = particle(verts_{mat_idx}, faces_{mat_idx}, op, 'interp', 'flat');
+fprintf('  Material {mat_idx} ({mat_name}): %d vertices, %d faces\\n', ...
+        size(verts_{mat_idx}, 1), size(faces_{mat_idx}, 1));
+"""
             else:
                 verts_str, faces_str = self._arrays_to_matlab(vertices, faces)
                 
-                # ===== 수정 부분: 'flat' interpolation 명시 =====
                 code += f"""
-    % Material index {mat_idx}: {mat_name}
-    verts_{mat_idx} = {verts_str};
-    faces_{mat_idx} = {faces_str};
+% Material index {mat_idx}: {mat_name}
+verts_{mat_idx} = {verts_str};
+faces_{mat_idx} = {faces_str};
 
-    % DDA meshes use flat triangular faces only
-    p{mat_idx} = particle(verts_{mat_idx}, faces_{mat_idx}, op, 'interp', 'flat');
-    fprintf('  Material {mat_idx} ({mat_name}): %d vertices, %d faces\\n', ...
-            size(verts_{mat_idx}, 1), size(faces_{mat_idx}, 1));
-    """
+% DDA meshes use flat triangular faces only
+p{mat_idx} = particle(verts_{mat_idx}, faces_{mat_idx}, op, 'interp', 'flat');
+fprintf('  Material {mat_idx} ({mat_name}): %d vertices, %d faces\\n', ...
+        size(verts_{mat_idx}, 1), size(faces_{mat_idx}, 1));
+"""
             
             particles_list.append(f'p{mat_idx}')
         
@@ -328,23 +306,19 @@ class ShapeFileLoader:
     
     def _arrays_to_matlab(self, vertices, faces):
         """Convert numpy arrays to MATLAB format."""
-        # Vertices
         verts_str = "[\n"
         for v in vertices:
             verts_str += f"    {v[0]:.6f}, {v[1]:.6f}, {v[2]:.6f};\n"
         verts_str += "]"
         
-        # Faces (with 4th column for MNPBEM format: NaN for triangles)
         faces_str = "[\n"
         for f in faces:
             if len(f) >= 4:
-                # Check if 4th element is NaN
                 if np.isnan(f[3]):
                     faces_str += f"    {int(f[0])}, {int(f[1])}, {int(f[2])}, NaN;\n"
                 else:
                     faces_str += f"    {int(f[0])}, {int(f[1])}, {int(f[2])}, {int(f[3])};\n"
             else:
-                # Old format: 3 columns only, add NaN
                 faces_str += f"    {int(f[0])}, {int(f[1])}, {int(f[2])}, NaN;\n"
         faces_str += "]"
         
@@ -362,11 +336,11 @@ class GeometryGenerator:
         self.config = config
         self.verbose = verbose
         self.structure = config['structure']
+        self.nonlocal_gen = NonlocalGenerator(config, verbose)
     
     def generate(self):
         """Generate geometry code based on structure type."""
         structure_map = {
-            # Built-in structures
             'sphere': self._sphere,
             'cube': self._cube,
             'rod': self._rod,
@@ -377,15 +351,134 @@ class GeometryGenerator:
             'core_shell_sphere': self._core_shell_sphere,
             'core_shell_cube': self._core_shell_cube,
             'dimer_core_shell_cube': self._dimer_core_shell_cube,
-            'advanced_dimer_cube': self._advanced_dimer_cube,  # ← 이 줄 추가!
-            # DDA shape file
+            'advanced_dimer_cube': self._advanced_dimer_cube,
             'from_shape': self._from_shape,
         }
         
         if self.structure not in structure_map:
             raise ValueError(f"Unknown structure type: {self.structure}")
         
-        return structure_map[self.structure]()
+        # Generate base geometry
+        base_code = structure_map[self.structure]()
+        
+        # Apply nonlocal cover layers if enabled
+        if self.nonlocal_gen.is_needed():
+            base_code = self._apply_nonlocal_coverlayer(base_code)
+        
+        return base_code
+    
+    def _apply_nonlocal_coverlayer(self, base_geometry_code):
+        """Apply nonlocal cover layer to existing geometry."""
+        if not self.nonlocal_gen.is_needed():
+            return base_geometry_code
+        
+        is_applicable, warnings = self.nonlocal_gen.check_applicability()
+        if warnings:
+            warning_str = "\n".join([f"%   - {w}" for w in warnings])
+            warning_code = f"""
+%% ⚠ Nonlocal Warnings:
+{warning_str}
+"""
+        else:
+            warning_code = ""
+        
+        structure = self.config.get('structure', '')
+        
+        if 'sphere' in structure:
+            cover_code = self._apply_coverlayer_sphere()
+        elif 'cube' in structure:
+            cover_code = self._apply_coverlayer_cube()
+        else:
+            if self.verbose:
+                print(f"  ⚠ Warning: Nonlocal not fully implemented for structure '{structure}'")
+            cover_code = self._apply_coverlayer_manual()
+        
+        combined_code = f"""
+{base_geometry_code}
+
+{warning_code}
+
+%% Apply Nonlocal Cover Layers
+fprintf('\\n=== Applying Nonlocal Cover Layers ===\\n');
+{cover_code}
+"""
+        return combined_code
+    
+    def _apply_coverlayer_sphere(self):
+        """Apply cover layer to sphere structures."""
+        d = self.nonlocal_gen.cover_thickness
+        
+        code = f"""
+% Apply nonlocal cover layers to spheres
+d_cover = {d};
+particles_with_cover = {{}};
+
+for i = 1:length(particles)
+    p_inner = particles{{i}};
+    p_outer = coverlayer.shift( p_inner, d_cover );
+    particles_with_cover{{end+1}} = p_outer;
+    particles_with_cover{{end+1}} = p_inner;
+    fprintf('  ✓ Particle %d: added %.3f nm cover layer\\n', i, d_cover);
+end
+
+particles = particles_with_cover;
+fprintf('  Total particles after cover layers: %d\\n', length(particles));
+"""
+        return code
+    
+    def _apply_coverlayer_cube(self):
+        """Apply cover layer to cube structures."""
+        d = self.nonlocal_gen.cover_thickness
+        
+        code = f"""
+% Apply nonlocal cover layers to cubes
+d_cover = {d};
+particles_with_cover = {{}};
+
+for i = 1:length(particles)
+    p_inner = particles{{i}};
+    verts = p_inner.verts;
+    size_current = max(verts(:,1)) - min(verts(:,1));
+    
+    rounding_current = {self.config.get('rounding', 0.25)};
+    mesh_current = {self.config.get('mesh_density', 12)};
+    
+    p_inner_smaller = tricube(mesh_current, size_current - 2*d_cover, 'e', rounding_current);
+    center_orig = mean(p_inner.verts, 1);
+    center_new = mean(p_inner_smaller.verts, 1);
+    p_inner_smaller = shift(p_inner_smaller, center_orig - center_new);
+    
+    p_outer = p_inner;
+    particles_with_cover{{end+1}} = p_outer;
+    particles_with_cover{{end+1}} = p_inner_smaller;
+    
+    fprintf('  ✓ Particle %d: added %.3f nm cover layer (cube)\\n', i, d_cover);
+end
+
+particles = particles_with_cover;
+fprintf('  Total particles after cover layers: %d\\n', length(particles));
+"""
+        return code
+    
+    def _apply_coverlayer_manual(self):
+        """Generic cover layer application."""
+        d = self.nonlocal_gen.cover_thickness
+        
+        code = f"""
+% Manual cover layer application
+d_cover = {d};
+
+fprintf('  ⚠ Manual cover layer mode\\n');
+fprintf('  ⚠ Verify geometry visually before running full simulation!\\n');
+
+if length(particles) > 0
+    p1 = particles{{1}};
+    p1_outer = coverlayer.shift( p1, d_cover );
+    particles = {{p1_outer, p1}};
+    fprintf('  ✓ Applied cover layer to first particle\\n');
+end
+"""
+        return code
     
     # ========================================================================
     # Built-in Structures
@@ -432,7 +525,7 @@ p = trirod(diameter, height, [15, 20, 20]);
 particles = {{p}};
 """
         return code
-
+    
     def _ellipsoid(self):
         """Generate code for ellipsoid."""
         axes = self.config.get('axes', [10, 15, 20])
@@ -585,177 +678,97 @@ shell2 = shift(shell2, [shift_distance, 0, 0]);
 particles = {{shell1, core1, shell2, core2}};
 """
         return code
-
-    def _advanced_dimer_cube(self):
-            """
-            Generate advanced dimer cube with full control.
-            
-            Features:
-            - Multi-shell layers (Au@Ag@AgCl, etc.)
-            - Per-layer rounding control
-            - Gap, offset, tilt, rotation control
-            
-            Config parameters:
-            - core_size: Core cube size (nm)
-            - shell_layers: List of shell thicknesses [inner→outer] (nm)
-            - materials: List of materials [core, inner_shell, ..., outer_shell]
-            - roundings: Per-layer rounding [inner→outer] or single 'rounding' value
-            - gap: Surface-to-surface distance (nm)
-            - offset: [x, y, z] additional shift for particle 2 (nm)
-            - tilt_angle: Tilt angle for particle 2 (degrees)
-            - tilt_axis: Tilt rotation axis [x, y, z]
-            - rotation_angle: Z-axis rotation for particle 2 (degrees)
-            - mesh_density: Mesh density
-            """
-            # Get parameters
-            core_size = self.config.get('core_size', 30)
-            shell_layers = self.config.get('shell_layers', [])  # [inner→outer]
-            materials = self.config.get('materials', [])        # [core, inner→outer]
-            mesh = self.config.get('mesh_density', 12)
-            
-            # Validation
-            if len(materials) != 1 + len(shell_layers):
-                raise ValueError(
-                    f"materials length ({len(materials)}) must equal "
-                    f"1 (core) + {len(shell_layers)} (shells) = {1 + len(shell_layers)}"
-                )
-            
-            # Rounding: support both single value and per-layer list
-            if 'roundings' in self.config:
-                # New way: per-layer specification [core, inner→outer]
-                roundings = self.config.get('roundings')
-                if len(roundings) != len(materials):
-                    raise ValueError(
-                        f"roundings length ({len(roundings)}) must equal "
-                        f"materials length ({len(materials)})"
-                    )
-            elif 'rounding' in self.config:
-                # Old way: single value for all layers (backward compatible)
-                single_rounding = self.config.get('rounding', 0.25)
-                roundings = [single_rounding] * len(materials)
-            else:
-                # Default: 0.25 for all
-                roundings = [0.25] * len(materials)
-            
-            # Dimer parameters
-            gap = self.config.get('gap', 10)
-            offset = self.config.get('offset', [0, 0, 0])
-            tilt_angle = self.config.get('tilt_angle', 0)
-            tilt_axis = self.config.get('tilt_axis', [0, 1, 0])
-            rotation_angle = self.config.get('rotation_angle', 0)
-            
-            # Calculate sizes from core outward [core, inner_shell, ..., outer_shell]
-            sizes = [core_size]  # Start with core
-            for thickness in shell_layers:  # Add each shell (inner→outer)
-                sizes.append(sizes[-1] + 2 * thickness)
-            # sizes = [core, core+2*shell1, core+2*shell1+2*shell2, ...]
-            
-            # Total outer size for positioning
-            total_size = sizes[-1]
-            shift_distance = (total_size + gap) / 2
-            
-            # Generate MATLAB code
-            code = f"""
-    %% Geometry: Advanced Dimer Cube
-    % Multi-shell dimer with full transformation control
-    %
-    % Configuration:
-    %   Core size: {core_size} nm
-    %   Shell layers: {shell_layers} nm (inner→outer)
-    %   Materials: {materials} (core→outer)
-    %   Roundings: {roundings} (core→outer)
-    %   Gap: {gap} nm
-    %   Offset: [{offset[0]}, {offset[1]}, {offset[2]}] nm
-    %   Tilt: {tilt_angle}° around [{tilt_axis[0]}, {tilt_axis[1]}, {tilt_axis[2]}]
-    %   Rotation: {rotation_angle}° around z-axis
-    %
-    % Transformation order for Particle 2:
-    %   1. Rotation ({rotation_angle}° around z)
-    %   2. Tilt ({tilt_angle}° around custom axis)
-    %   3. Shift (gap positioning)
-    %   4. Offset (fine-tuning)
-
-    mesh_density = {mesh};
-    gap = {gap};
-    shift_distance = {shift_distance};
-
-    """
-            
-            # === Particle 1 (Left) ===
-            code += "\n%% === Particle 1 (Left) ===\n"
-            particles_list = []
-            
-            # Generate from inner to outer: core, then each shell
-            for i, (size, material, rounding) in enumerate(zip(sizes, materials, roundings)):
-                if i == 0:
-                    # Core
-                    code += f"% Core: {material} (size: {size} nm, rounding: {rounding})\n"
-                    code += f"p1_core = tricube(mesh_density, {size}, 'e', {rounding});\n"
-                    code += f"p1_core = shift(p1_core, [-shift_distance, 0, 0]);\n"
-                    particles_list.append("p1_core")
-                else:
-                    # Shell
-                    shell_num = i
-                    shell_thickness = shell_layers[i-1]
-                    code += f"\n% Shell {shell_num}: {material} (thickness: {shell_thickness} nm, total size: {size} nm, rounding: {rounding})\n"
-                    code += f"p1_shell{shell_num} = tricube(mesh_density, {size}, 'e', {rounding});\n"
-                    code += f"p1_shell{shell_num} = shift(p1_shell{shell_num}, [-shift_distance, 0, 0]);\n"
-                    particles_list.append(f"p1_shell{shell_num}")
-            
-            # === Particle 2 (Right with transformations) ===
-            code += "\n%% === Particle 2 (Right with transformations) ===\n"
-            code += f"% Transformation order: Rotation → Tilt → Shift (gap) → Offset\n\n"
-            
-            for i, (size, material, rounding) in enumerate(zip(sizes, materials, roundings)):
-                if i == 0:
-                    # Core
-                    code += f"% Core: {material} (size: {size} nm, rounding: {rounding})\n"
-                    code += f"p2_core = tricube(mesh_density, {size}, 'e', {rounding});\n"
-                    
-                    # Transformations
-                    code += f"% 1. Rotation around z-axis\n"
-                    code += f"p2_core = rot(p2_core, {rotation_angle}, [0, 0, 1]);\n"
-                    code += f"% 2. Tilt around custom axis\n"
-                    code += f"p2_core = rot(p2_core, {tilt_angle}, [{tilt_axis[0]}, {tilt_axis[1]}, {tilt_axis[2]}]);\n"
-                    code += f"% 3. Shift to gap position\n"
-                    code += f"p2_core = shift(p2_core, [shift_distance, 0, 0]);\n"
-                    code += f"% 4. Additional offset\n"
-                    code += f"p2_core = shift(p2_core, [{offset[0]}, {offset[1]}, {offset[2]}]);\n"
-                    
-                    particles_list.append("p2_core")
-                else:
-                    # Shell
-                    shell_num = i
-                    shell_thickness = shell_layers[i-1]
-                    code += f"\n% Shell {shell_num}: {material} (thickness: {shell_thickness} nm, total size: {size} nm, rounding: {rounding})\n"
-                    code += f"p2_shell{shell_num} = tricube(mesh_density, {size}, 'e', {rounding});\n"
-                    
-                    # Same transformations as core
-                    code += f"p2_shell{shell_num} = rot(p2_shell{shell_num}, {rotation_angle}, [0, 0, 1]);\n"
-                    code += f"p2_shell{shell_num} = rot(p2_shell{shell_num}, {tilt_angle}, [{tilt_axis[0]}, {tilt_axis[1]}, {tilt_axis[2]}]);\n"
-                    code += f"p2_shell{shell_num} = shift(p2_shell{shell_num}, [shift_distance, 0, 0]);\n"
-                    code += f"p2_shell{shell_num} = shift(p2_shell{shell_num}, [{offset[0]}, {offset[1]}, {offset[2]}]);\n"
-                    
-                    particles_list.append(f"p2_shell{shell_num}")
-            
-            # Combine all particles
-            particles_str = ", ".join(particles_list)
-            code += f"\n%% Combine all particles\nparticles = {{{particles_str}}};\n"
-            code += f"% Total particles: {len(particles_list)} (2 dimers × {len(materials)} layers)\n"
-            
-            if self.verbose:
-                print(f"Generated advanced dimer cube:")
-                print(f"  - Core: {materials[0]} ({core_size} nm)")
-                for i, (thickness, material) in enumerate(zip(shell_layers, materials[1:]), 1):
-                    print(f"  - Shell {i}: {material} ({thickness} nm)")
-                print(f"  - Gap: {gap} nm")
-                print(f"  - Total particles: {len(particles_list)}")
-            
-            return code
     
-    # ========================================================================
-    # DDA Shape File
-    # ========================================================================
+    def _advanced_dimer_cube(self):
+        """Generate advanced dimer cube with full control."""
+        core_size = self.config.get('core_size', 30)
+        shell_layers = self.config.get('shell_layers', [])
+        materials = self.config.get('materials', [])
+        mesh = self.config.get('mesh_density', 12)
+        
+        if len(materials) != 1 + len(shell_layers):
+            raise ValueError(
+                f"materials length ({len(materials)}) must equal "
+                f"1 (core) + {len(shell_layers)} (shells) = {1 + len(shell_layers)}"
+            )
+        
+        if 'roundings' in self.config:
+            roundings = self.config.get('roundings')
+            if len(roundings) != len(materials):
+                raise ValueError(
+                    f"roundings length ({len(roundings)}) must equal "
+                    f"materials length ({len(materials)})"
+                )
+        elif 'rounding' in self.config:
+            single_rounding = self.config.get('rounding', 0.25)
+            roundings = [single_rounding] * len(materials)
+        else:
+            roundings = [0.25] * len(materials)
+        
+        gap = self.config.get('gap', 10)
+        offset = self.config.get('offset', [0, 0, 0])
+        tilt_angle = self.config.get('tilt_angle', 0)
+        tilt_axis = self.config.get('tilt_axis', [0, 1, 0])
+        rotation_angle = self.config.get('rotation_angle', 0)
+        
+        sizes = [core_size]
+        for thickness in shell_layers:
+            sizes.append(sizes[-1] + 2 * thickness)
+        
+        total_size = sizes[-1]
+        shift_distance = (total_size + gap) / 2
+        
+        code = f"""
+%% Geometry: Advanced Dimer Cube
+mesh_density = {mesh};
+gap = {gap};
+shift_distance = {shift_distance};
+
+"""
+        
+        # Particle 1
+        code += "\n%% === Particle 1 (Left) ===\n"
+        particles_list = []
+        
+        for i, (size, material, rounding) in enumerate(zip(sizes, materials, roundings)):
+            if i == 0:
+                code += f"% Core: {material}\n"
+                code += f"p1_core = tricube(mesh_density, {size}, 'e', {rounding});\n"
+                code += f"p1_core = shift(p1_core, [-shift_distance, 0, 0]);\n"
+                particles_list.append("p1_core")
+            else:
+                shell_num = i
+                code += f"\n% Shell {shell_num}: {material}\n"
+                code += f"p1_shell{shell_num} = tricube(mesh_density, {size}, 'e', {rounding});\n"
+                code += f"p1_shell{shell_num} = shift(p1_shell{shell_num}, [-shift_distance, 0, 0]);\n"
+                particles_list.append(f"p1_shell{shell_num}")
+        
+        # Particle 2
+        code += "\n%% === Particle 2 (Right with transformations) ===\n"
+        
+        for i, (size, material, rounding) in enumerate(zip(sizes, materials, roundings)):
+            if i == 0:
+                code += f"% Core: {material}\n"
+                code += f"p2_core = tricube(mesh_density, {size}, 'e', {rounding});\n"
+                code += f"p2_core = rot(p2_core, {rotation_angle}, [0, 0, 1]);\n"
+                code += f"p2_core = rot(p2_core, {tilt_angle}, [{tilt_axis[0]}, {tilt_axis[1]}, {tilt_axis[2]}]);\n"
+                code += f"p2_core = shift(p2_core, [shift_distance, 0, 0]);\n"
+                code += f"p2_core = shift(p2_core, [{offset[0]}, {offset[1]}, {offset[2]}]);\n"
+                particles_list.append("p2_core")
+            else:
+                shell_num = i
+                code += f"\n% Shell {shell_num}: {material}\n"
+                code += f"p2_shell{shell_num} = tricube(mesh_density, {size}, 'e', {rounding});\n"
+                code += f"p2_shell{shell_num} = rot(p2_shell{shell_num}, {rotation_angle}, [0, 0, 1]);\n"
+                code += f"p2_shell{shell_num} = rot(p2_shell{shell_num}, {tilt_angle}, [{tilt_axis[0]}, {tilt_axis[1]}, {tilt_axis[2]}]);\n"
+                code += f"p2_shell{shell_num} = shift(p2_shell{shell_num}, [shift_distance, 0, 0]);\n"
+                code += f"p2_shell{shell_num} = shift(p2_shell{shell_num}, [{offset[0]}, {offset[1]}, {offset[2]}]);\n"
+                particles_list.append(f"p2_shell{shell_num}")
+        
+        particles_str = ", ".join(particles_list)
+        code += f"\n%% Combine all particles\nparticles = {{{particles_str}}};\n"
+        
+        return code
     
     def _from_shape(self):
         """Generate code for DDA shape file import."""
@@ -770,18 +783,14 @@ particles = {{shell1, core1, shell2, core2}};
         if not materials:
             raise ValueError("'materials' list must be specified for DDA shape files")
         
-        # Get output directory for saving .mat files
         output_dir = self.config.get('output_dir', './results')
         
         if self.verbose:
             print(f"Loading DDA shape file...")
         
-        # Load shape file using Python
         loader = ShapeFileLoader(shape_file, voxel_size=voxel_size, method=method, verbose=self.verbose)
         loader.load()
         
-        # Generate MATLAB code with material names and output directory
         code = loader.generate_matlab_code(materials, output_dir=output_dir)
         
         return code
-

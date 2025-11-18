@@ -2,9 +2,11 @@
 MATLAB Code Generator
 
 Generates complete MATLAB simulation scripts with field calculation support.
+Supports nonlocal quantum corrections for sub-nanometer gaps.
 """
 
 import numpy as np
+from .nonlocal_generator import NonlocalGenerator
 
 
 class MatlabCodeGenerator:
@@ -13,6 +15,7 @@ class MatlabCodeGenerator:
     def __init__(self, config, verbose=False):
         self.config = config
         self.verbose = verbose
+        self.nonlocal_gen = NonlocalGenerator(config, verbose)
     
     def generate_complete_script(self, geometry_code, material_code):
         """Generate complete MATLAB simulation script."""
@@ -23,14 +26,17 @@ class MatlabCodeGenerator:
         # Options
         options = self._generate_options()
         
-        # Geometry (already provided)
+        # Geometry
         geometry = geometry_code
         
-        # Materials (already provided)
+        # Materials
         materials = material_code
         
         # Comparticle creation
         comparticle = self._generate_comparticle()
+        
+        # Validation (if nonlocal)
+        validation = self._validate_nonlocal_setup()
         
         # BEM solver
         bem_solver = self._generate_bem_solver()
@@ -57,6 +63,8 @@ class MatlabCodeGenerator:
 {materials}
 
 {comparticle}
+
+{validation}
 
 {bem_solver}
 
@@ -90,49 +98,55 @@ fprintf('Simulation Type: %s\\n', '{sim_type}');
             sim_type=self.config['simulation_type']
         )
         return code
-
+    
     def _generate_options(self):
-        """
-        Generate BEM options with proper RelCutoff for iterative solver.
-        
-        The bug occurs when RelCutoff is too low, causing quad() to return
-        empty arrays. We need to increase RelCutoff for iterative solver.
-        """
-        sim_type = self.config.get('simulation_type', 'ret')
-        interp = self.config.get('interp', 'curv')
-        waitbar = self.config.get('waitbar', 0)
-        refine = self.config.get('refine', 2)
+        """Generate BEM options with proper settings."""
+        sim_type = self.config['simulation_type']
+        use_mirror = self.config.get('use_mirror_symmetry', False)
         use_iterative = self.config.get('use_iterative_solver', False)
+        use_nonlocal = self.nonlocal_gen.is_needed()
         
-        # CRITICAL FIX: Use higher RelCutoff for iterative solver
-        # The default RelCutoff=3 can cause empty quad() results
-        # For iterative solver, use RelCutoff=2 (more conservative)
-        if use_iterative:
-            relcutoff = self.config.get('relcutoff', 2)  # Changed from 3 to 2
-        else:
-            relcutoff = self.config.get('relcutoff', 3)  # Keep 3 for direct solver
+        refine = self.config.get('refine', 3 if use_nonlocal else 1)
+        relcutoff = self.config.get('relcutoff', 2 if use_iterative else 3)
         
         code = f"""
-    %% BEM Options
-    op = bemoptions('sim', '{sim_type}', 'interp', '{interp}', 'waitbar', {waitbar}, 'refine', {refine}, 'RelCutoff', {relcutoff});
-    fprintf('BEM options configured\\n');
-    fprintf('  - Simulation type: {sim_type}\\n');
-    fprintf('  - Interpolation: {interp}\\n');
-    fprintf('  - Refine: {refine}\\n');
-    fprintf('  - RelCutoff: {relcutoff}\\n');
-    """
+%% BEM Options
+fprintf('\\nSetting up BEM options...\\n');
+"""
         
-        if use_iterative:
-            code += """
-    fprintf('  - Using iterative solver: YES\\n');
-    """
+        # Base options
+        if sim_type == 'stat':
+            code += "op = bemoptions( 'sim', 'stat', 'interp', 'curv' );\n"
         else:
-            code += """
-    fprintf('  - Using iterative solver: NO\\n');
-    """
+            code += "op = bemoptions( 'sim', 'ret', 'interp', 'curv' );\n"
+        
+        code += f"op.refine = {refine};\n"
+        
+        # Mirror symmetry
+        if use_mirror:
+            if isinstance(use_mirror, str):
+                sym = use_mirror
+            else:
+                sym = 'xy'
+            code += f"op.sym = '{sym}';\n"
+            code += f"fprintf('  ✓ Mirror symmetry: {sym}\\n');\n"
+        
+        # Nonlocal options (high precision integration)
+        if use_nonlocal:
+            nonlocal_opts = self.nonlocal_gen.generate_bem_options()
+            code += nonlocal_opts
+        
+        # Iterative solver options
+        if use_iterative:
+            code += f"""
+%% Iterative Solver Options
+relcutoff = {relcutoff};
+fprintf('  ✓ Iterative solver: relcutoff=%d\\n', relcutoff);
+"""
+        
+        code += "\nfprintf('✓ BEM options configured\\n');\n"
         
         return code
-
     
     def _generate_comparticle(self):
         """Generate comparticle object creation with visualization."""
@@ -146,10 +160,9 @@ fprintf('Comparticle created with %d boundary elements\\n', p.n);
 fprintf('\\nGenerating structure visualizations...\\n');
 
 try
-    % ========== 3D View with Coordinate System ==========
+    % ========== 3D View ==========
     fig = figure('Visible', 'off', 'Position', [100, 100, 1000, 800]);
     
-    % Main plot
     subplot('Position', [0.1, 0.1, 0.75, 0.85]);
     plot(p, 'EdgeColor', 'b', 'FaceColor', [0.8, 0.9, 1.0], 'FaceAlpha', 0.9);
     axis equal;
@@ -163,7 +176,7 @@ try
     lighting gouraud;
     camlight('headlight');
     
-    % Coordinate system indicator (small axes in corner)
+    % Coordinate system indicator
     ax_small = axes('Position', [0.85, 0.75, 0.12, 0.2]);
     hold on;
     arrow_len = 1;
@@ -184,10 +197,9 @@ try
     fprintf('  ✓ 3D view saved\\n');
     close(fig);
     
-    % ========== XY View (Top) ==========
+    % ========== XY View ==========
     fig = figure('Visible', 'off', 'Position', [100, 100, 1000, 800]);
     
-    % Main plot
     subplot('Position', [0.1, 0.1, 0.75, 0.85]);
     plot(p, 'EdgeColor', 'b', 'FaceColor', [0.8, 0.9, 1.0], 'FaceAlpha', 0.9);
     axis equal;
@@ -197,35 +209,14 @@ try
     view(0, 90);
     grid on;
     box on;
-    lighting gouraud;
-    camlight('headlight');
-    
-    % Coordinate system indicator
-    ax_small = axes('Position', [0.85, 0.75, 0.12, 0.2]);
-    hold on;
-    arrow_len = 1;
-    quiver(0, 0, arrow_len, 0, 'r', 'LineWidth', 3, 'MaxHeadSize', 1);
-    quiver(0, 0, 0, arrow_len, 'g', 'LineWidth', 3, 'MaxHeadSize', 1);
-    text(arrow_len*1.3, 0, 'x', 'FontSize', 14, 'FontWeight', 'bold', 'Color', 'r');
-    text(0, arrow_len*1.3, 'y', 'FontSize', 14, 'FontWeight', 'bold', 'Color', 'g');
-    text(0.1, -0.5, 'z ⊗', 'FontSize', 14, 'FontWeight', 'bold', 'Color', 'b');
-    axis equal;
-    axis off;
-    xlim([-0.3, 1.5]);
-    ylim([-0.7, 1.5]);
-    
-    % Polarization indicators
-    text(0.1, -1.2, 'Pol-X →', 'FontSize', 12, 'FontWeight', 'bold', 'Color', [1, 0.5, 0]);
-    text(0.1, -1.5, 'Pol-Y ↑', 'FontSize', 12, 'FontWeight', 'bold', 'Color', [1, 0, 1]);
     
     print('structure_XY.png', '-dpng', '-r300');
     fprintf('  ✓ XY view saved\\n');
     close(fig);
     
-    % ========== YZ View (Side) ==========
+    % ========== YZ View ==========
     fig = figure('Visible', 'off', 'Position', [100, 100, 1000, 800]);
     
-    % Main plot
     subplot('Position', [0.1, 0.1, 0.75, 0.85]);
     plot(p, 'EdgeColor', 'b', 'FaceColor', [0.8, 0.9, 1.0], 'FaceAlpha', 0.9);
     axis equal;
@@ -235,35 +226,14 @@ try
     view(0, 0);
     grid on;
     box on;
-    lighting gouraud;
-    camlight('headlight');
-    
-    % Coordinate system indicator
-    ax_small = axes('Position', [0.85, 0.75, 0.12, 0.2]);
-    hold on;
-    arrow_len = 1;
-    quiver(0, 0, arrow_len, 0, 'g', 'LineWidth', 3, 'MaxHeadSize', 1);
-    quiver(0, 0, 0, arrow_len, 'b', 'LineWidth', 3, 'MaxHeadSize', 1);
-    text(arrow_len*1.3, 0, 'y', 'FontSize', 14, 'FontWeight', 'bold', 'Color', 'g');
-    text(0, arrow_len*1.3, 'z', 'FontSize', 14, 'FontWeight', 'bold', 'Color', 'b');
-    text(-0.5, 0.1, '⊗ x', 'FontSize', 14, 'FontWeight', 'bold', 'Color', 'r');
-    axis equal;
-    axis off;
-    xlim([-0.7, 1.5]);
-    ylim([-0.3, 1.5]);
-    
-    % Polarization indicator
-    text(0.1, -1.2, 'Pol-Y ↑', 'FontSize', 12, 'FontWeight', 'bold', 'Color', [1, 0, 1]);
-    text(0.1, -1.5, 'k →', 'FontSize', 12, 'FontWeight', 'bold', 'Color', [0, 0.7, 0.7]);
     
     print('structure_YZ.png', '-dpng', '-r300');
     fprintf('  ✓ YZ view saved\\n');
     close(fig);
     
-    % ========== ZX View (Front) ==========
+    % ========== ZX View ==========
     fig = figure('Visible', 'off', 'Position', [100, 100, 1000, 800]);
     
-    % Main plot
     subplot('Position', [0.1, 0.1, 0.75, 0.85]);
     plot(p, 'EdgeColor', 'b', 'FaceColor', [0.8, 0.9, 1.0], 'FaceAlpha', 0.9);
     axis equal;
@@ -273,26 +243,6 @@ try
     view(90, 0);
     grid on;
     box on;
-    lighting gouraud;
-    camlight('headlight');
-    
-    % Coordinate system indicator
-    ax_small = axes('Position', [0.85, 0.75, 0.12, 0.2]);
-    hold on;
-    arrow_len = 1;
-    quiver(0, 0, arrow_len, 0, 'r', 'LineWidth', 3, 'MaxHeadSize', 1);
-    quiver(0, 0, 0, arrow_len, 'b', 'LineWidth', 3, 'MaxHeadSize', 1);
-    text(arrow_len*1.3, 0, 'x', 'FontSize', 14, 'FontWeight', 'bold', 'Color', 'r');
-    text(0, arrow_len*1.3, 'z', 'FontSize', 14, 'FontWeight', 'bold', 'Color', 'b');
-    text(-0.5, 0.1, '⊗ y', 'FontSize', 14, 'FontWeight', 'bold', 'Color', 'g');
-    axis equal;
-    axis off;
-    xlim([-0.7, 1.5]);
-    ylim([-0.3, 1.5]);
-    
-    % Polarization indicator
-    text(0.1, -1.2, 'Pol-X →', 'FontSize', 12, 'FontWeight', 'bold', 'Color', [1, 0.5, 0]);
-    text(0.1, -1.5, 'k →', 'FontSize', 12, 'FontWeight', 'bold', 'Color', [0, 0.7, 0.7]);
     
     print('structure_ZX.png', '-dpng', '-r300');
     fprintf('  ✓ ZX view saved\\n');
@@ -306,14 +256,40 @@ end
 """
         return code
     
-    def _generate_bem_solver(self):
-        """
-        Generate BEM solver initialization with proper iterative solver support.
+    def _validate_nonlocal_setup(self):
+        """Validate that nonlocal setup is correct."""
+        if not self.nonlocal_gen.is_needed():
+            return ""
         
-        CRITICAL FIX: Initialize op.iter options BEFORE calling bemsolver()
-        to prevent uninitialized iterative solver errors.
-        """
+        code = """
+%% Validate Nonlocal Setup
+fprintf('\\n=== Validating Nonlocal Setup ===\\n');
+
+% Check number of particles
+n_particles = length(particles);
+fprintf('  Number of particle boundaries: %d\\n', n_particles);
+
+% Check epstab
+n_materials = length(epstab);
+fprintf('  Number of materials in epstab: %d\\n', n_materials);
+
+% Check inout matrix
+[n_boundaries, ~] = size(inout);
+fprintf('  Number of boundaries in inout: %d\\n', n_boundaries);
+
+% Validation
+if n_particles ~= n_boundaries
+    error('Mismatch: %d particles but %d boundaries in inout!', n_particles, n_boundaries);
+end
+
+fprintf('✓ Nonlocal setup validated\\n');
+"""
+        return code
+    
+    def _generate_bem_solver(self):
+        """Generate BEM solver initialization code."""
         use_iterative = self.config.get('use_iterative_solver', False)
+        use_nonlocal = self.nonlocal_gen.is_needed()
         
         code = """
 %% Initialize BEM Solver
@@ -321,35 +297,47 @@ fprintf('\\nInitializing BEM solver...\\n');
 """
         
         if use_iterative:
-            # Add iterative solver options BEFORE bemsolver() call
             code += """
 % Configure iterative solver options
 fprintf('  Using iterative BEM solver (for large structures)\\n');
-op.iter = bemiter.options( 'output', 1 );  % Show iteration progress
-op.iter.tol = 1e-4;           % Tolerance for iterative solver
-op.iter.maxit = 200;          % Maximum iterations
-op.iter.solver = 'gmres';     % Use GMRES solver
-op.iter.cleaf = 200;          % Minimum cluster size
-op.iter.htol = 1e-6;          % H-matrix compression tolerance
-op.iter.kmax = [4, 100];      % Maximum rank for H-matrix compression
-
-% Admissibility criterion for cluster pairs
+op.iter = bemiter.options( 'output', 1 );
+op.iter.tol = 1e-4;
+op.iter.maxit = 200;
+op.iter.solver = 'gmres';
+op.iter.cleaf = 200;
+op.iter.htol = 1e-6;
+op.iter.kmax = [4, 100];
 op.iter.fadmiss = @(rad1,rad2,dist) 2.5 * min(rad1,rad2) < dist;
 
 fprintf('  Iterative solver parameters:\\n');
 fprintf('    - Solver: %s\\n', op.iter.solver);
 fprintf('    - Tolerance: %g\\n', op.iter.tol);
 fprintf('    - Max iterations: %d\\n', op.iter.maxit);
-fprintf('    - H-matrix tolerance: %g\\n', op.iter.htol);
-"""
-        else:
-            code += """
-% Using direct (non-iterative) BEM solver
-fprintf('  Using direct BEM solver\\n');
 """
         
-        # Add BEM solver initialization
-        code += """
+        # Add nonlocal refinement if enabled
+        if use_nonlocal:
+            refine_code = self.nonlocal_gen.generate_refine_function('p')
+            
+            code += f"""
+% Nonlocal refinement for cover layer boundaries
+{refine_code}
+
+% Initialize solver with refined integration function
+"""
+            if use_iterative:
+                code += """
+bem = bemsolver( p, op, 'refun', refun );
+fprintf('✓ Nonlocal BEM solver initialized (iterative)\\n');
+"""
+            else:
+                code += """
+bem = bemsolver( p, op, 'refun', refun );
+fprintf('✓ Nonlocal BEM solver initialized (direct)\\n');
+"""
+        else:
+            # Standard BEM solver
+            code += """
 % Initialize BEM solver
 try
     bem = bemsolver(p, op);
@@ -357,11 +345,6 @@ try
     fprintf('  - Boundary elements: %d\\n', size(p.pos, 1));
 catch ME
     fprintf('Error initializing BEM solver: %s\\n', ME.message);
-    fprintf('Stack trace:\\n');
-    for k = 1:length(ME.stack)
-        fprintf('  File: %s\\n', ME.stack(k).file);
-        fprintf('  Line: %d\\n', ME.stack(k).line);
-    end
     rethrow(ME);
 end
 """
@@ -388,7 +371,6 @@ end
         polarizations = self.config['polarizations']
         propagation_dirs = self.config['propagation_dirs']
         
-        # Convert to MATLAB arrays
         pol_str = self._python_list_to_matlab(polarizations)
         dir_str = self._python_list_to_matlab(propagation_dirs)
         
@@ -457,7 +439,6 @@ fprintf('Beam energy: %.2e eV\\n', beam_energy);
         calculate_fields = self.config.get('calculate_fields', False)
         excitation_type = self.config['excitation_type']
         
-        # Base loop setup
         code = f"""
 %% Wavelength Loop
 wavelength_range = [{wavelength_range[0]}, {wavelength_range[1]}, {wavelength_range[2]}];
@@ -480,21 +461,17 @@ ext = zeros(n_wavelengths, n_polarizations);
 abs_cross = zeros(n_wavelengths, n_polarizations);
 """
         
-        # Add field setup if needed
         if calculate_fields:
             code += self._generate_field_setup()
         
-        # Main calculation loop
         code += """
 % Start timer
 calculation_start = tic;
 
 % Loop over wavelengths
 for ien = 1:n_wavelengths
-    % Calculate progress percentage
     progress_pct = (ien-1) / n_wavelengths * 100;
     
-    % Create progress bar (simple text-based)
     bar_length = 40;
     filled = floor(bar_length * (ien-1) / n_wavelengths);
     bar = ['[' repmat('=', 1, filled) repmat('.', 1, bar_length - filled) ']'];
@@ -505,7 +482,6 @@ for ien = 1:n_wavelengths
     for ipol = 1:n_polarizations
 """
         
-        # Add excitation-specific code
         if excitation_type == 'planewave':
             code += """
         % Plane wave excitation
@@ -524,7 +500,6 @@ for ien = 1:n_wavelengths
         exc = eelsret(p, impact, beam_energy, 'width', beam_width, op);
 """
         
-        # BEM solution and cross sections
         code += """
         % Solve BEM equation
         sig = bem \\ exc(p, enei(ien));
@@ -535,11 +510,9 @@ for ien = 1:n_wavelengths
         abs_cross(ien, ipol) = ext(ien, ipol) - sca(ien, ipol);
 """
         
-        # Add field calculation if enabled
         if calculate_fields:
             code += self._generate_field_calculation_in_loop()
         
-        # Close loops
         code += """
     end
 end
@@ -573,37 +546,31 @@ fprintf('================================================================\\n');
 %% Field Calculation Setup
 fprintf('\\nSetting up field calculation mesh...\\n');
 
-% Determine which wavelength index to calculate fields
 """
         
         if field_wl_idx == 'middle':
             code += "field_wavelength_idx = round(n_wavelengths / 2);\n"
         elif field_wl_idx == 'peak':
-            code += "% Will determine peak wavelength after first polarization calculation\n"
             code += "field_wavelength_idx = -1;  % To be determined\n"
         elif isinstance(field_wl_idx, int):
             code += f"field_wavelength_idx = {field_wl_idx};\n"
         else:
             code += "field_wavelength_idx = round(n_wavelengths / 2);\n"
         
-        code += f"\nfprintf('Field will be calculated at wavelength index: %d\\n', field_wavelength_idx);\n\n"
+        code += "\nfprintf('Field will be calculated at wavelength index: %d\\n', field_wavelength_idx);\n\n"
         
-        # Create mesh grid
-        code += "% Create mesh grid for field calculation\n"
-        
-        # Determine plane type
         if y_range[2] == 1:  # xz-plane
             code += f"""x_field = linspace({x_range[0]}, {x_range[1]}, {x_range[2]});
 z_field = linspace({z_range[0]}, {z_range[1]}, {z_range[2]});
 [x_grid, z_grid] = meshgrid(x_field, z_field);
-y_grid = {y_range[0]} + 0 * x_grid;  % xz-plane at y={y_range[0]}
+y_grid = {y_range[0]} + 0 * x_grid;
 fprintf('Field mesh: xz-plane (y=%.1f), %dx%d points\\n', {y_range[0]}, length(x_field), length(z_field));
 """
         elif z_range[2] == 1:  # xy-plane
             code += f"""x_field = linspace({x_range[0]}, {x_range[1]}, {x_range[2]});
 y_field = linspace({y_range[0]}, {y_range[1]}, {y_range[2]});
 [x_grid, y_grid] = meshgrid(x_field, y_field);
-z_grid = {z_range[0]} + 0 * x_grid;  % xy-plane at z={z_range[0]}
+z_grid = {z_range[0]} + 0 * x_grid;
 fprintf('Field mesh: xy-plane (z=%.1f), %dx%d points\\n', {z_range[0]}, length(x_field), length(y_field));
 """
         else:  # 3D volume
@@ -614,16 +581,12 @@ z_field = linspace({z_range[0]}, {z_range[1]}, {z_range[2]});
 fprintf('Field mesh: 3D volume, %dx%dx%d points\\n', length(x_field), length(y_field), length(z_field));
 """
         
-        # Initialize meshfield object
         code += f"""
-% Initialize meshfield object
 fprintf('Initializing meshfield object...\\n');
 emesh = meshfield(p, x_grid, y_grid, z_grid, op, 'mindist', {mindist}, 'nmax', {nmax});
 fprintf('  - Minimum distance: {mindist} nm\\n');
-fprintf('  - Portion size (nmax): {nmax}\\n');
 fprintf('  - Total field points: %d\\n', numel(x_grid));
 
-% Initialize field data storage structure
 field_data = struct();
 """
         
@@ -632,37 +595,23 @@ field_data = struct();
     def _generate_field_calculation_in_loop(self):
         """Generate field calculation code inside wavelength loop."""
         code = """
-        % Calculate electromagnetic fields at selected wavelength
+        % Calculate fields at selected wavelength
         if ien == field_wavelength_idx
-            fprintf('\\n  → Calculating electromagnetic fields at λ = %.1f nm...\\n', enei(ien));
+            fprintf('\\n  → Calculating fields at λ = %.1f nm...\\n', enei(ien));
             field_calc_start = tic;
             
-            % Calculate induced fields
             e_induced = emesh(sig);
-            
-            % Calculate incoming fields
             e_incoming = emesh(exc.field(emesh.pt, enei(ien)));
-            
-            % Total electric field
             e_total = e_induced + e_incoming;
             
-            % Calculate field intensity (|E|^2)
             e_intensity = dot(e_total, e_total, 3);
-            
-            % Calculate incident field intensity
             e0_intensity = dot(e_incoming, e_incoming, 3);
-            
-            % Field enhancement |E|/|E0|
             enhancement = sqrt(e_intensity ./ e0_intensity);
             
-            % Store field data for this polarization
             field_data(ipol).polarization = pol(ipol, :);
             field_data(ipol).wavelength = enei(ien);
             field_data(ipol).e_total = e_total;
-            field_data(ipol).e_induced = e_induced;
-            field_data(ipol).e_incoming = e_incoming;
             field_data(ipol).enhancement = enhancement;
-            field_data(ipol).intensity = e_intensity;
             field_data(ipol).x_grid = x_grid;
             field_data(ipol).y_grid = y_grid;
             field_data(ipol).z_grid = z_grid;
@@ -683,7 +632,6 @@ fprintf('\\n');
 fprintf('================================================================\\n');
 fprintf('Saving results...\\n');
 
-% Prepare data structure
 results = struct();
 results.wavelength = enei;
 results.scattering = sca;
@@ -696,15 +644,13 @@ results.calculation_time = calculation_time;
         
         if calculate_fields:
             code += """
-% Save field data if calculated
 if exist('field_data', 'var') && ~isempty(field_data)
     results.fields = field_data;
-    fprintf('Field data included in results (polarizations: %d)\\n', length(field_data));
+    fprintf('Field data included in results\\n');
 end
 """
         
         code += """
-% Save to .mat file
 save('simulation_results.mat', 'results');
 fprintf('✓ Results saved to: simulation_results.mat\\n');
 
@@ -749,7 +695,6 @@ fprintf('✓ Cross sections saved to: simulation_results.txt\\n');
         
         if calculate_fields:
             code += """
-% Save field data to separate MAT file
 if exist('field_data', 'var') && ~isempty(field_data)
     save('field_data.mat', 'field_data', '-v7.3');
     fprintf('✓ Field data saved to: field_data.mat\\n');
@@ -776,7 +721,6 @@ fprintf('\\n');
         if not python_list:
             return '[]'
         
-        # Handle 2D array (list of lists)
         if isinstance(python_list[0], (list, tuple)):
             rows = []
             for row in python_list:
@@ -784,6 +728,4 @@ fprintf('\\n');
                 rows.append(row_str)
             return '[' + '; '.join(rows) + ']'
         else:
-            # Handle 1D array
             return '[' + ', '.join([str(x) for x in python_list]) + ']'
-

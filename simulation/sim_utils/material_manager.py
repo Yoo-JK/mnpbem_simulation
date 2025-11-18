@@ -2,14 +2,17 @@
 Material Manager
 
 Manages material definitions and generates corresponding MATLAB code.
-NEW: Supports medium, materials, and substrate as separate configs.
-NEW: Enhanced 'table' type with automatic interpolation.
-NEW: Supports custom refractive_index_paths from config.
+Supports:
+  - Medium, materials, and substrate as separate configs
+  - Enhanced 'table' type with automatic interpolation
+  - Custom refractive_index_paths from config
+  - Nonlocal quantum corrections for metals
 """
 
 import numpy as np
 from pathlib import Path
 from .refractive_index_loader import RefractiveIndexLoader
+from .nonlocal_generator import NonlocalGenerator
 
 
 class MaterialManager:
@@ -19,11 +22,8 @@ class MaterialManager:
         self.config = config
         self.verbose = verbose
         self.structure = config['structure']
-        
-        # NEW: Build complete material list from separate configs
+        self.nonlocal_gen = NonlocalGenerator(config, verbose)
         self.complete_materials = self._build_complete_material_list()
-        
-        # Store interpolated refractive index data for 'table' type materials
         self.table_materials_data = {}
     
     def _build_complete_material_list(self):
@@ -58,14 +58,30 @@ class MaterialManager:
     
     def generate(self):
         """Generate material-related MATLAB code."""
-        # Check if substrate is used
         use_substrate = self.config.get('use_substrate', False)
+        use_nonlocal = self.nonlocal_gen.is_needed()
         
         if use_substrate:
-            # Generate substrate-specific code
             return self._generate_substrate_materials()
+        
+        if use_nonlocal:
+            # Use nonlocal-aware generation
+            epstab_code = self._generate_nonlocal_epstab()
+            inout_code = self._generate_inout_nonlocal()
+            closed_code = self._generate_closed()
+            
+            code = f"""
+%% Materials and Dielectric Functions (Nonlocal Mode)
+{epstab_code}
+
+%% Material Mapping
+{inout_code}
+
+%% Closed Surfaces
+{closed_code}
+"""
         else:
-            # Generate normal materials code
+            # Standard generation
             epstab_code = self._generate_epstab()
             inout_code = self._generate_inout()
             closed_code = self._generate_closed()
@@ -80,21 +96,156 @@ class MaterialManager:
 %% Closed Surfaces
 {closed_code}
 """
-            return code
+        
+        return code
+    
+    def _generate_nonlocal_epstab(self):
+        """Generate dielectric function table with nonlocal corrections."""
+        if not self.nonlocal_gen.is_needed():
+            return self._generate_epstab()
+        
+        if self.verbose:
+            print("\n=== Generating Nonlocal Materials ===")
+        
+        materials_list = self.complete_materials
+        metals = ['gold', 'silver', 'au', 'ag', 'aluminum', 'al']
+        
+        epstab_entries = []
+        material_descriptions = []
+        
+        for i, mat in enumerate(materials_list, 1):
+            mat_lower = mat.lower() if isinstance(mat, str) else 'custom'
+            is_metal = any(metal in mat_lower for metal in metals)
+            
+            if is_metal and i > 1:  # Skip medium (index 1)
+                material_descriptions.append(f"% Material {i}: {mat} (Drude + Nonlocal)")
+                epstab_entries.append(f"eps_{mat}_drude")
+                epstab_entries.append(f"eps_{mat}_nonlocal")
+                
+                if self.verbose:
+                    print(f"  Material {i}: {mat} → Drude + Nonlocal")
+            else:
+                material_descriptions.append(f"% Material {i}: {mat}")
+                # 🔥 FIX: 변수명만 추출 (세미콜론 제거)
+                mat_code = self._generate_single_material(mat, i)
+                # epsconst(1) 같은 함수 호출을 변수로 만들기
+                var_name = f"eps_mat{i}"
+                epstab_entries.append(var_name)
+                
+                if self.verbose:
+                    print(f"  Material {i}: {mat} → Standard")
+        
+        materials_code = "\n".join(material_descriptions)
+        epstab_code = "epstab = { " + ", ".join(epstab_entries) + " };"
+        
+        full_code = f"""
+%% Dielectric Functions with Nonlocal Corrections
+{materials_code}
+
+% Medium
+eps_mat1 = {self._generate_single_material(materials_list[0], 1)};  % 🔥 세미콜론 추가!
+
+% Generate artificial nonlocal dielectric functions
+"""
+        
+        # Add artificial epsilon generation for each metal
+        for i, mat in enumerate(materials_list[1:], start=2):  # 🔥 인덱스 수정
+            mat_lower = mat.lower() if isinstance(mat, str) else ''
+            is_metal = any(metal in mat_lower for metal in metals)
+            
+            if is_metal:
+                full_code += self.nonlocal_gen.generate_artificial_epsilon(mat)
+                full_code += "\n"
+        
+        # Add standard material definitions for non-metals
+        for i, mat in enumerate(materials_list, 1):
+            mat_lower = mat.lower() if isinstance(mat, str) else ''
+            is_metal = any(metal in mat_lower for metal in metals)
+            
+            if not is_metal and i > 1:  # Skip medium (already defined)
+                mat_def = self._generate_single_material(mat, i)
+                full_code += f"eps_mat{i} = {mat_def};  % {mat}\n"
+        
+        full_code += f"\n{epstab_code}\n"
+        
+        return full_code
+    
+    def _generate_inout_nonlocal(self):
+        """Generate inout matrix for nonlocal structure (FIXED VERSION)."""
+        structure = self.config.get('structure', '')
+        materials = self.config.get('materials', [])
+        metals = ['gold', 'silver', 'au', 'ag', 'aluminum', 'al']
+        
+        if 'dimer' in structure:
+            n_particles = 2
+        else:
+            n_particles = 1
+        
+        # Build material index mapping
+        # epstab structure: [medium, material1_drude, material1_nonlocal, material2, ...]
+        mat_indices = {}
+        epstab_idx = 2  # Start from 2 (1 is medium)
+        
+        for i, mat in enumerate(materials):
+            mat_lower = mat.lower() if isinstance(mat, str) else ''
+            is_metal = any(metal in mat_lower for metal in metals)
+            
+            if is_metal:
+                mat_indices[i] = {
+                    'drude': epstab_idx,
+                    'nonlocal': epstab_idx + 1
+                }
+                epstab_idx += 2
+            else:
+                mat_indices[i] = {
+                    'standard': epstab_idx
+                }
+                epstab_idx += 1
+        
+        # Generate inout rows
+        inout_rows = []
+        
+        for particle_idx in range(n_particles):
+            for layer_idx, mat in enumerate(materials):
+                mat_lower = mat.lower() if isinstance(mat, str) else ''
+                is_metal = any(metal in mat_lower for metal in metals)
+                
+                if is_metal:
+                    # Outer boundary: nonlocal inside, medium outside
+                    nonlocal_idx = mat_indices[layer_idx]['nonlocal']
+                    inout_rows.append(f"{nonlocal_idx}, 1")
+                    
+                    # Inner boundary: drude inside, nonlocal outside
+                    drude_idx = mat_indices[layer_idx]['drude']
+                    inout_rows.append(f"{drude_idx}, {nonlocal_idx}")
+                else:
+                    # Standard material
+                    std_idx = mat_indices[layer_idx]['standard']
+                    if layer_idx == 0:
+                        inout_rows.append(f"{std_idx}, 1")
+                    else:
+                        prev_idx = mat_indices[layer_idx-1].get('nonlocal', mat_indices[layer_idx-1].get('standard'))
+                        inout_rows.append(f"{std_idx}, {prev_idx}")
+        
+        inout_str = "; ...\n         ".join(inout_rows)
+        
+        code = f"""
+%% Material Mapping (with Nonlocal)
+% inout(i, :) = [material_inside, material_outside] for boundary i
+inout = [ {inout_str} ];
+
+fprintf('  Total boundaries: %d\\n', size(inout, 1));
+"""
+        return code
     
     def _generate_substrate_materials(self):
         """Generate materials code for substrate configuration."""
-        # Get substrate configuration
         substrate = self.config.get('substrate', {})
         z_interface = substrate.get('position', 0)
         
-        # Generate epstab with all materials
         epstab_code = self._generate_epstab()
-        
-        # Medium index = 1, Substrate index = last
         substrate_idx = len(self.complete_materials)
         
-        # Generate layer structure code
         code = f"""
 %% Materials and Dielectric Functions (with Substrate)
 {epstab_code}
@@ -103,10 +254,8 @@ class MaterialManager:
 fprintf('Setting up layer structure...\\n');
 z_interface = {z_interface};
 
-% Default options for layer structure
 if exist('layerstructure', 'class')
     op_layer = layerstructure.options;
-    % Set up layer structure: [medium, substrate]
     layer = layerstructure(epstab, [1, {substrate_idx}], z_interface, op_layer);
     op.layer = layer;
     fprintf('  Layer structure created at z=%.2f nm\\n', z_interface);
@@ -130,27 +279,16 @@ end
             eps_code = self._material_to_eps(material, material_index=i)
             eps_list.append(eps_code)
         
-        # Join with commas
         eps_str = ', '.join(eps_list)
-        
         code = f"epstab = {{ {eps_str} }};"
         return code
     
+    def _generate_single_material(self, material, material_index):
+        """Generate single material definition."""
+        return self._material_to_eps(material, material_index)
+    
     def _material_to_eps(self, material, material_index=0):
-        """
-        Convert material specification to MATLAB epsilon code.
-        
-        NEW: Supports custom refractive_index_paths from config.
-        NEW: For 'table' type, loads file in Python, interpolates to simulation 
-        wavelengths, and generates epsconst array directly.
-        
-        Supports:
-        1. Built-in materials (string)
-        2. Constant epsilon (dict with 'constant')
-        3. Tabulated data file (dict with 'table') - NEW: with interpolation
-        4. Custom function (dict with 'function')
-        """
-        # Built-in materials
+        """Convert material specification to MATLAB epsilon code."""
         material_map = {
             'air': "epsconst(1)",
             'vacuum': "epsconst(1)",
@@ -159,26 +297,23 @@ end
             'silicon': "epsconst(11.7)",
             'sapphire': "epsconst(3.13)",
             'sio2': "epsconst(2.25)",
+            'agcl': "epsconst(2.02)",
             'gold': "epstable('gold.dat')",
             'silver': "epstable('silver.dat')",
             'aluminum': "epstable('aluminum.dat')"
         }
         
         if isinstance(material, dict):
-            # Custom material
             mat_type = material.get('type', 'constant')
             
             if mat_type == 'constant':
-                # Constant dielectric function
                 epsilon = material['epsilon']
                 return f"epsconst({epsilon})"
             
             elif mat_type == 'table':
-                # NEW: Wavelength-dependent from data file with interpolation
                 return self._handle_table_material(material, material_index)
             
             elif mat_type == 'function':
-                # Custom function (advanced)
                 formula = material['formula']
                 unit = material.get('unit', 'nm')
                 
@@ -191,20 +326,32 @@ end
                 raise ValueError(f"Unknown custom material type: {mat_type}")
         
         elif isinstance(material, str):
-            # Built-in material
             material_lower = material.lower()
             
-            # NEW: Check for custom refractive index paths
+            # Check for custom refractive index paths
             refractive_index_paths = self.config.get('refractive_index_paths', {})
             
             if material_lower in refractive_index_paths:
-                # Use custom path for this material
-                custom_path = str(Path(refractive_index_paths[material_lower]).expanduser())
-                if self.verbose:
-                    print(f"Using custom refractive index path for '{material}': {custom_path}")
-                return f"epstable('{custom_path}')"
+                custom_value = refractive_index_paths[material_lower]
+                
+                if isinstance(custom_value, dict):
+                    if self.verbose:
+                        print(f"Using custom material definition for '{material}' from refractive_index_paths")
+                    return self._material_to_eps(custom_value, material_index)
+                
+                elif isinstance(custom_value, str):
+                    custom_path = str(Path(custom_value).expanduser())
+                    if self.verbose:
+                        print(f"Using custom refractive index path for '{material}': {custom_path}")
+                    return f"epstable('{custom_path}')"
+                
+                else:
+                    raise ValueError(
+                        f"Invalid value in refractive_index_paths for '{material}': "
+                        f"expected string (file path) or dict (material definition), "
+                        f"got {type(custom_value)}"
+                    )
             
-            # Use default built-in
             if material_lower in material_map:
                 return material_map[material_lower]
             else:
@@ -214,37 +361,17 @@ end
             raise ValueError(f"Invalid material specification: {material}")
     
     def _handle_table_material(self, material, material_index):
-        """
-        Handle 'table' type material with automatic interpolation.
-        
-        Process:
-        1. Load refractive index file
-        2. Get simulation wavelengths
-        3. Interpolate n and k to simulation wavelengths
-        4. Calculate epsilon = (n + ik)^2
-        5. Generate MATLAB code with interpolated values
-        
-        Args:
-            material (dict): Material specification with 'file' key
-            material_index (int): Index of material in complete_materials list
-        
-        Returns:
-            str: MATLAB epsilon code with interpolated values
-        """
+        """Handle 'table' type material with automatic interpolation."""
         filepath = material['file']
-        
-        # Resolve filepath (support Path.home() and relative paths)
         filepath = Path(filepath).expanduser()
         
         if self.verbose:
             print(f"\n--- Processing table material (index {material_index}) ---")
             print(f"File: {filepath}")
         
-        # Load and interpolate
         try:
             loader = RefractiveIndexLoader(filepath, verbose=self.verbose)
             
-            # Get simulation wavelengths
             wavelength_range = self.config.get('wavelength_range', [400, 800, 80])
             target_wavelengths = np.linspace(
                 wavelength_range[0],
@@ -252,14 +379,11 @@ end
                 wavelength_range[2]
             )
             
-            # Interpolate
             n_interp, k_interp = loader.interpolate(target_wavelengths)
             
-            # Calculate epsilon = (n + ik)^2
             refractive_index = n_interp + 1j * k_interp
             epsilon_complex = refractive_index ** 2
             
-            # Store for potential later use
             self.table_materials_data[material_index] = {
                 'wavelengths': target_wavelengths,
                 'n': n_interp,
@@ -267,8 +391,6 @@ end
                 'epsilon': epsilon_complex
             }
             
-            # Generate MATLAB code
-            # Format: epsconst([eps1, eps2, eps3, ...])
             epsilon_str = self._format_complex_array(epsilon_complex)
             matlab_code = f"epsconst({epsilon_str})"
             
@@ -281,33 +403,21 @@ end
             raise RuntimeError(f"Error processing table material '{filepath}': {e}")
     
     def _format_complex_array(self, complex_array):
-        """
-        Format complex numpy array for MATLAB.
-        
-        Args:
-            complex_array (np.ndarray): Complex array
-        
-        Returns:
-            str: MATLAB-formatted array string
-        """
-        # MATLAB format: [real1+imag1i, real2+imag2i, ...]
+        """Format complex numpy array for MATLAB."""
         values = []
         for val in complex_array:
             real_part = val.real
             imag_part = val.imag
             
-            # Format: real+imagi or real-imagi
             if imag_part >= 0:
                 values.append(f"{real_part:.6f}+{imag_part:.6f}i")
             else:
-                values.append(f"{real_part:.6f}{imag_part:.6f}i")  # minus sign included
+                values.append(f"{real_part:.6f}{imag_part:.6f}i")
         
-        # Join with commas
         return "[" + ", ".join(values) + "]"
     
     def _generate_inout(self):
         """Generate inout matrix based on structure."""
-        # ✅ 수정: 함수 호출이 아닌 함수 객체를 저장
         structure_inout_map = {
             'sphere': self._inout_single,
             'cube': self._inout_single,
@@ -319,140 +429,108 @@ end
             'core_shell_sphere': self._inout_core_shell_single,
             'core_shell_cube': self._inout_core_shell_single,
             'dimer_core_shell_cube': self._inout_dimer_core_shell,
-            'multi_shell_sphere': self._inout_multi_shell,
-            'multi_shell_cube': self._inout_multi_shell,
-            'dimer_multi_shell_sphere': self._inout_dimer_multi_shell,
-            'dimer_multi_shell_cube': self._inout_dimer_multi_shell,
+            'advanced_dimer_cube': self._inout_advanced_dimer_cube,
             'from_shape': self._inout_from_shape
         }
         
         if self.structure not in structure_inout_map:
             raise ValueError(f"Unknown structure: {self.structure}")
         
-        # ✅ 수정: 여기서 함수를 호출
         return structure_inout_map[self.structure]()
     
     def _inout_single(self):
         """Inout for single particle."""
-        # complete_materials[0]: medium
-        # complete_materials[1]: particle material
         code = "inout = [2, 1];"
         return code
     
     def _inout_dimer(self):
         """Inout for dimer (two identical particles)."""
-        # complete_materials[0]: medium
-        # complete_materials[1]: particle material
         code = """inout = [
-    2, 1;  % Particle 1: inside=material, outside=medium
-    2, 1   % Particle 2: inside=material, outside=medium
+    2, 1;  % Particle 1
+    2, 1   % Particle 2
 ];"""
         return code
     
     def _inout_core_shell_single(self):
         """Inout for single core-shell particle."""
-        # complete_materials[0]: medium
-        # complete_materials[1]: shell material
-        # complete_materials[2]: core material
         code = """inout = [
-    2, 1;  % Shell: inside=shell_material, outside=medium
-    3, 2   % Core:  inside=core_material, outside=shell
+    2, 1;  % Shell: outside=medium
+    3, 2   % Core:  outside=shell
 ];"""
         return code
     
     def _inout_dimer_core_shell(self):
         """Inout for dimer of core-shell particles."""
-        # complete_materials[0]: medium
-        # complete_materials[1]: shell material
-        # complete_materials[2]: core material
         code = """inout = [
-    2, 1;  % Shell1: inside=shell, outside=medium
-    3, 2;  % Core1:  inside=core, outside=shell
-    2, 1;  % Shell2: inside=shell, outside=medium
-    3, 2   % Core2:  inside=core, outside=shell
+    2, 1;  % Shell1
+    3, 2;  % Core1
+    2, 1;  % Shell2
+    3, 2   % Core2
 ];"""
         return code
     
-    def _inout_multi_shell(self):
-        """Inout for multi-shell structure."""
-        # Get number of layers
-        layers = self.config.get('layers', [])
-        n_layers = len(layers)
+    def _inout_advanced_dimer_cube(self):
+        """Inout for advanced dimer cube with multi-shell structure."""
+        shell_layers = self.config.get('shell_layers', [])
+        n_shells = len(shell_layers)
         
-        # Generate inout matrix
-        # Layer ordering: outermost to innermost
         inout_lines = []
-        for i in range(n_layers):
-            if i == 0:
-                # Outermost shell: outside is medium (index 1)
-                inout_lines.append(f"    {i+2}, 1;  % Layer {i+1} (outermost): outside=medium")
-            else:
-                # Inner shells: outside is previous layer
-                inout_lines.append(f"    {i+2}, {i+1};  % Layer {i+1}: outside=layer{i}")
         
-        # Remove trailing semicolon from last line
-        if inout_lines:  # ✅ 추가: 빈 리스트 체크
+        # Particle 1
+        if n_shells == 0:
+            inout_lines.append(f"    2, 1;  % P1-Core")
+        else:
+            inout_lines.append(f"    2, 3;  % P1-Core: outside=shell1")
+        
+        for i in range(n_shells):
+            shell_num = i + 1
+            mat_idx = 2 + shell_num
+            
+            if i == n_shells - 1:
+                inout_lines.append(f"    {mat_idx}, 1;  % P1-Shell{shell_num}: outside=medium")
+            else:
+                next_shell_mat = mat_idx + 1
+                inout_lines.append(f"    {mat_idx}, {next_shell_mat};  % P1-Shell{shell_num}")
+        
+        # Particle 2
+        if n_shells == 0:
+            inout_lines.append(f"    2, 1;  % P2-Core")
+        else:
+            inout_lines.append(f"    2, 3;  % P2-Core: outside=shell1")
+        
+        for i in range(n_shells):
+            shell_num = i + 1
+            mat_idx = 2 + shell_num
+            
+            if i == n_shells - 1:
+                inout_lines.append(f"    {mat_idx}, 1;  % P2-Shell{shell_num}: outside=medium")
+            else:
+                next_shell_mat = mat_idx + 1
+                inout_lines.append(f"    {mat_idx}, {next_shell_mat};  % P2-Shell{shell_num}")
+        
+        if inout_lines:
             inout_lines[-1] = inout_lines[-1].rstrip(';')
         
         code = "inout = [\n" + "\n".join(inout_lines) + "\n];"
         return code
     
-    def _inout_dimer_multi_shell(self):
-        """Inout for dimer of multi-shell structures."""
-        # Get number of layers
-        layers = self.config.get('layers', [])
-        n_layers = len(layers)
-        
-        # Generate inout matrix for two particles
-        inout_lines = []
-        
-        # First particle
-        for i in range(n_layers):
-            if i == 0:
-                inout_lines.append(f"    {i+2}, 1;  % P1-Layer{i+1}: outside=medium")
-            else:
-                inout_lines.append(f"    {i+2}, {i+1};  % P1-Layer{i+1}: outside=layer{i}")
-        
-        # Second particle (same structure)
-        for i in range(n_layers):
-            if i == 0:
-                inout_lines.append(f"    {i+2}, 1;  % P2-Layer{i+1}: outside=medium")
-            else:
-                inout_lines.append(f"    {i+2}, {i+1};  % P2-Layer{i+1}: outside=layer{i}")
-        
-        # Remove trailing semicolon from last line
-        if inout_lines:  # ✅ 추가: 빈 리스트 체크
-            inout_lines[-1] = inout_lines[-1].rstrip(';')
-        
-        code = "inout = [\n" + "\n".join(inout_lines) + "\n];"
-        return code
-
     def _inout_from_shape(self):
         """Inout for DDA shape file with multiple materials."""
-        # For DDA shape files, we need to determine inout based on number of materials
-        # complete_materials[0]: medium
-        # complete_materials[1+]: particle materials (from shape file)
-        
-        # Get number of particle materials (excluding medium)
         n_materials = len(self.config.get('materials', []))
         
         if n_materials == 1:
-            # Single material particle
             code = "inout = [2, 1];"
         elif n_materials == 2:
-            # Two materials - assume they are separate particles or shell/core
             code = """inout = [
-        2, 1;  % Material 1: inside=mat1, outside=medium
-        3, 1   % Material 2: inside=mat2, outside=medium
-    ];"""
+    2, 1;  % Material 1
+    3, 1   % Material 2
+];"""
         else:
-            # Multiple materials - generate inout for each
             inout_lines = []
             for i in range(n_materials):
-                mat_idx = i + 2  # medium is 1, materials start from 2
-                inout_lines.append(f"    {mat_idx}, 1;  % Material {i+1}: outside=medium")
+                mat_idx = i + 2
+                inout_lines.append(f"    {mat_idx}, 1;  % Material {i+1}")
             
-            # Remove trailing semicolon from last line
             if inout_lines:
                 inout_lines[-1] = inout_lines[-1].rstrip(';')
             
@@ -462,7 +540,8 @@ end
     
     def _generate_closed(self):
         """Generate closed surfaces specification."""
-        # ✅ 수정: 함수 호출이 아닌 함수 객체/문자열을 저장
+        use_nonlocal = self.nonlocal_gen.is_needed()
+
         structure_closed_map = {
             'sphere': "closed = 1;",
             'cube': "closed = 1;",
@@ -474,10 +553,6 @@ end
             'core_shell_sphere': "closed = [1, 2];",
             'core_shell_cube': "closed = [1, 2];",
             'dimer_core_shell_cube': "closed = [1, 2, 3, 4];",
-            'multi_shell_sphere': self._closed_multi_shell,
-            'multi_shell_cube': self._closed_multi_shell,
-            'dimer_multi_shell_sphere': self._closed_dimer_multi_shell,
-            'dimer_multi_shell_cube': self._closed_dimer_multi_shell,
             'advanced_dimer_cube': self._closed_advanced_dimer_cube,
             'from_shape': self._closed_from_shape
         }
@@ -485,37 +560,42 @@ end
         if self.structure not in structure_closed_map:
             raise ValueError(f"Unknown structure: {self.structure}")
         
-        # ✅ 수정: 문자열이면 그대로 반환, 함수면 호출
         result = structure_closed_map[self.structure]
+
+        if use_nonlocal and isinstance(result, str):
+            import re
+            match = re.findall(r'\d+', result)
+            if match:
+                indices = [int(x) for x in match]
+                # 각 입자가 outer + inner 경계를 가지므로 2배
+                doubled = []
+                for idx in indices:
+                    doubled.append(idx * 2 - 1)  # outer
+                    doubled.append(idx * 2)      # inner
+                return f"closed = [{', '.join(map(str, doubled))}];"
+
+
         if callable(result):
             return result()
         else:
             return result
-    
-    def _closed_multi_shell(self):
-        """Closed surfaces for multi-shell structure."""
-        layers = self.config.get('layers', [])
-        n_layers = len(layers)
-        # All surfaces are closed
-        closed_indices = list(range(1, n_layers + 1))
-        return f"closed = [{', '.join(map(str, closed_indices))}];"
-    
-    def _closed_dimer_multi_shell(self):
-        """Closed surfaces for dimer multi-shell structure."""
-        layers = self.config.get('layers', [])
-        n_layers = len(layers)
-        # Two particles, each with n_layers closed surfaces
-        closed_indices = list(range(1, 2 * n_layers + 1))
-        return f"closed = [{', '.join(map(str, closed_indices))}];"
 
+    
     def _closed_advanced_dimer_cube(self):
         """Closed surfaces for advanced dimer cube."""
         n_shells = len(self.config.get('shell_layers', []))
-        n_particles_total = 2 * (1 + n_shells)  # 2 dimers × (1 core + N shells)
+        n_particles_total = 2 * (1 + n_shells)
         closed_indices = list(range(1, n_particles_total + 1))
         return f"closed = [{', '.join(map(str, closed_indices))}];"
-
+    
     def _closed_from_shape(self):
         """Closed surfaces for DDA shape file."""
-        # For DDA shape files, all particles are closed
-        return "closed = [];"
+        n_materials = len(self.config.get('materials', []))
+        
+        if n_materials == 0:
+            raise ValueError("No materials specified for DDA shape file")
+        elif n_materials == 1:
+            return "closed = 1;"
+        else:
+            closed_indices = list(range(1, n_materials + 1))
+            return f"closed = [{', '.join(map(str, closed_indices))}];"
