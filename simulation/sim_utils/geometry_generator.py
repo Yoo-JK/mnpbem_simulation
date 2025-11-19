@@ -626,9 +626,9 @@ particles = {{p_core, p_shell}};
     
     def _core_shell_cube(self):
         """Generate code for core-shell cube."""
-        core_size = self.config.get('core_size', 15)
-        shell_thickness = self.config.get('shell_thickness', 5)
-        rounding = self.config.get('rounding', 0.25)
+        core_size = self.config.get('core_size')
+        shell_thickness = self.config.get('shell_thickness')
+        rounding = self.config.get('rounding')
         mesh = self.config.get('mesh_density', 12)
         shell_size = core_size + 2 * shell_thickness
         
@@ -647,25 +647,36 @@ particles = {{p_core, p_shell}};
         return code
 
     def _core_shell_rod(self):
-        """Generate code for core-shell rod. (신규 추가)"""
+        """Generate code for core-shell rod with complete shell coverage.
+        
+        Note: 'height' parameter represents the TOTAL height of the final structure.
+              Core height is automatically reduced by 2*shell_thickness.
+        """
         core_diameter = self.config.get('core_diameter', 15)
         shell_thickness = self.config.get('shell_thickness', 5)
-        height = self.config.get('height', 80)
+        height = self.config.get('height', 80)  # Final total height
         mesh = self.config.get('mesh_density', 144)
+        
+        # Shell uses the specified height (final length)
         shell_diameter = core_diameter + 2 * shell_thickness
+        shell_height = height
+        
+        # Core is shorter to be fully covered by shell
+        core_height = height - 2 * shell_thickness
         
         code = f"""
 %% Geometry: Core-Shell Rod
 core_diameter = {core_diameter};
 shell_thickness = {shell_thickness};
 shell_diameter = core_diameter + 2 * shell_thickness;
-height = {height};
+shell_height = {height};  % Total height (final structure)
+core_height = shell_height - 2 * shell_thickness;  % Core is shorter
 
-% Core rod
-p_core = trirod(core_diameter, height, [15, 20, 20]);
+% Core rod (shorter)
+p_core = trirod(core_diameter, core_height, [15, 20, 20], 'triangles');
 
-% Shell rod
-p_shell = trirod(shell_diameter, height, [15, 20, 20]);
+% Shell rod (full length)
+p_shell = trirod(shell_diameter, shell_height, [15, 20, 20], 'triangles');
 
 particles = {{p_core, p_shell}};
 """
