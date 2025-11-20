@@ -150,7 +150,7 @@ fprintf('  ✓ Iterative solver: relcutoff=%d\\n', relcutoff);
     
     def _generate_comparticle(self):
         """Generate comparticle object creation with visualization."""
-        code = f"""
+        code = """
 %% Create Comparticle Object
 fprintf('\\nCreating comparticle object...\\n');
 p = comparticle(epstab, particles, inout, closed, op);
@@ -176,13 +176,16 @@ try
     % Check if single or multi-particle structure
     if n_particles == 1
         % Single particle: simple plot
-        plot(p, 'FaceColor', [0.8, 0.9, 1.0], 'FaceAlpha', 0.9);
+        plot(p, 'FaceColor', [0.8, 0.9, 1.0], 'FaceAlpha', 0.9, 'EdgeColor', 'none');
     else
         % Multi-particle (core-shell): plot with progressive transparency
         for i = 1:n_particles
+            alpha = 1.0;
+            color = core_color;
+
             if i == 1
                 % Core: opaque, gold color
-                plot(p.p{{i}}, 'FaceColor', core_color, 'FaceAlpha', 1.0);
+                plot(p.p{i}, 'FaceColor', core_color, 'FaceAlpha', 1.0, 'EdgeColor', 'none');
             else
                 % Shells: progressively more transparent
                 shell_idx = i - 1;
@@ -222,7 +225,7 @@ try
                     end
                 end
                 
-                plot(p.p{{i}}, 'FaceColor', color, 'FaceAlpha', alpha);
+                plot(p.p{i}, 'FaceColor', color, 'FaceAlpha', alpha, 'EdgeColor', 'none');
             end
         end
         
@@ -230,7 +233,7 @@ try
         legend_entries = cell(n_particles, 1);
         legend_entries{{1}} = 'Core';
         for i = 2:n_particles
-            legend_entries{{i}} = sprintf('Shell %d', i-1);
+            legend_entries{i} = sprintf('Shell %d', i-1);
         end
         legend(legend_entries, 'Location', 'northeast', 'FontSize', 10);
     end
@@ -273,11 +276,14 @@ try
     hold on;
     
     if n_particles == 1
-        plot(p, 'FaceColor', [0.8, 0.9, 1.0], 'FaceAlpha', 0.9);
+        plot(p, 'FaceColor', [0.8, 0.9, 1.0], 'FaceAlpha', 0.9, 'EdgeColor', 'none');
     else
         for i = 1:n_particles
+            alpha = 1.0;
+            color = core_color;
+
             if i == 1
-                plot(p.p{{i}}, 'FaceColor', core_color, 'FaceAlpha', 1.0);
+                plot(p.p{i}, 'FaceColor', core_color, 'FaceAlpha', 1.0, 'EdgeColor', 'none');
             else
                 shell_idx = i - 1;
                 if n_particles == 2
@@ -312,7 +318,7 @@ try
                         color = shell_color_3;
                     end
                 end
-                plot(p.p{{i}}, 'FaceColor', color, 'FaceAlpha', alpha);
+                plot(p.p{i}, 'FaceColor', color, 'FaceAlpha', alpha, 'EdgeColor', 'none');
             end
         end
     end
@@ -335,11 +341,14 @@ try
     hold on;
     
     if n_particles == 1
-        plot(p, 'FaceColor', [0.8, 0.9, 1.0], 'FaceAlpha', 0.9);
+        plot(p, 'FaceColor', [0.8, 0.9, 1.0], 'FaceAlpha', 0.9, 'EdgeColor', 'none');
     else
         for i = 1:n_particles
+            alpha = 1.0;
+            color = core_color;
+
             if i == 1
-                plot(p.p{{i}}, 'FaceColor', core_color, 'FaceAlpha', 1.0);
+                plot(p.p{i}, 'FaceColor', core_color, 'FaceAlpha', 1.0, 'EdgeColor', 'none');
             else
                 shell_idx = i - 1;
                 if n_particles == 2
@@ -374,7 +383,7 @@ try
                         color = shell_color_3;
                     end
                 end
-                plot(p.p{{i}}, 'FaceColor', color, 'FaceAlpha', alpha);
+                plot(p.p{i}, 'FaceColor', color, 'FaceAlpha', alpha, 'EdgeColor', 'none');
             end
         end
     end
@@ -397,11 +406,14 @@ try
     hold on;
     
     if n_particles == 1
-        plot(p, 'FaceColor', [0.8, 0.9, 1.0], 'FaceAlpha', 0.9);
+        plot(p, 'FaceColor', [0.8, 0.9, 1.0], 'FaceAlpha', 0.9, 'EdgeColor', 'none');
     else
         for i = 1:n_particles
+            alpha = 1.0;
+            color = core_color;
+
             if i == 1
-                plot(p.p{{i}}, 'FaceColor', core_color, 'FaceAlpha', 1.0);
+                plot(p.p{i}, 'FaceColor', core_color, 'FaceAlpha', 1.0, 'EdgeColor', 'none');
             else
                 shell_idx = i - 1;
                 if n_particles == 2
@@ -436,7 +448,7 @@ try
                         color = shell_color_3;
                     end
                 end
-                plot(p.p{{i}}, 'FaceColor', color, 'FaceAlpha', alpha);
+                plot(p.p{i}, 'FaceColor', color, 'FaceAlpha', alpha, 'EdgeColor', 'none');
             end
         end
     end
