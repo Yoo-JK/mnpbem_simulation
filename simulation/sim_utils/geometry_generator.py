@@ -367,6 +367,59 @@ class GeometryGenerator:
             base_code = self._apply_nonlocal_coverlayer(base_code)
         
         return base_code
+
+    def _mesh_density_to_n_rod(self, mesh_density):
+        """
+        Convert single mesh_density value to [nphi, ntheta, nz] for trirod.
+        
+        MNPBEM's trirod default is [15, 20, 20] which gives ~900 vertices.
+        This method maintains similar aspect ratios for different densities.
+        
+        Args:
+            mesh_density (int): Target mesh density (similar to sphere)
+            
+        Returns:
+            list: [nphi, ntheta, nz] for trirod
+        """
+        
+        # Predefined mapping for common values
+        MESH_MAPPING = {
+            32:   [8,   10,  10],   # Very coarse (~240 vertices)
+            60:   [10,  12,  12],   # Coarse (~360 vertices)
+            144:  [15,  20,  20],   # Standard (~900 vertices) - MNPBEM default
+            256:  [20,  25,  25],   # Medium (~1400 vertices)
+            400:  [25,  30,  30],   # Fine (~2100 vertices)
+            576:  [30,  35,  35],   # Very fine (~3150 vertices)
+            900:  [35,  40,  40],   # Ultra fine (~4200 vertices)
+        }
+        
+        # Return exact match if available
+        if mesh_density in MESH_MAPPING:
+            if self.verbose:
+                print(f"    mesh_density {mesh_density} → {MESH_MAPPING[mesh_density]}")
+            return MESH_MAPPING[mesh_density]
+        
+        # Find closest match (within 15%)
+        closest = min(MESH_MAPPING.keys(), key=lambda x: abs(x - mesh_density))
+        if abs(closest - mesh_density) < mesh_density * 0.15:
+            if self.verbose:
+                print(f"    mesh_density {mesh_density} rounded to {closest} → {MESH_MAPPING[closest]}")
+            return MESH_MAPPING[closest]
+        
+        # Calculate for custom values
+        # Total vertices ≈ nphi * (2*ntheta + nz)
+        # Maintain ratio nphi:ntheta:nz = 15:20:20 = 3:4:4
+        k = np.sqrt(mesh_density / 4.0)
+        nphi = max(8, int(np.round(k)))
+        ntheta = max(10, int(np.round(k * 4.0 / 3.0)))
+        nz = max(10, int(np.round(k * 4.0 / 3.0)))
+        
+        result = [nphi, ntheta, nz]
+        if self.verbose:
+            approx_verts = nphi * (2 * ntheta + nz)
+            print(f"    mesh_density {mesh_density} (custom) → {result} (~{approx_verts} vertices)")
+        
+        return result
     
     def _apply_nonlocal_coverlayer(self, base_geometry_code):
         """Apply nonlocal cover layer to existing geometry."""
@@ -517,12 +570,16 @@ particles = {{p}};
         """Generate code for rod/cylinder."""
         diameter = self.config.get('diameter', 10)
         height = self.config.get('height', 50)
+        mesh = self.config.get('mesh_density', 144)
+        
+        # Convert mesh_density to [nphi, ntheta, nz] for trirod
+        n = self._mesh_density_to_n_rod(mesh)
         
         code = f"""
 %% Geometry: Rod
 diameter = {diameter};
 height = {height};
-p = trirod(diameter, height, [15, 20, 20]);
+p = trirod(diameter, height, {n});
 particles = {{p}};
 """
         return code
@@ -657,6 +714,9 @@ particles = {{p_core, p_shell}};
         height = self.config.get('height', 80)  # Final total height
         mesh = self.config.get('mesh_density', 144)
         
+        # Convert mesh_density to [nphi, ntheta, nz]
+        n = self._mesh_density_to_n_rod(mesh)
+        
         # Shell uses the specified height (final length)
         shell_diameter = core_diameter + 2 * shell_thickness
         shell_height = height
@@ -672,11 +732,11 @@ shell_diameter = core_diameter + 2 * shell_thickness;
 shell_height = {height};  % Total height (final structure)
 core_height = shell_height - 2 * shell_thickness;  % Core is shorter
 
-% Core rod (shorter)
-p_core = trirod(core_diameter, core_height, [15, 20, 20], 'triangles');
+% Core rod (shorter) - mesh_density = {mesh} → {n}
+p_core = trirod(core_diameter, core_height, {n}, 'triangles');
 
-% Shell rod (full length)
-p_shell = trirod(shell_diameter, shell_height, [15, 20, 20], 'triangles');
+% Shell rod (full length) - mesh_density = {mesh} → {n}
+p_shell = trirod(shell_diameter, shell_height, {n}, 'triangles');
 
 particles = {{p_core, p_shell}};
 """

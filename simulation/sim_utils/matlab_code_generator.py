@@ -185,7 +185,7 @@ try
 
             if i == 1
                 % Core: opaque, gold color
-                plot(p.p{i}, 'FaceColor', core_color, 'FaceAlpha', 1.0, 'EdgeColor', 'none');
+                plot(particles{i}, 'FaceColor', core_color, 'FaceAlpha', 1.0, 'EdgeColor', 'none');
             else
                 % Shells: progressively more transparent
                 shell_idx = i - 1;
@@ -225,7 +225,7 @@ try
                     end
                 end
                 
-                plot(p.p{i}, 'FaceColor', color, 'FaceAlpha', alpha, 'EdgeColor', 'none');
+                plot(particles{i}, 'FaceColor', color, 'FaceAlpha', alpha, 'EdgeColor', 'none');
             end
         end
         
@@ -253,9 +253,9 @@ try
     ax_small = axes('Position', [0.85, 0.75, 0.12, 0.2]);
     hold on;
     arrow_len = 1;
-    quiver3(0, 0, 0, arrow_len, 0, 0, 'r', 'LineWidth', 3, 'MaxHeadSize', 1);
-    quiver3(0, 0, 0, 0, arrow_len, 0, 'g', 'LineWidth', 3, 'MaxHeadSize', 1);
-    quiver3(0, 0, 0, 0, 0, arrow_len, 'b', 'LineWidth', 3, 'MaxHeadSize', 1);
+    quiver3(0, 0, 0, arrow_len, 0, 0, 0, 'Color', 'r', 'LineWidth', 3, 'MaxHeadSize', 1);
+    quiver3(0, 0, 0, 0, arrow_len, 0, 0, 'Color', 'g', 'LineWidth', 3, 'MaxHeadSize', 1);
+    quiver3(0, 0, 0, 0, 0, arrow_len, 0, 'Color', 'b', 'LineWidth', 3, 'MaxHeadSize', 1);
     text(arrow_len*1.3, 0, 0, 'x', 'FontSize', 14, 'FontWeight', 'bold', 'Color', 'r');
     text(0, arrow_len*1.3, 0, 'y', 'FontSize', 14, 'FontWeight', 'bold', 'Color', 'g');
     text(0, 0, arrow_len*1.3, 'z', 'FontSize', 14, 'FontWeight', 'bold', 'Color', 'b');
@@ -283,7 +283,7 @@ try
             color = core_color;
 
             if i == 1
-                plot(p.p{i}, 'FaceColor', core_color, 'FaceAlpha', 1.0, 'EdgeColor', 'none');
+                plot(particles{i}, 'FaceColor', core_color, 'FaceAlpha', 1.0, 'EdgeColor', 'none');
             else
                 shell_idx = i - 1;
                 if n_particles == 2
@@ -318,7 +318,7 @@ try
                         color = shell_color_3;
                     end
                 end
-                plot(p.p{i}, 'FaceColor', color, 'FaceAlpha', alpha, 'EdgeColor', 'none');
+                plot(particles{i}, 'FaceColor', color, 'FaceAlpha', alpha, 'EdgeColor', 'none');
             end
         end
     end
@@ -348,7 +348,7 @@ try
             color = core_color;
 
             if i == 1
-                plot(p.p{i}, 'FaceColor', core_color, 'FaceAlpha', 1.0, 'EdgeColor', 'none');
+                plot(particles{i}, 'FaceColor', core_color, 'FaceAlpha', 1.0, 'EdgeColor', 'none');
             else
                 shell_idx = i - 1;
                 if n_particles == 2
@@ -383,7 +383,7 @@ try
                         color = shell_color_3;
                     end
                 end
-                plot(p.p{i}, 'FaceColor', color, 'FaceAlpha', alpha, 'EdgeColor', 'none');
+                plot(particles{i}, 'FaceColor', color, 'FaceAlpha', alpha, 'EdgeColor', 'none');
             end
         end
     end
@@ -413,7 +413,7 @@ try
             color = core_color;
 
             if i == 1
-                plot(p.p{i}, 'FaceColor', core_color, 'FaceAlpha', 1.0, 'EdgeColor', 'none');
+                plot(particles{i}, 'FaceColor', core_color, 'FaceAlpha', 1.0, 'EdgeColor', 'none');
             else
                 shell_idx = i - 1;
                 if n_particles == 2
@@ -448,7 +448,7 @@ try
                         color = shell_color_3;
                     end
                 end
-                plot(p.p{i}, 'FaceColor', color, 'FaceAlpha', alpha, 'EdgeColor', 'none');
+                plot(particles{i}, 'FaceColor', color, 'FaceAlpha', alpha, 'EdgeColor', 'none');
             end
         end
     end
