@@ -176,7 +176,7 @@ try
     % Check if single or multi-particle structure
     if n_particles == 1
         % Single particle: simple plot
-        plot(p, 'FaceColor', [0.8, 0.9, 1.0], 'FaceAlpha', 0.9, 'EdgeColor', 'none');
+        plot2(p, 'FaceColor', [0.8, 0.9, 1.0], 'FaceAlpha', 0.9, 'EdgeColor', 'none');
     else
         % Multi-particle (core-shell): plot with progressive transparency
         for i = 1:n_particles
@@ -231,7 +231,7 @@ try
         
         % Add legend for multi-layer structures
         legend_entries = cell(n_particles, 1);
-        legend_entries{{1}} = 'Core';
+        legend_entries{1} = 'Core';
         for i = 2:n_particles
             legend_entries{i} = sprintf('Shell %d', i-1);
         end
@@ -253,9 +253,9 @@ try
     ax_small = axes('Position', [0.85, 0.75, 0.12, 0.2]);
     hold on;
     arrow_len = 1;
-    quiver3(0, 0, 0, arrow_len, 0, 0, 0, 'Color', 'r', 'LineWidth', 3, 'MaxHeadSize', 1);
-    quiver3(0, 0, 0, 0, arrow_len, 0, 0, 'Color', 'g', 'LineWidth', 3, 'MaxHeadSize', 1);
-    quiver3(0, 0, 0, 0, 0, arrow_len, 0, 'Color', 'b', 'LineWidth', 3, 'MaxHeadSize', 1);
+    quiver3(0, 0, 0, arrow_len, 0, 0, 'Color', 'r', 'LineWidth', 3, 'MaxHeadSize', 1);
+    quiver3(0, 0, 0, 0, arrow_len, 0, 'Color', 'g', 'LineWidth', 3, 'MaxHeadSize', 1);
+    quiver3(0, 0, 0, 0, 0, arrow_len, 'Color', 'b', 'LineWidth', 3, 'MaxHeadSize', 1);
     text(arrow_len*1.3, 0, 0, 'x', 'FontSize', 14, 'FontWeight', 'bold', 'Color', 'r');
     text(0, arrow_len*1.3, 0, 'y', 'FontSize', 14, 'FontWeight', 'bold', 'Color', 'g');
     text(0, 0, arrow_len*1.3, 'z', 'FontSize', 14, 'FontWeight', 'bold', 'Color', 'b');
@@ -276,7 +276,7 @@ try
     hold on;
     
     if n_particles == 1
-        plot(p, 'FaceColor', [0.8, 0.9, 1.0], 'FaceAlpha', 0.9, 'EdgeColor', 'none');
+        plot2(p, 'FaceColor', [0.8, 0.9, 1.0], 'FaceAlpha', 0.9, 'EdgeColor', 'none');
     else
         for i = 1:n_particles
             alpha = 1.0;
@@ -341,7 +341,7 @@ try
     hold on;
     
     if n_particles == 1
-        plot(p, 'FaceColor', [0.8, 0.9, 1.0], 'FaceAlpha', 0.9, 'EdgeColor', 'none');
+        plot2(p, 'FaceColor', [0.8, 0.9, 1.0], 'FaceAlpha', 0.9, 'EdgeColor', 'none');
     else
         for i = 1:n_particles
             alpha = 1.0;
@@ -406,7 +406,7 @@ try
     hold on;
     
     if n_particles == 1
-        plot(p, 'FaceColor', [0.8, 0.9, 1.0], 'FaceAlpha', 0.9, 'EdgeColor', 'none');
+        plot2(p, 'FaceColor', [0.8, 0.9, 1.0], 'FaceAlpha', 0.9, 'EdgeColor', 'none');
     else
         for i = 1:n_particles
             alpha = 1.0;
