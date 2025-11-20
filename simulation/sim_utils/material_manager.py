@@ -455,18 +455,18 @@ end
     def _inout_core_shell_single(self):
         """Inout for single core-shell particle."""
         code = """inout = [
-    2, 1;  % Shell: outside=medium
-    3, 2   % Core:  outside=shell
+    2, 3;  % Core (particles{1}): inside=core(2), outside=shell(3)
+    3, 1   % Shell (particles{2}): inside=shell(3), outside=medium(1)
 ];"""
         return code
     
     def _inout_dimer_core_shell(self):
         """Inout for dimer of core-shell particles."""
         code = """inout = [
-    2, 1;  % Shell1
-    3, 2;  % Core1
-    2, 1;  % Shell2
-    3, 2   % Core2
+    2, 3;  % P1-Core: inside=core(2), outside=shell(3)
+    3, 1;  % P1-Shell: inside=shell(3), outside=medium(1)
+    2, 3;  % P2-Core: inside=core(2), outside=shell(3)
+    3, 1   % P2-Shell: inside=shell(3), outside=medium(1)
 ];"""
         return code
     

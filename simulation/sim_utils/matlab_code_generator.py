@@ -4,7 +4,6 @@ MATLAB Code Generator
 Generates complete MATLAB simulation scripts with field calculation support.
 Supports nonlocal quantum corrections for sub-nanometer gaps.
 """
-
 import numpy as np
 from .nonlocal_generator import NonlocalGenerator
 
@@ -19,6 +18,8 @@ class MatlabCodeGenerator:
     
     def generate_complete_script(self, geometry_code, material_code):
         """Generate complete MATLAB simulation script."""
+
+        self._extract_closed_args(material_code)
         
         # Header
         header = self._generate_header()
@@ -150,10 +151,14 @@ fprintf('  ✓ Iterative solver: relcutoff=%d\\n', relcutoff);
     
     def _generate_comparticle(self):
         """Generate comparticle object creation with visualization."""
+        
+        # Get closed indices from material manager
+        closed_args = self._closed_args
+        
         code = """
 %% Create Comparticle Object
 fprintf('\\nCreating comparticle object...\\n');
-p = comparticle(epstab, particles, inout, closed, op);
+p = comparticle(epstab, particles, inout, """ + closed_args + """, op);
 fprintf('Comparticle created with %d boundary elements\\n', p.n);
 
 %% Visualize and Save Structure
@@ -176,7 +181,7 @@ try
     % Check if single or multi-particle structure
     if n_particles == 1
         % Single particle: simple plot
-        plot2(p, 'FaceColor', [0.8, 0.9, 1.0], 'FaceAlpha', 0.9, 'EdgeColor', 'none');
+        plot2(p, [0.8, 0.9, 1.0], 'FaceAlpha', 0.9);
     else
         % Multi-particle (core-shell): plot with progressive transparency
         for i = 1:n_particles
@@ -185,7 +190,7 @@ try
 
             if i == 1
                 % Core: opaque, gold color
-                plot2(particles{i}, 'FaceColor', core_color, 'FaceAlpha', 1.0, 'EdgeColor', 'none');
+                plot2(particles{i}, core_color, 'FaceAlpha', 1.0);
             else
                 % Shells: progressively more transparent
                 shell_idx = i - 1;
@@ -225,7 +230,7 @@ try
                     end
                 end
                 
-                plot2(particles{i}, 'FaceColor', color, 'FaceAlpha', alpha, 'EdgeColor', 'none');
+                plot2(particles{i}, color, 'FaceAlpha', alpha);
             end
         end
         
@@ -276,14 +281,14 @@ try
     hold on;
     
     if n_particles == 1
-        plot2(p, 'FaceColor', [0.8, 0.9, 1.0], 'FaceAlpha', 0.9, 'EdgeColor', 'none');
+        plot2(p, [0.8, 0.9, 1.0], 'FaceAlpha', 0.9);
     else
         for i = 1:n_particles
             alpha = 1.0;
             color = core_color;
 
             if i == 1
-                plot2(particles{i}, 'FaceColor', core_color, 'FaceAlpha', 1.0, 'EdgeColor', 'none');
+                plot2(particles{i}, core_color, 'FaceAlpha', 1.0);
             else
                 shell_idx = i - 1;
                 if n_particles == 2
@@ -318,7 +323,7 @@ try
                         color = shell_color_3;
                     end
                 end
-                plot2(particles{i}, 'FaceColor', color, 'FaceAlpha', alpha, 'EdgeColor', 'none');
+                plot2(particles{i}, color, 'FaceAlpha', alpha);
             end
         end
     end
@@ -341,14 +346,14 @@ try
     hold on;
     
     if n_particles == 1
-        plot2(p, 'FaceColor', [0.8, 0.9, 1.0], 'FaceAlpha', 0.9, 'EdgeColor', 'none');
+        plot2(p, [0.8, 0.9, 1.0], 'FaceAlpha', 0.9);
     else
         for i = 1:n_particles
             alpha = 1.0;
             color = core_color;
 
             if i == 1
-                plot2(particles{i}, 'FaceColor', core_color, 'FaceAlpha', 1.0, 'EdgeColor', 'none');
+                plot2(particles{i}, core_color, 'FaceAlpha', 1.0);
             else
                 shell_idx = i - 1;
                 if n_particles == 2
@@ -383,7 +388,7 @@ try
                         color = shell_color_3;
                     end
                 end
-                plot2(particles{i}, 'FaceColor', color, 'FaceAlpha', alpha, 'EdgeColor', 'none');
+                plot2(particles{i}, color, 'FaceAlpha', alpha);
             end
         end
     end
@@ -406,14 +411,14 @@ try
     hold on;
     
     if n_particles == 1
-        plot2(p, 'FaceColor', [0.8, 0.9, 1.0], 'FaceAlpha', 0.9, 'EdgeColor', 'none');
+        plot2(p, [0.8, 0.9, 1.0], 'FaceAlpha', 0.9);
     else
         for i = 1:n_particles
             alpha = 1.0;
             color = core_color;
 
             if i == 1
-                plot2(particles{i}, 'FaceColor', core_color, 'FaceAlpha', 1.0, 'EdgeColor', 'none');
+                plot2(particles{i}, core_color, 'FaceAlpha', 1.0);
             else
                 shell_idx = i - 1;
                 if n_particles == 2
@@ -448,7 +453,7 @@ try
                         color = shell_color_3;
                     end
                 end
-                plot2(particles{i}, 'FaceColor', color, 'FaceAlpha', alpha, 'EdgeColor', 'none');
+                plot2(particles{i}, color, 'FaceAlpha', alpha);
             end
         end
     end
@@ -471,6 +476,7 @@ catch ME
     fprintf('  Warning: Could not save structure plots: %s\\n', ME.message);
 end
 """
+
         return code
     
     def _validate_nonlocal_setup(self):
@@ -955,7 +961,7 @@ fprintf('=== MNPBEM Simulation Completed Successfully ===\\n');
 fprintf('\\n');
 
 %% Exit MATLAB
-exit;
+quit force;
 """
         return code
     
@@ -972,3 +978,19 @@ exit;
             return '[' + '; '.join(rows) + ']'
         else:
             return '[' + ', '.join([str(x) for x in python_list]) + ']'
+
+    def _extract_closed_args(self, material_code):
+        """Extract closed arguments from material code."""
+        # Find: closed = [1, 2];
+        if 'closed = [' in material_code:
+            start = material_code.find('closed = [') + len('closed = [')
+            end = material_code.find(']', start)
+            self._closed_args = material_code[start:end].strip()
+        else:
+            # Single value: closed = 1;
+            if 'closed = ' in material_code:
+                start = material_code.find('closed = ') + len('closed = ')
+                end = material_code.find(';', start)
+                self._closed_args = material_code[start:end].strip()
+            else:
+                self._closed_args = "1"
