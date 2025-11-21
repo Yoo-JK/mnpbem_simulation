@@ -3,6 +3,23 @@ from pathlib import Path
 
 args = {}
 
+
+# ============================================================================
+# PARALLEL COMPUTING OPTIONS (NEW!)
+# ============================================================================
+# Enable parallel computing with multiple cores
+args['use_parallel'] = True  # Set to False to disable parallel computing
+
+# Number of workers (cores) to use
+# Options:
+#   - Integer (e.g., 10): Use exactly 10 workers
+#   - 'auto': Automatically detect available cores
+#   - 'env': Read from environment variable MNPBEM_NUM_WORKERS
+# args['num_workers'] = 'env'  # Recommended for Slurm clusters
+
+# Alternative: specify exact number
+args['num_workers'] = 128
+
 # ============================================================================
 # MNPBEM TOOLBOX PATH (REQUIRED)
 # ============================================================================

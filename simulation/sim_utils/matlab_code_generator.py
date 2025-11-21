@@ -3,7 +3,9 @@ MATLAB Code Generator
 
 Generates complete MATLAB simulation scripts with field calculation support.
 Supports nonlocal quantum corrections for sub-nanometer gaps.
+Supports parallel computing with parfor (single node, multiple cores).
 """
+import os
 import numpy as np
 from .nonlocal_generator import NonlocalGenerator
 
@@ -45,13 +47,13 @@ class MatlabCodeGenerator:
         # Excitation
         excitation = self._generate_excitation()
         
-        # Wavelength loop
+        # Wavelength loop (now with parallel support!)
         wavelength_loop = self._generate_wavelength_loop()
         
         # Save results
         save_results = self._generate_save_results()
         
-        # Footer
+        # Footer (now with parallel cleanup!)
         footer = self._generate_footer()
         
         # Combine all parts
@@ -147,6 +149,95 @@ fprintf('  ✓ Iterative solver: relcutoff=%d\\n', relcutoff);
         
         code += "\nfprintf('✓ BEM options configured\\n');\n"
         
+        return code
+    
+    def _generate_parallel_setup(self):
+        """Generate parallel pool setup code."""
+        num_workers = self.config.get('num_workers', 'auto')
+        
+        code = """
+%% Parallel Computing Setup
+fprintf('\\n=== Setting up Parallel Computing ===\\n');
+
+"""
+        
+        # Determine number of workers based on config
+        if num_workers == 'env':
+            code += """% Get number of workers from environment variable
+if ~isempty(getenv('MNPBEM_NUM_WORKERS'))
+    requested_workers = str2double(getenv('MNPBEM_NUM_WORKERS'));
+    fprintf('Reading from environment: MNPBEM_NUM_WORKERS=%d\\n', requested_workers);
+elseif ~isempty(getenv('SLURM_CPUS_PER_TASK'))
+    requested_workers = str2double(getenv('SLURM_CPUS_PER_TASK'));
+    fprintf('Detected Slurm environment: SLURM_CPUS_PER_TASK=%d\\n', requested_workers);
+else
+    requested_workers = feature('numcores');
+    fprintf('Auto-detected available cores: %d\\n', requested_workers);
+end
+"""
+        elif num_workers == 'auto':
+            code += """% Auto-detect available cores
+requested_workers = feature('numcores');
+fprintf('Auto-detected available cores: %d\\n', requested_workers);
+"""
+        elif isinstance(num_workers, int):
+            code += f"""% Using specified number of workers
+requested_workers = {num_workers};
+fprintf('Using specified workers: %d\\n', requested_workers);
+"""
+        else:
+            code += """% Default to 1 worker (serial)
+requested_workers = 1;
+fprintf('Using default: 1 worker (serial execution)\\n');
+"""
+        
+        code += """
+% Create parallel pool
+try
+    % Check if pool already exists
+    existing_pool = gcp('nocreate');
+    
+    if isempty(existing_pool)
+        % No existing pool, create new one
+        if requested_workers > 1
+            fprintf('Creating parallel pool with %d workers...\\n', requested_workers);
+            pool = parpool('local', requested_workers);
+            fprintf('✓ Parallel pool created successfully: %d workers\\n', pool.NumWorkers);
+            parallel_enabled = true;
+        else
+            fprintf('Serial execution mode (1 worker)\\n');
+            pool = [];
+            parallel_enabled = false;
+        end
+    else
+        % Pool exists, use it
+        pool = existing_pool;
+        fprintf('✓ Using existing parallel pool: %d workers\\n', pool.NumWorkers);
+        parallel_enabled = true;
+    end
+    
+catch ME
+    fprintf('⚠ Warning: Failed to create parallel pool\\n');
+    fprintf('Error: %s\\n', ME.message);
+    fprintf('Continuing with serial execution...\\n');
+    pool = [];
+    parallel_enabled = false;
+end
+
+fprintf('=== Parallel Setup Complete ===\\n\\n');
+"""
+        return code
+    
+    def _generate_parallel_cleanup(self):
+        """Generate parallel pool cleanup code."""
+        code = """
+%% Parallel Computing Cleanup
+if exist('parallel_enabled', 'var') && parallel_enabled && ~isempty(gcp('nocreate'))
+    fprintf('\\nCleaning up parallel pool...\\n');
+    delete(gcp('nocreate'));
+    fprintf('✓ Parallel pool closed\\n');
+end
+"""
         return code
     
     def _generate_comparticle(self):
@@ -657,10 +748,11 @@ fprintf('Beam energy: %.2e eV\\n', beam_energy);
         return code
     
     def _generate_wavelength_loop(self):
-        """Generate wavelength loop with optional field calculation."""
+        """Generate wavelength loop with parallel support."""
         wavelength_range = self.config['wavelength_range']
         calculate_fields = self.config.get('calculate_fields', False)
         excitation_type = self.config['excitation_type']
+        use_parallel = self.config.get('use_parallel', False)
         
         code = f"""
 %% Wavelength Loop
@@ -676,7 +768,13 @@ fprintf('================================================================\\n');
 fprintf('Wavelength range: %.1f - %.1f nm\\n', wavelength_range(1), wavelength_range(2));
 fprintf('Number of wavelengths: %d\\n', n_wavelengths);
 fprintf('Number of polarizations: %d\\n', n_polarizations);
-fprintf('----------------------------------------------------------------\\n');
+"""
+        
+        # Add parallel setup if enabled
+        if use_parallel:
+            code += self._generate_parallel_setup()
+        
+        code += """fprintf('----------------------------------------------------------------\\n');
 
 % Initialize result arrays
 sca = zeros(n_wavelengths, n_polarizations);
@@ -691,64 +789,146 @@ abs_cross = zeros(n_wavelengths, n_polarizations);
 % Start timer
 calculation_start = tic;
 
-% Loop over wavelengths
-for ien = 1:n_wavelengths
-    progress_pct = (ien-1) / n_wavelengths * 100;
-    
-    bar_length = 40;
-    filled = floor(bar_length * (ien-1) / n_wavelengths);
-    bar = ['[' repmat('=', 1, filled) repmat('.', 1, bar_length - filled) ']'];
-    
-    fprintf('\\r%s %.1f%% | λ = %.1f nm', bar, progress_pct, enei(ien));
-    
-    % Loop over polarizations
-    for ipol = 1:n_polarizations
 """
         
+        # Generate loop - parfor if parallel enabled, regular for otherwise
+        if use_parallel:
+            code += """% Decide between parfor and for loop based on parallel_enabled flag
+if exist('parallel_enabled', 'var') && parallel_enabled
+    fprintf('\\nUsing PARALLEL execution (parfor loop)\\n\\n');
+    
+    % PARALLEL LOOP with parfor
+    parfor ien = 1:n_wavelengths
+        % Progress indicator (less frequent in parallel mode)
+        if mod(ien-1, max(1, floor(n_wavelengths/10))) == 0
+            fprintf('  Progress: wavelength %d/%d (λ = %.1f nm)\\n', ien, n_wavelengths, enei(ien));
+        end
+        
+        % Temporary arrays for this wavelength
+        sca_temp = zeros(1, n_polarizations);
+        ext_temp = zeros(1, n_polarizations);
+        abs_temp = zeros(1, n_polarizations);
+        
+        % Loop over polarizations
+        for ipol = 1:n_polarizations
+"""
+            
+            # Excitation code for parallel loop
+            if excitation_type == 'planewave':
+                code += """            % Plane wave excitation
+            exc = planewave(pol(ipol, :), dir(ipol, :), op);
+"""
+            elif excitation_type == 'dipole':
+                code += """            % Dipole excitation
+            pt = compoint(p, dip_pos, op);
+            dip = dipole(pt, dip_mom, op);
+            exc = dip;
+"""
+            elif excitation_type == 'eels':
+                code += """            % EELS excitation
+            exc = eelsret(p, impact, beam_energy, 'width', beam_width, op);
+"""
+            
+            code += """            
+            % Solve BEM equation
+            sig = bem \\ exc(p, enei(ien));
+            
+            % Calculate cross sections
+            sca_temp(ipol) = exc.sca(sig);
+            ext_temp(ipol) = exc.ext(sig);
+            abs_temp(ipol) = ext_temp(ipol) - sca_temp(ipol);
+        end
+        
+        % Store results
+        sca(ien, :) = sca_temp;
+        ext(ien, :) = ext_temp;
+        abs_cross(ien, :) = abs_temp;
+    end
+    
+else
+    fprintf('\\nUsing SERIAL execution (regular for loop)\\n\\n');
+    
+    % SERIAL LOOP (fallback)
+    for ien = 1:n_wavelengths
+"""
+        else:
+            code += """% SERIAL LOOP
+for ien = 1:n_wavelengths
+"""
+        
+        # Common serial loop body
+        code += """        progress_pct = (ien-1) / n_wavelengths * 100;
+        
+        bar_length = 40;
+        filled = floor(bar_length * (ien-1) / n_wavelengths);
+        bar = ['[' repmat('=', 1, filled) repmat('.', 1, bar_length - filled) ']'];
+        
+        fprintf('\\r%s %.1f%% | λ = %.1f nm', bar, progress_pct, enei(ien));
+        
+        % Loop over polarizations
+        for ipol = 1:n_polarizations
+"""
+        
+        # Excitation code for serial loop
         if excitation_type == 'planewave':
-            code += """
-        % Plane wave excitation
-        exc = planewave(pol(ipol, :), dir(ipol, :), op);
+            code += """            % Plane wave excitation
+            exc = planewave(pol(ipol, :), dir(ipol, :), op);
 """
         elif excitation_type == 'dipole':
-            code += """
-        % Dipole excitation
-        pt = compoint(p, dip_pos, op);
-        dip = dipole(pt, dip_mom, op);
-        exc = dip;
+            code += """            % Dipole excitation
+            pt = compoint(p, dip_pos, op);
+            dip = dipole(pt, dip_mom, op);
+            exc = dip;
 """
         elif excitation_type == 'eels':
-            code += """
-        % EELS excitation
-        exc = eelsret(p, impact, beam_energy, 'width', beam_width, op);
+            code += """            % EELS excitation
+            exc = eelsret(p, impact, beam_energy, 'width', beam_width, op);
 """
         
-        code += """
-        % Solve BEM equation
-        sig = bem \\ exc(p, enei(ien));
-        
-        % Calculate cross sections
-        sca(ien, ipol) = exc.sca(sig);
-        ext(ien, ipol) = exc.ext(sig);
-        abs_cross(ien, ipol) = ext(ien, ipol) - sca(ien, ipol);
+        code += """            
+            % Solve BEM equation
+            sig = bem \\ exc(p, enei(ien));
+            
+            % Calculate cross sections
+            sca(ien, ipol) = exc.sca(sig);
+            ext(ien, ipol) = exc.ext(sig);
+            abs_cross(ien, ipol) = ext(ien, ipol) - sca(ien, ipol);
 """
         
         if calculate_fields:
             code += self._generate_field_calculation_in_loop()
         
-        code += """
-    end
+        code += """        end
+"""
+        
+        # Close loops
+        if use_parallel:
+            code += """    end
 end
-
+"""
+        else:
+            code += """end
+"""
+        
+        # Progress completion
+        if not use_parallel:
+            code += """
 % Complete progress bar
 fprintf('\\r[');
 fprintf(repmat('=', 1, 40));
 fprintf('] 100.0%%\\n');
-
+"""
+        else:
+            code += """
+fprintf('\\nAll wavelengths completed\\n');
+"""
+        
+        code += """
 calculation_time = toc(calculation_start);
 fprintf('\\n');
 fprintf('================================================================\\n');
 fprintf('Calculation completed in %.2f seconds (%.2f minutes)\\n', calculation_time, calculation_time/60);
+fprintf('Average time per wavelength: %.2f seconds\\n', calculation_time/n_wavelengths);
 fprintf('================================================================\\n');
 """
         
@@ -818,31 +998,31 @@ field_data = struct();
     def _generate_field_calculation_in_loop(self):
         """Generate field calculation code inside wavelength loop."""
         code = """
-        % Calculate fields at selected wavelength
-        if ien == field_wavelength_idx
-            fprintf('\\n  → Calculating fields at λ = %.1f nm...\\n', enei(ien));
-            field_calc_start = tic;
-            
-            e_induced = emesh(sig);
-            e_incoming = emesh(exc.field(emesh.pt, enei(ien)));
-            e_total = e_induced + e_incoming;
-            
-            e_intensity = dot(e_total, e_total, 3);
-            e0_intensity = dot(e_incoming, e_incoming, 3);
-            enhancement = sqrt(e_intensity ./ e0_intensity);
-            
-            field_data(ipol).polarization = pol(ipol, :);
-            field_data(ipol).wavelength = enei(ien);
-            field_data(ipol).e_total = e_total;
-            field_data(ipol).enhancement = enhancement;
-            field_data(ipol).intensity = e_intensity;
-            field_data(ipol).x_grid = x_grid;
-            field_data(ipol).y_grid = y_grid;
-            field_data(ipol).z_grid = z_grid;
-            
-            field_calc_time = toc(field_calc_start);
-            fprintf('  → Field calculation completed in %.2f seconds\\n', field_calc_time);
-        end
+            % Calculate fields at selected wavelength
+            if ien == field_wavelength_idx
+                fprintf('\\n  → Calculating fields at λ = %.1f nm...\\n', enei(ien));
+                field_calc_start = tic;
+                
+                e_induced = emesh(sig);
+                e_incoming = emesh(exc.field(emesh.pt, enei(ien)));
+                e_total = e_induced + e_incoming;
+                
+                e_intensity = dot(e_total, e_total, 3);
+                e0_intensity = dot(e_incoming, e_incoming, 3);
+                enhancement = sqrt(e_intensity ./ e0_intensity);
+                
+                field_data(ipol).polarization = pol(ipol, :);
+                field_data(ipol).wavelength = enei(ien);
+                field_data(ipol).e_total = e_total;
+                field_data(ipol).enhancement = enhancement;
+                field_data(ipol).intensity = e_intensity;
+                field_data(ipol).x_grid = x_grid;
+                field_data(ipol).y_grid = y_grid;
+                field_data(ipol).z_grid = z_grid;
+                
+                field_calc_time = toc(field_calc_start);
+                fprintf('  → Field calculation completed in %.2f seconds\\n', field_calc_time);
+            end
 """
         return code
     
@@ -933,12 +1113,21 @@ fprintf('================================================================\\n');
     
     def _generate_footer(self):
         """Generate script footer with proper cleanup and exit."""
+        use_parallel = self.config.get('use_parallel', False)
+        
         code = """
 %% Cleanup and Exit
 fprintf('\\n');
 fprintf('================================================================\\n');
 fprintf('Cleaning up...\\n');
 
+"""
+        
+        # Add parallel cleanup if parallel was enabled
+        if use_parallel:
+            code += self._generate_parallel_cleanup()
+        
+        code += """
 % Close all waitbars
 try
     multiWaitbar('CloseAll');
