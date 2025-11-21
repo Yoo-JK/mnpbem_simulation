@@ -11,7 +11,7 @@ args = {}
 # ============================================================================
 # STRUCTURE NAME
 # ============================================================================
-args['structure_name'] = 'test_au_ag_agcl_dimer'
+args['structure_name'] = 'auag_dimer'
 
 # ============================================================================
 # ADVANCED DIMER CUBE - Au@Ag@AgCl
@@ -20,25 +20,25 @@ args['structure'] = 'advanced_dimer_cube'
 
 # --- Core and Shells (inner → outer) ---
 args['core_size'] = 47  # Au core: 30 nm
-args['shell_layers'] = [3, 1]  # [Ag: 5nm, AgCl: 3nm]
+args['shell_layers'] = [4]  # [Ag: 5nm, AgCl: 3nm]
 
 # --- Materials (inner → outer) ---
 # AgCl will be defined as custom constant refractive index below
-args['materials'] = ['gold', 'silver', 'agcl']
+args['materials'] = ['gold', 'silver']
 
 # --- Per-Layer Rounding (inner → outer) ---
-args['roundings'] = [0.25, 0.2, 0.15]  # [Au: round, Ag: medium, AgCl: sharp]
+args['roundings'] = [0.2, 0.2]  # [Au: round, Ag: medium, AgCl: sharp]
 # OR use single value:
 # args['rounding'] = 0.2
 
 # --- Mesh Density ---
-args['mesh_density'] = 12
+args['mesh_density'] = 36
 
 # --- Dimer Configuration ---
-args['gap'] = 3  # 5nm gap for strong coupling
+args['gap'] = 0.8  # 5nm gap for strong coupling
 args['offset'] = [0, 0, 0]  # End-to-end (no offset)
 args['tilt_angle'] = 0  # 15° tilt
-args['tilt_axis'] = [0, 0, 0]  # Tilt around y-axis
+args['tilt_axis'] = [1, 0, 0] 
 args['rotation_angle'] = 0  # No additional rotation
 
 # ============================================================================
@@ -46,7 +46,7 @@ args['rotation_angle'] = 0  # No additional rotation
 # ============================================================================
 
 # --- Medium ---
-args['medium'] = 'water'
+args['medium'] = 'vacuum'
 
 # --- Custom Refractive Index: AgCl as constant ---
 # AgCl: n ≈ 2.0, k ≈ 0 (transparent in visible range)

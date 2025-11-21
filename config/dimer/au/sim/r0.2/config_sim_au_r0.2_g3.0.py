@@ -9,7 +9,7 @@ args = {}
 # Path to your MNPBEM installation directory
 # This path will be added to MATLAB's search path during execution
 
-args['mnpbem_path'] = os.path.join(Path.home(), 'scratch/bins/MNPBEM')
+args['mnpbem_path'] = os.path.join(Path.home(), 'workspace/MNPBEM')
 
 # Examples:
 # args['mnpbem_path'] = '/usr/local/MNPBEM17'
@@ -20,7 +20,7 @@ args['mnpbem_path'] = os.path.join(Path.home(), 'scratch/bins/MNPBEM')
 # SIMULATION NAME (IDENTIFIER)
 # ============================================================================
 # Give your simulation a descriptive name
-args['simulation_name'] = 'test_auagcl_dimer'
+args['simulation_name'] = 'au_r0.2_g3.0'
 
 # ============================================================================
 # SIMULATION TYPE
@@ -187,8 +187,7 @@ args['use_iterative_solver'] = True
 
 # Nonlocal effects (advanced, for very small particles <5nm)
 # Includes quantum effects at metal surfaces
-# Requires additional setup
-args['use_nonlocality'] = False
+args['use_nonlocality'] = True
 
 # ============================================================================
 # MATLAB SETTINGS (ADVANCED)
