@@ -38,7 +38,8 @@ args['structure_name'] = 'my_structure'
 # args['structure'] = 'rod'
 # args['diameter'] = 20  # nm
 # args['height'] = 80  # nm (along z-axis)
-# args['mesh_density'] = 144
+# args['mesh_density'] = 144   # Choose 'mesh_density' or 'rod_mesh'
+# args['rod_mesh'] = [15, 20, 20]   # [nphi, ntheta, nz]: circumference / caps / length
 # args['materials'] = ['gold']
 
 # --- Ellipsoid ---
@@ -76,8 +77,9 @@ args['structure_name'] = 'my_structure'
 # args['structure'] = 'core_shell_rod'
 # args['core_diameter'] = 15  # nm
 # args['shell_thickness'] = 5  # nm (total diameter = 25nm)
-# args['height'] = 80  # nm (along z-axis)
-# args['mesh_density'] = 144
+# args['height'] = 80  # nm (total length along z-axis)
+# args['mesh_density'] = 144   # Choose 'mesh_density' or 'rod_mesh'
+# args['rod_mesh'] = [15, 20, 20]   # [nphi, ntheta, nz]: circumference / caps / length
 # args['materials'] = ['gold', 'silver']  # [core, shell]
 # Example: Gold core nanorod with silver shell
 # Perfect for studying plasmonic nanorods with tunable properties
