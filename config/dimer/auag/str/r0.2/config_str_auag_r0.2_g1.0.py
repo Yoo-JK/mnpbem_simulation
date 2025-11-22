@@ -32,7 +32,7 @@ args['roundings'] = [0.2, 0.2]  # [Au: round, Ag: medium, AgCl: sharp]
 # args['rounding'] = 0.2
 
 # --- Mesh Density ---
-args['mesh_density'] = 36
+args['mesh_density'] = 12
 
 # --- Dimer Configuration ---
 args['gap'] = 1  # 5nm gap for strong coupling
@@ -46,7 +46,7 @@ args['rotation_angle'] = 0  # No additional rotation
 # ============================================================================
 
 # --- Medium ---
-args['medium'] = 'vacuum'
+args['medium'] = 'water'
 
 # --- Custom Refractive Index: AgCl as constant ---
 # AgCl: n ≈ 2.0, k ≈ 0 (transparent in visible range)
