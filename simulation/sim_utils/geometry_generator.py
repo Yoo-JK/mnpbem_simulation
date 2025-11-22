@@ -567,21 +567,49 @@ particles = {{p}};
         return code
     
     def _rod(self):
-        """Generate code for rod/cylinder."""
+        """Generate code for rod/cylinder (horizontal).
+        
+        Mesh can be specified in two ways:
+        1. mesh_density (auto-calculated)
+        2. rod_mesh = [nphi, ntheta, nz] (manual)
+        """
         diameter = self.config.get('diameter', 10)
         height = self.config.get('height', 50)
-        mesh = self.config.get('mesh_density', 144)
         
-        # Convert mesh_density to [nphi, ntheta, nz] for trirod
-        n = self._mesh_density_to_n_rod(mesh)
-        
-        code = f"""
-%% Geometry: Rod
+        # Check if user provided explicit mesh parameters
+        if 'rod_mesh' in self.config:
+            # User specifies [nphi, ntheta, nz] directly
+            n = self.config['rod_mesh']
+            nphi, ntheta, nz = n
+            
+            code = f"""
+%% Geometry: Rod (horizontal along x-axis)
 diameter = {diameter};
 height = {height};
-p = trirod(diameter, height, {n});
+
+% User-specified mesh: [{nphi}, {ntheta}, {nz}]
+p = trirod(diameter, height, [{nphi}, {ntheta}, {nz}]);
+p = rot(p, 90, [0, 1, 0]);
+
 particles = {{p}};
 """
+        else:
+            # Use mesh_density (existing behavior)
+            mesh = self.config.get('mesh_density', 144)
+            n = self._mesh_density_to_n_rod(mesh)
+            
+            code = f"""
+%% Geometry: Rod (horizontal along x-axis)
+diameter = {diameter};
+height = {height};
+
+% Auto-calculated mesh from mesh_density={mesh}: {n}
+p = trirod(diameter, height, {n});
+p = rot(p, 90, [0, 1, 0]);
+
+particles = {{p}};
+"""
+        
         return code
     
     def _ellipsoid(self):
@@ -706,22 +734,26 @@ particles = {{p_core, p_shell}};
     def _core_shell_rod(self):
         """Generate code for core-shell rod with complete shell coverage.
         
-        Note: 'height' parameter represents the TOTAL height of the final structure.
-              Core height is automatically reduced by 2*shell_thickness.
+        Mesh specification:
+            Option 1: mesh_density (auto-calculated)
+            Option 2: rod_mesh = [nphi, ntheta, nz] (manual override)
         """
         core_diameter = self.config.get('core_diameter', 15)
         shell_thickness = self.config.get('shell_thickness', 5)
-        height = self.config.get('height', 80)  # Final total height
-        mesh = self.config.get('mesh_density', 144)
+        height = self.config.get('height', 80)
         
-        # Convert mesh_density to [nphi, ntheta, nz]
-        n = self._mesh_density_to_n_rod(mesh)
+        # Check for manual mesh specification
+        if 'rod_mesh' in self.config:
+            n = self.config['rod_mesh']
+            if len(n) != 3:
+                raise ValueError(f"rod_mesh must have 3 values [nphi, ntheta, nz], got {n}")
+        else:
+            # Auto-calculate from mesh_density
+            mesh = self.config.get('mesh_density', 144)
+            n = self._mesh_density_to_n_rod(mesh)
         
-        # Shell uses the specified height (final length)
         shell_diameter = core_diameter + 2 * shell_thickness
         shell_height = height
-        
-        # Core is shorter to be fully covered by shell
         core_height = height - 2 * shell_thickness
         
         code = f"""
@@ -729,13 +761,11 @@ particles = {{p_core, p_shell}};
 core_diameter = {core_diameter};
 shell_thickness = {shell_thickness};
 shell_diameter = core_diameter + 2 * shell_thickness;
-shell_height = {height};  % Total height (final structure)
-core_height = shell_height - 2 * shell_thickness;  % Core is shorter
+shell_height = {height};
+core_height = shell_height - 2 * shell_thickness;
 
-% Core rod (shorter) - mesh_density = {mesh} → {n}
+% Mesh: {n}
 p_core = trirod(core_diameter, core_height, {n}, 'triangles');
-
-% Shell rod (full length) - mesh_density = {mesh} → {n}
 p_shell = trirod(shell_diameter, shell_height, {n}, 'triangles');
 
 particles = {{p_core, p_shell}};
