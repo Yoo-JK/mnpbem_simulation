@@ -17,35 +17,43 @@ class FieldAnalyzer:
     def analyze_field(self, field_data):
         """
         Comprehensive field analysis.
-        
-        Parameters
-        ----------
-        field_data : dict
-            Dictionary containing field data for one polarization
-            
-        Returns
-        -------
-        dict
-            Analysis results including statistics and hotspot locations
         """
-        enhancement = field_data['enhancement']
-        intensity = field_data['intensity']
-        x_grid = field_data['x_grid']
-        y_grid = field_data['y_grid']
-        z_grid = field_data['z_grid']
+        # field_data가 리스트인 경우 첫 번째 polarization 사용
+        if isinstance(field_data, list):
+            pol_data = field_data[0]
+        else:
+            pol_data = field_data
+        
+        # 이제 pol_data에서 데이터 추출
+        enhancement = pol_data.get('enhancement')
+        intensity = pol_data.get('intensity')
+        x_grid = pol_data.get('x_grid')
+        y_grid = pol_data.get('y_grid')
+        z_grid = pol_data.get('z_grid')
+        
+        if enhancement is None:
+            return None
+        
+        # 복소수 처리
+        if np.iscomplexobj(enhancement):
+            print("  Converting complex enhancement to magnitude...")
+            enhancement = np.abs(enhancement)
+        
+        if np.iscomplexobj(intensity):
+            intensity = np.abs(intensity)
         
         analysis = {
-            'wavelength': field_data['wavelength'],
-            'polarization': field_data['polarization'].tolist() if hasattr(field_data['polarization'], 'tolist') else field_data['polarization'],
+            'wavelength': pol_data.get('wavelength'),
+            'polarization': pol_data.get('polarization').tolist() if hasattr(pol_data.get('polarization'), 'tolist') else pol_data.get('polarization'),
         }
         
-        # Enhancement statistics
+        # Enhancement statistics (이제 실수 데이터)
         analysis['enhancement_stats'] = self._calculate_statistics(enhancement)
         
-        # Intensity statistics
+        # Intensity statistics (이제 실수 데이터)
         analysis['intensity_stats'] = self._calculate_statistics(intensity)
         
-        # Find hotspots (local maxima)
+        # Find hotspots (enhancement는 이미 실수로 변환됨)
         hotspots = self._find_hotspots(enhancement, x_grid, y_grid, z_grid)
         analysis['hotspots'] = hotspots
         
@@ -111,6 +119,11 @@ class FieldAnalyzer:
             List of hotspot dictionaries with position and value
         """
         # Find local maxima using maximum filter
+
+        if np.iscomplexobj(enhancement):
+            enhancement = np.abs(enhancement)
+            print("  Converting complex enhancement to magnitude")
+
         neighborhood_size = min_distance * 2 + 1
         local_max = maximum_filter(enhancement, size=neighborhood_size)
         
