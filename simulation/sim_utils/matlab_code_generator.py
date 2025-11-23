@@ -40,6 +40,9 @@ class MatlabCodeGenerator:
         
         # Validation (if nonlocal)
         validation = self._validate_nonlocal_setup()
+
+        # Green function tabulation
+        greentab = self._generate_substrate_greentab()
         
         # BEM solver
         bem_solver = self._generate_bem_solver()
@@ -68,6 +71,8 @@ class MatlabCodeGenerator:
 {comparticle}
 
 {validation}
+
+{greentab}
 
 {bem_solver}
 
@@ -108,6 +113,14 @@ fprintf('Simulation Type: %s\\n', '{sim_type}');
         use_mirror = self.config.get('use_mirror_symmetry', False)
         use_iterative = self.config.get('use_iterative_solver', False)
         use_nonlocal = self.nonlocal_gen.is_needed()
+        use_substrate = self.config.get('use_substrate', False)
+
+        if use_substrate and sim_type != 'ret':
+            raise ValueError(
+                "Substrate simulations require 'ret' (retarded) simulation type. "
+                f"Current simulation_type is '{sim_type}'. "
+                "Please set: args['simulation_type'] = 'ret'"
+            )
         
         refine = self.config.get('refine', 3 if use_nonlocal else 1)
         relcutoff = self.config.get('relcutoff', 2 if use_iterative else 3)
@@ -124,6 +137,12 @@ fprintf('\\nSetting up BEM options...\\n');
             code += "op = bemoptions( 'sim', 'ret', 'interp', 'curv' );\n"
         
         code += f"op.refine = {refine};\n"
+
+        if use_substrate:
+            code += """
+fprintf('  ✓ Substrate mode enabled\\n');
+fprintf('  ⚠ Green function tabulation will be required\\n');
+"""
         
         # Mirror symmetry
         if use_mirror:
@@ -246,6 +265,13 @@ end
         # Get closed indices from material manager
         closed_args = self._closed_args
         
+        # Check if substrate is used
+        use_substrate = self.config.get('use_substrate', False)
+
+        if use_substrate:
+            substrate = self.config.get('substrate', {})
+            substrate_position = substrate.get('position', 0)
+        
         code = """
 %% Create Comparticle Object
 fprintf('\\nCreating comparticle object...\\n');
@@ -263,6 +289,32 @@ try
     shell_color_1 = [0.7, 0.85, 1.0];  % Light blue
     shell_color_2 = [0.5, 0.7, 0.95];  % Medium blue
     shell_color_3 = [0.3, 0.5, 0.9];   % Darker blue
+    substrate_color = [0.85, 0.85, 0.85];  % Light gray
+    
+"""
+        
+        # Add substrate parameters
+        if use_substrate:
+            code += f"""    % Substrate parameters
+    has_substrate = true;
+    z_substrate = {substrate_position};
+"""
+        else:
+            code += """    % No substrate
+    has_substrate = false;
+"""
+        
+        code += """    
+    % Get particle bounds for plotting
+    x_lim = [min(p.pos(:,1)), max(p.pos(:,1))];
+    y_lim = [min(p.pos(:,2)), max(p.pos(:,2))];
+    z_lim = [min(p.pos(:,3)), max(p.pos(:,3))];
+    
+    % Expand limits for substrate visualization
+    x_expand = (x_lim(2) - x_lim(1)) * 0.3;
+    y_expand = (y_lim(2) - y_lim(1)) * 0.3;
+    x_range = [x_lim(1) - x_expand, x_lim(2) + x_expand];
+    y_range = [y_lim(1) - y_expand, y_lim(2) + y_expand];
     
     % ========== 3D View ==========
     fig = figure('Visible', 'off', 'Position', [100, 100, 1000, 800]);
@@ -334,6 +386,27 @@ try
         legend(legend_entries, 'Location', 'northeast', 'FontSize', 10);
     end
     
+    % Draw substrate interface (3D view)
+    if has_substrate
+        % Create substrate plane
+        [X_sub, Y_sub] = meshgrid(x_range, y_range);
+        Z_sub = ones(size(X_sub)) * z_substrate;
+        surf(X_sub, Y_sub, Z_sub, 'FaceColor', substrate_color, ...
+             'FaceAlpha', 0.3, 'EdgeColor', 'none');
+        
+        % Draw interface outline
+        plot3([x_range(1), x_range(2), x_range(2), x_range(1), x_range(1)], ...
+              [y_range(1), y_range(1), y_range(2), y_range(2), y_range(1)], ...
+              [z_substrate, z_substrate, z_substrate, z_substrate, z_substrate], ...
+              'k-', 'LineWidth', 2);
+        
+        % Add label
+        text(x_range(2)*0.8, y_range(2)*0.8, z_substrate, ...
+             sprintf('  Substrate\\n  z=%.1f nm', z_substrate), ...
+             'FontSize', 10, 'FontWeight', 'bold', ...
+             'BackgroundColor', 'w', 'EdgeColor', 'k', 'Margin', 3);
+    end
+    
     axis equal;
     xlabel('x (nm)', 'FontSize', 12, 'FontWeight', 'bold');
     ylabel('y (nm)', 'FontSize', 12, 'FontWeight', 'bold');
@@ -366,7 +439,7 @@ try
     fprintf('  ✓ 3D view saved\\n');
     close(fig);
     
-    % ========== XY View ==========
+    % ========== XY View (Top View) ==========
     fig = figure('Visible', 'off', 'Position', [100, 100, 1000, 800]);
     subplot('Position', [0.1, 0.1, 0.75, 0.85]);
     hold on;
@@ -417,6 +490,17 @@ try
                 plot2(particles{i}, color, 'FaceAlpha', alpha);
             end
         end
+    end
+    
+    % Substrate outline in XY view
+    if has_substrate
+        rectangle('Position', [x_range(1), y_range(1), ...
+                              x_range(2)-x_range(1), y_range(2)-y_range(1)], ...
+                 'EdgeColor', 'k', 'LineWidth', 2, 'LineStyle', '--');
+        text(x_range(2)*0.85, y_range(2)*0.85, ...
+             sprintf('Substrate z=%.1f', z_substrate), ...
+             'FontSize', 10, 'FontWeight', 'bold', ...
+             'BackgroundColor', 'w', 'EdgeColor', 'k');
     end
     
     axis equal;
@@ -431,7 +515,7 @@ try
     fprintf('  ✓ XY view saved\\n');
     close(fig);
     
-    % ========== YZ View ==========
+    % ========== YZ View (Side View) ==========
     fig = figure('Visible', 'off', 'Position', [100, 100, 1000, 800]);
     subplot('Position', [0.1, 0.1, 0.75, 0.85]);
     hold on;
@@ -484,6 +568,39 @@ try
         end
     end
     
+    % Draw substrate interface line (YZ view - IMPORTANT!)
+    if has_substrate
+        plot3([y_range(1), y_range(2)], ...
+              [z_substrate, z_substrate], ...
+              [0, 0], ...
+              'k-', 'LineWidth', 3);
+        
+        % Fill substrate region below interface
+        y_fill = [y_range(1), y_range(2), y_range(2), y_range(1)];
+        z_fill = [z_substrate, z_substrate, z_lim(1)-20, z_lim(1)-20];
+        fill(y_fill, z_fill, substrate_color, 'FaceAlpha', 0.3, 'EdgeColor', 'none');
+        
+        % Add gap annotation
+        particle_bottom = min(p.pos(:,3));
+        gap_distance = particle_bottom - z_substrate;
+        if gap_distance > 0.1
+            % Draw gap indicator
+            y_mid = mean(y_range);
+            plot3([y_mid, y_mid], [particle_bottom, z_substrate], [0, 0], ...
+                  'r-', 'LineWidth', 2);
+            text(y_mid, (particle_bottom + z_substrate)/2, 0, ...
+                 sprintf('  Gap\\n  %.1f nm', gap_distance), ...
+                 'FontSize', 10, 'FontWeight', 'bold', 'Color', 'r', ...
+                 'BackgroundColor', 'w', 'EdgeColor', 'r');
+        end
+        
+        % Label substrate
+        text(y_range(2)*0.85, z_substrate, 0, ...
+             sprintf('  Substrate\\n  z=%.1f nm', z_substrate), ...
+             'FontSize', 10, 'FontWeight', 'bold', ...
+             'BackgroundColor', 'w', 'EdgeColor', 'k', 'Margin', 3);
+    end
+    
     axis equal;
     ylabel('y (nm)', 'FontSize', 12, 'FontWeight', 'bold');
     zlabel('z (nm)', 'FontSize', 12, 'FontWeight', 'bold');
@@ -496,7 +613,7 @@ try
     fprintf('  ✓ YZ view saved\\n');
     close(fig);
     
-    % ========== ZX View ==========
+    % ========== ZX View (Front View) ==========
     fig = figure('Visible', 'off', 'Position', [100, 100, 1000, 800]);
     subplot('Position', [0.1, 0.1, 0.75, 0.85]);
     hold on;
@@ -547,6 +664,39 @@ try
                 plot2(particles{i}, color, 'FaceAlpha', alpha);
             end
         end
+    end
+    
+    % Draw substrate interface line (ZX view - IMPORTANT!)
+    if has_substrate
+        plot3([x_range(1), x_range(2)], ...
+              [z_substrate, z_substrate], ...
+              [0, 0], ...
+              'k-', 'LineWidth', 3);
+        
+        % Fill substrate region below interface
+        x_fill = [x_range(1), x_range(2), x_range(2), x_range(1)];
+        z_fill = [z_substrate, z_substrate, z_lim(1)-20, z_lim(1)-20];
+        fill(x_fill, z_fill, substrate_color, 'FaceAlpha', 0.3, 'EdgeColor', 'none');
+        
+        % Add gap annotation
+        particle_bottom = min(p.pos(:,3));
+        gap_distance = particle_bottom - z_substrate;
+        if gap_distance > 0.1
+            % Draw gap indicator
+            x_mid = mean(x_range);
+            plot3([x_mid, x_mid], [particle_bottom, z_substrate], [0, 0], ...
+                  'r-', 'LineWidth', 2);
+            text(x_mid, (particle_bottom + z_substrate)/2, 0, ...
+                 sprintf('  Gap\\n  %.1f nm', gap_distance), ...
+                 'FontSize', 10, 'FontWeight', 'bold', 'Color', 'r', ...
+                 'BackgroundColor', 'w', 'EdgeColor', 'r');
+        end
+        
+        % Label substrate
+        text(x_range(2)*0.85, z_substrate, 0, ...
+             sprintf('  Substrate\\n  z=%.1f nm', z_substrate), ...
+             'FontSize', 10, 'FontWeight', 'bold', ...
+             'BackgroundColor', 'w', 'EdgeColor', 'k', 'Margin', 3);
     end
     
     axis equal;
@@ -598,6 +748,94 @@ end
 
 fprintf('✓ Nonlocal setup validated\\n');
 """
+        return code
+
+    def _generate_substrate_greentab(self):
+        """
+        Generate Green function tabulation code for substrate simulations.
+        REQUIRED when using substrate with 'ret' simulation type.
+        """
+        use_substrate = self.config.get('use_substrate', False)
+        sim_type = self.config['simulation_type']
+        
+        # Only needed for retarded simulations with substrate
+        if not (use_substrate and sim_type == 'ret'):
+            return ""
+        
+        # Get tabulation parameters
+        nz = self.config.get('greentab_nz', 20)
+        scale = self.config.get('greentab_scale', 1.0)
+        
+        # Wavelength range for precomputation
+        wavelength_range = self.config['wavelength_range']
+        wl_min = wavelength_range[0]
+        wl_max = wavelength_range[1]
+        n_precompute = self.config.get('greentab_n_wavelengths', 10)
+        
+        code = f"""
+%% Green Function Tabulation (Required for Substrate)
+fprintf('\\n');
+fprintf('================================================================\\n');
+fprintf('        Setting up Green Function Table for Substrate          \\n');
+fprintf('================================================================\\n');
+fprintf('⚠ This step is computationally expensive but only done once.\\n');
+fprintf('  Grid parameters: nz={nz}, scale={scale}\\n');
+fprintf('  Precomputing for %d wavelengths in range [%.1f, %.1f] nm\\n', {n_precompute}, {wl_min}, {wl_max});
+fprintf('----------------------------------------------------------------\\n');
+
+% Check if greentab already exists and is compatible
+if ~exist( 'greentab', 'var' ) || ~greentab.ismember( layer, enei, p )
+    fprintf('Creating new Green function table...\\n');
+    
+    % Step 1: Create tabulation grid
+    fprintf('  Step 1/3: Creating tabulation grid...\\n');
+    tab_start = tic;
+    tab = tabspace( layer, p, 'nz', {nz}, 'scale', {scale} );
+    tab_time = toc(tab_start);
+    fprintf('  ✓ Grid created in %.2f seconds\\n', tab_time);
+    
+    % Step 2: Initialize compgreentablayer
+    fprintf('  Step 2/3: Initializing Green function table object...\\n');
+    init_start = tic;
+    greentab = compgreentablayer( layer, tab );
+    init_time = toc(init_start);
+    fprintf('  ✓ Initialized in %.2f seconds\\n', init_time);
+    
+    % Step 3: Precompute for wavelength range
+    fprintf('  Step 3/3: Precomputing Green functions...\\n');
+    fprintf('  (This may take several minutes)\\n');
+    precomp_start = tic;
+    
+    % Use subset of wavelengths for precomputation
+    enei_precomp = linspace( {wl_min}, {wl_max}, {n_precompute} );
+    
+    % Check if parallel computing is available
+    if exist('parallel_enabled', 'var') && parallel_enabled
+        fprintf('  Using PARALLEL computation for Green function table\\n');
+        greentab = parset( greentab, enei_precomp, op );
+    else
+        greentab = set( greentab, enei_precomp, op );
+    end
+    
+    precomp_time = toc(precomp_start);
+    fprintf('  ✓ Precomputation completed in %.2f seconds (%.2f minutes)\\n', ...
+            precomp_time, precomp_time/60);
+    
+    % Total time
+    total_greentab_time = tab_time + init_time + precomp_time;
+    fprintf('\\n');
+    fprintf('✓ Green function table ready (total: %.2f minutes)\\n', total_greentab_time/60);
+else
+    fprintf('✓ Using existing compatible Green function table\\n');
+end
+
+% Step 4: Add to options structure (CRITICAL!)
+op.greentab = greentab;
+fprintf('✓ Green function table added to BEM options\\n');
+fprintf('================================================================\\n');
+fprintf('\\n');
+"""
+        
         return code
     
     def _generate_bem_solver(self):
