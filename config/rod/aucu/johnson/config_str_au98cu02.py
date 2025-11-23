@@ -7,9 +7,9 @@ args['structure'] = 'core_shell_rod'
 args['core_diameter'] = 9  # nm
 args['shell_thickness'] = 2  # nm (total diameter = 25nm)
 args['height'] = 37  # nm (along z-axis)
-args['mesh_density'] = 144
+args['rod_mesh'] = [15, 20, 20]   # [nphi, ntheta, nz]: circumference / caps / length
 args['materials'] = ['gold', 'Au98Cu02']  # [core, shell]
-args['medium'] = 'water'
+args['medium'] = 'air'
 args['refractive_index_paths'] = {
         'au100cu0': os.path.join(Path.home(), 'dataset/mnpbem/refrac/Au_100.00_Cu_0.00.txt'),
         'au99cu01': os.path.join(Path.home(), 'dataset/mnpbem/refrac/Au_99.00_Cu_1.00.txt'),
@@ -29,10 +29,8 @@ args['refractive_index_paths'] = {
 #     'silver': os.path.join(Path.home(), 'materials/silver_jc.dat')
 # }
 
-args['use_substrate'] = False
-# args['use_substrate'] = True
-# args['substrate'] = {
-#     'material': 'glass',  # or 'silicon', custom dict
-#     'position': 0,  # z-coordinate of interface (nm)
-# }
-
+args['use_substrate'] = True
+args['substrate'] = {
+    'material': 'glass',  # or 'silicon', custom dict
+    'position': -7.5,  # z-coordinate of interface (nm)
+}
