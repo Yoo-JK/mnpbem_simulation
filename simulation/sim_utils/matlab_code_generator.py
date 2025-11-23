@@ -751,26 +751,22 @@ fprintf('✓ Nonlocal setup validated\\n');
         return code
 
     def _generate_substrate_greentab(self):
-        """
-        Generate Green function tabulation code for substrate simulations.
-        REQUIRED when using substrate with 'ret' simulation type.
-        """
+        """Generate Green function tabulation with comprehensive fixes."""
         use_substrate = self.config.get('use_substrate', False)
         sim_type = self.config['simulation_type']
         
-        # Only needed for retarded simulations with substrate
         if not (use_substrate and sim_type == 'ret'):
             return ""
         
-        # Get tabulation parameters
-        nz = self.config.get('greentab_nz', 20)
-        scale = self.config.get('greentab_scale', 1.0)
+        nz = self.config.get('greentab_nz', 30)
+        scale = self.config.get('greentab_scale', 1.5)
         
-        # Wavelength range for precomputation
         wavelength_range = self.config['wavelength_range']
         wl_min = wavelength_range[0]
         wl_max = wavelength_range[1]
-        n_precompute = self.config.get('greentab_n_wavelengths', 10)
+        wl_num = wavelength_range[2]
+        
+        calculate_fields = self.config.get('calculate_fields', False)
         
         code = f"""
 %% Green Function Tabulation (Required for Substrate)
@@ -778,64 +774,78 @@ fprintf('\\n');
 fprintf('================================================================\\n');
 fprintf('        Setting up Green Function Table for Substrate          \\n');
 fprintf('================================================================\\n');
-fprintf('⚠ This step is computationally expensive but only done once.\\n');
-fprintf('  Grid parameters: nz={nz}, scale={scale}\\n');
-fprintf('  Precomputing for %d wavelengths in range [%.1f, %.1f] nm\\n', {n_precompute}, {wl_min}, {wl_max});
-fprintf('----------------------------------------------------------------\\n');
 
-% Check if greentab already exists and is compatible
-if ~exist( 'greentab', 'var' ) || ~greentab.ismember( layer, enei, p )
+% CRITICAL: Define actual simulation wavelengths FIRST
+enei = linspace({wl_min}, {wl_max}, {wl_num});
+fprintf('Simulation wavelengths: %.1f to %.1f nm (%d points)\\n', ...
+        min(enei), max(enei), length(enei));
+"""
+    
+        # Field points setup if needed (저장만 하고 tabulation에는 사용 안 함)
+        if calculate_fields:
+            field_region = self.config.get('field_region', {})
+            x_range = field_region.get('x_range', [-50, 50, 101])
+            y_range = field_region.get('y_range', [0, 0, 1])
+            z_range = field_region.get('z_range', [0, 0, 1])
+            
+            code += """
+% Set up field points (will be used later for meshfield, NOT for tabulation)
+fprintf('\\nPreparing field mesh coordinates...\\n');
+"""
+        
+            if y_range[2] == 1:  # xz-plane
+                code += f"""x_field = linspace({x_range[0]}, {x_range[1]}, {x_range[2]});
+z_field = linspace({z_range[0]}, {z_range[1]}, {z_range[2]});
+[x_grid, z_grid] = meshgrid(x_field, z_field);
+y_grid = {y_range[0]} * ones(size(x_grid));
+"""
+            elif z_range[2] == 1:  # xy-plane
+                code += f"""x_field = linspace({x_range[0]}, {x_range[1]}, {x_range[2]});
+y_field = linspace({y_range[0]}, {y_range[1]}, {y_range[2]});
+[x_grid, y_grid] = meshgrid(x_field, y_field);
+z_grid = {z_range[0]} * ones(size(x_grid));
+"""
+        
+            code += """
+% Store grid shape for later use
+grid_shape = size(x_grid);
+fprintf('Field grid prepared: %dx%d points\\n', grid_shape(1), grid_shape(2));
+"""
+    
+        # Green function table 생성 - PARTICLE만 사용!
+        code += """
+% Check if existing greentab is compatible (particle only)
+if ~exist('greentab', 'var') || ~greentab.ismember(layer, enei, p)
     fprintf('Creating new Green function table...\\n');
     
-    % Step 1: Create tabulation grid
-    fprintf('  Step 1/3: Creating tabulation grid...\\n');
-    tab_start = tic;
-    tab = tabspace( layer, p, 'nz', {nz}, 'scale', {scale} );
-    tab_time = toc(tab_start);
-    fprintf('  ✓ Grid created in %.2f seconds\\n', tab_time);
+    % Create tabulation grid for particle ONLY
+    fprintf('  Creating tabulation grid (particle only)...\\n');
+"""
     
-    % Step 2: Initialize compgreentablayer
-    fprintf('  Step 2/3: Initializing Green function table object...\\n');
-    init_start = tic;
-    greentab = compgreentablayer( layer, tab );
-    init_time = toc(init_start);
-    fprintf('  ✓ Initialized in %.2f seconds\\n', init_time);
+        code += f"""    tab = tabspace(layer, p, 'nz', {nz}, 'scale', {scale});
     
-    % Step 3: Precompute for wavelength range
-    fprintf('  Step 3/3: Precomputing Green functions...\\n');
-    fprintf('  (This may take several minutes)\\n');
-    precomp_start = tic;
+    % Initialize Green function table
+    fprintf('  Initializing compgreentablayer...\\n');
+    greentab = compgreentablayer(layer, tab);
     
-    % Use subset of wavelengths for precomputation
-    enei_precomp = linspace( {wl_min}, {wl_max}, {n_precompute} );
+    % Precompute for actual simulation wavelengths
+    fprintf('  Precomputing Green functions for %d wavelengths...\\n', length(enei));
+    fprintf('  This may take several minutes...\\n');
     
-    % Check if parallel computing is available
-    if exist('parallel_enabled', 'var') && parallel_enabled
-        fprintf('  Using PARALLEL computation for Green function table\\n');
-        greentab = parset( greentab, enei_precomp, op );
-    else
-        greentab = set( greentab, enei_precomp, op );
-    end
+    tic_start = tic;
+    greentab = set(greentab, enei, op);
+    time_elapsed = toc(tic_start);
     
-    precomp_time = toc(precomp_start);
-    fprintf('  ✓ Precomputation completed in %.2f seconds (%.2f minutes)\\n', ...
-            precomp_time, precomp_time/60);
-    
-    % Total time
-    total_greentab_time = tab_time + init_time + precomp_time;
-    fprintf('\\n');
-    fprintf('✓ Green function table ready (total: %.2f minutes)\\n', total_greentab_time/60);
+    fprintf('  ✓ Green function table ready (%.1f seconds)\\n', time_elapsed);
 else
     fprintf('✓ Using existing compatible Green function table\\n');
 end
 
-% Step 4: Add to options structure (CRITICAL!)
+% Add to options
 op.greentab = greentab;
-fprintf('✓ Green function table added to BEM options\\n');
-fprintf('================================================================\\n');
-fprintf('\\n');
+fprintf('✓ Green function table added to BEM options\\n\\n');
 """
-        
+    
         return code
     
     def _generate_bem_solver(self):
@@ -986,7 +996,7 @@ fprintf('Beam energy: %.2e eV\\n', beam_energy);
         return code
     
     def _generate_wavelength_loop(self):
-        """Generate wavelength loop with parallel support."""
+        """Generate wavelength loop - use consistent wavelength array."""
         wavelength_range = self.config['wavelength_range']
         calculate_fields = self.config.get('calculate_fields', False)
         excitation_type = self.config['excitation_type']
@@ -994,8 +1004,11 @@ fprintf('Beam energy: %.2e eV\\n', beam_energy);
         
         code = f"""
 %% Wavelength Loop
-wavelength_range = [{wavelength_range[0]}, {wavelength_range[1]}, {wavelength_range[2]}];
-enei = linspace(wavelength_range(1), wavelength_range(2), wavelength_range(3));
+% Note: 'enei' was already defined in Green function section if substrate is used
+if ~exist('enei', 'var')
+    enei = linspace({wavelength_range[0]}, {wavelength_range[1]}, {wavelength_range[2]});
+end
+
 n_wavelengths = length(enei);
 n_polarizations = size(pol, 1);
 
@@ -1003,8 +1016,8 @@ fprintf('\\n');
 fprintf('================================================================\\n');
 fprintf('              Starting BEM Calculation\\n');
 fprintf('================================================================\\n');
-fprintf('Wavelength range: %.1f - %.1f nm\\n', wavelength_range(1), wavelength_range(2));
-fprintf('Number of wavelengths: %d\\n', n_wavelengths);
+fprintf('Wavelength range: %.1f - %.1f nm (%d points)\\n', ...
+        min(enei), max(enei), n_wavelengths);
 fprintf('Number of polarizations: %d\\n', n_polarizations);
 """
         
@@ -1173,95 +1186,114 @@ fprintf('================================================================\\n');
         return code
     
     def _generate_field_setup(self):
-        """Generate field mesh setup code."""
-        field_region = self.config.get('field_region', {})
-        mindist = self.config.get('field_mindist', 0.2)
-        nmax = self.config.get('field_nmax', 2000)
-        field_wl_idx = self.config.get('field_wavelength_idx', 'middle')
+        """Generate field mesh setup - AFTER greentab."""
+        use_substrate = self.config.get('use_substrate', False)
         
-        x_range = field_region.get('x_range', [-50, 50, 101])
-        y_range = field_region.get('y_range', [0, 0, 1])
-        z_range = field_region.get('z_range', [0, 0, 1])
-        
-        code = f"""
+        code = """
 %% Field Calculation Setup
 fprintf('\\nSetting up field calculation mesh...\\n');
 
+% Select wavelength for field calculation
 """
+    
+        field_wl_idx = self.config.get('field_wavelength_idx', 'middle')
         
         if field_wl_idx == 'middle':
             code += "field_wavelength_idx = round(n_wavelengths / 2);\n"
-        elif field_wl_idx == 'peak':
-            code += "field_wavelength_idx = -1;  % To be determined\n"
         elif isinstance(field_wl_idx, int):
             code += f"field_wavelength_idx = {field_wl_idx};\n"
         else:
             code += "field_wavelength_idx = round(n_wavelengths / 2);\n"
         
-        code += "\nfprintf('Field will be calculated at wavelength index: %d\\n', field_wavelength_idx);\n\n"
-        
-        if y_range[2] == 1:  # xz-plane
-            code += f"""x_field = linspace({x_range[0]}, {x_range[1]}, {x_range[2]});
+        code += """fprintf('Field calculation at wavelength index %d: λ = %.1f nm\\n', ...
+        field_wavelength_idx, enei(field_wavelength_idx));
+
+"""
+    
+        if use_substrate:
+            mindist = self.config.get('field_mindist', 0.5)
+            nmax = self.config.get('field_nmax', 2000)
+            
+            code += f"""% Substrate mode: meshfield with pre-computed greentab
+% Reshape grids back to original shape
+x_grid = reshape(x_grid, grid_shape);
+y_grid = reshape(y_grid, grid_shape);  
+z_grid = reshape(z_grid, grid_shape);
+
+% Create meshfield using op with greentab
+fprintf('  Creating meshfield...\\n');
+emesh = meshfield(p, x_grid, y_grid, z_grid, op, ...
+                  'mindist', {mindist}, 'nmax', {nmax});
+fprintf('  ✓ Meshfield ready with %d points\\n', emesh.pt.n);
+"""
+        else:
+            # Standard non-substrate field setup
+            field_region = self.config.get('field_region', {})
+            mindist = self.config.get('field_mindist', 0.2)
+            nmax = self.config.get('field_nmax', 2000)
+            x_range = field_region.get('x_range', [-50, 50, 101])
+            y_range = field_region.get('y_range', [0, 0, 1])
+            z_range = field_region.get('z_range', [0, 0, 1])
+            
+            if y_range[2] == 1:  # xz-plane
+                code += f"""% Create field grid: xz-plane
+x_field = linspace({x_range[0]}, {x_range[1]}, {x_range[2]});
 z_field = linspace({z_range[0]}, {z_range[1]}, {z_range[2]});
 [x_grid, z_grid] = meshgrid(x_field, z_field);
-y_grid = {y_range[0]} + 0 * x_grid;
-fprintf('Field mesh: xz-plane (y=%.1f), %dx%d points\\n', {y_range[0]}, length(x_field), length(z_field));
+y_grid = {y_range[0]} * ones(size(x_grid));
 """
-        elif z_range[2] == 1:  # xy-plane
-            code += f"""x_field = linspace({x_range[0]}, {x_range[1]}, {x_range[2]});
+            elif z_range[2] == 1:  # xy-plane
+                code += f"""% Create field grid: xy-plane
+x_field = linspace({x_range[0]}, {x_range[1]}, {x_range[2]});
 y_field = linspace({y_range[0]}, {y_range[1]}, {y_range[2]});
 [x_grid, y_grid] = meshgrid(x_field, y_field);
-z_grid = {z_range[0]} + 0 * x_grid;
-fprintf('Field mesh: xy-plane (z=%.1f), %dx%d points\\n', {z_range[0]}, length(x_field), length(y_field));
-"""
-        else:  # 3D volume
-            code += f"""x_field = linspace({x_range[0]}, {x_range[1]}, {x_range[2]});
-y_field = linspace({y_range[0]}, {y_range[1]}, {y_range[2]});
-z_field = linspace({z_range[0]}, {z_range[1]}, {z_range[2]});
-[x_grid, y_grid, z_grid] = meshgrid(x_field, y_field, z_field);
-fprintf('Field mesh: 3D volume, %dx%dx%d points\\n', length(x_field), length(y_field), length(z_field));
+z_grid = {z_range[0]} * ones(size(x_grid));
 """
         
-        code += f"""
-fprintf('Initializing meshfield object...\\n');
-emesh = meshfield(p, x_grid, y_grid, z_grid, op, 'mindist', {mindist}, 'nmax', {nmax});
-fprintf('  - Minimum distance: {mindist} nm\\n');
-fprintf('  - Total field points: %d\\n', numel(x_grid));
-
+            code += f"""
+% Create meshfield
+emesh = meshfield(p, x_grid, y_grid, z_grid, op, ...
+                  'mindist', {mindist}, 'nmax', {nmax});
+fprintf('  ✓ Meshfield created: %d points\\n', numel(x_grid));
+"""
+    
+        code += """
+% Initialize field data storage
 field_data = struct();
 """
-        
+    
         return code
     
     def _generate_field_calculation_in_loop(self):
-        """Generate field calculation code inside wavelength loop."""
+        """Generate field calculation - same for both substrate and non-substrate."""
         code = """
-            % Calculate fields at selected wavelength
-            if ien == field_wavelength_idx
-                fprintf('\\n  → Calculating fields at λ = %.1f nm...\\n', enei(ien));
-                field_calc_start = tic;
-                
-                e_induced = emesh(sig);
-                e_incoming = emesh(exc.field(emesh.pt, enei(ien)));
-                e_total = e_induced + e_incoming;
-                
-                e_intensity = dot(e_total, e_total, 3);
-                e0_intensity = dot(e_incoming, e_incoming, 3);
-                enhancement = sqrt(e_intensity ./ e0_intensity);
-                
-                field_data(ipol).polarization = pol(ipol, :);
-                field_data(ipol).wavelength = enei(ien);
-                field_data(ipol).e_total = e_total;
-                field_data(ipol).enhancement = enhancement;
-                field_data(ipol).intensity = e_intensity;
-                field_data(ipol).x_grid = x_grid;
-                field_data(ipol).y_grid = y_grid;
-                field_data(ipol).z_grid = z_grid;
-                
-                field_calc_time = toc(field_calc_start);
-                fprintf('  → Field calculation completed in %.2f seconds\\n', field_calc_time);
-            end
-"""
+                % Calculate fields at selected wavelength
+                if ien == field_wavelength_idx
+                    fprintf('\\n  → Calculating fields at λ = %.1f nm...\\n', enei(ien));
+                    field_calc_start = tic;
+                    
+                    e_induced = emesh(sig);
+                    e_incoming = emesh(exc.field(emesh.pt, enei(ien)));
+                    e_total = e_induced + e_incoming;
+                    
+                    e_intensity = dot(e_total, e_total, 3);
+                    e0_intensity = dot(e_incoming, e_incoming, 3);
+                    enhancement = sqrt(e_intensity ./ e0_intensity);
+                    
+                    field_data(ipol).polarization = pol(ipol, :);
+                    field_data(ipol).wavelength = enei(ien);
+                    field_data(ipol).e_total = e_total;
+                    field_data(ipol).enhancement = enhancement;
+                    field_data(ipol).intensity = e_intensity;
+                    field_data(ipol).x_grid = x_grid;
+                    field_data(ipol).y_grid = y_grid;
+                    field_data(ipol).z_grid = z_grid;
+                    
+                    field_calc_time = toc(field_calc_start);
+                    fprintf('  → Field calculation completed in %.2f seconds\\n', field_calc_time);
+                end
+    """
+        
         return code
     
     def _generate_save_results(self):
