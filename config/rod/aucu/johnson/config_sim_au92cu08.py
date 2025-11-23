@@ -12,24 +12,26 @@ args['waitbar'] = 1
 
 args['excitation_type'] = 'planewave'
 args['polarizations'] = [
-    [0, 0, 1],
+    [1, 0, 0],
     [0, 1, 0],
 ]
 args['propagation_dirs'] = [
-    [1, 0, 0],
-    [1, 0, 0],
+    [0, 0, 1],
+    [0, 0, 1],
 ]
-
-args['wavelength_range'] = [400, 800, 100]  # 400-800 nm, 100 points
+args['wavelength_range'] = [400, 800, 100]
 args['refine'] = 3
 args['relcutoff'] = 3
-args['calculate_cross_sections'] = True
 
+args['greentab_nz'] = 50
+args['greentab_scale'] = 5.0
+
+args['calculate_cross_sections'] = True
 args['calculate_fields'] = True
 args['field_region'] = {
-    'x_range': [-80, 80, 161],  # [min, max, num_points] in nm
-    'y_range': [0, 0, 1],       # xz-plane at y=0
-    'z_range': [-80, 80, 161]   # [min, max, num_points] in nm
+    'x_range': [-40, 40, 81],
+    'y_range': [0, 0, 1],
+    'z_range': [-4, 40, 51]
 }
 args['field_mindist'] = 0.5     # Minimum distance from particle surface (nm)
 args['field_nmax'] = 2000       # Work off calculation in portions (for large grids)
