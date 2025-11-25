@@ -6,7 +6,7 @@ args['structure_name'] = 'Au_vac/johnson_christy'
 
 args['structure'] = 'rod'
 args['diameter'] = 9.0  # nm
-args['height'] = 32  # nm (along z-axis)
+args['height'] = 33  # nm (along z-axis)
 args['rod_mesh'] = [15, 20, 20]   # [nphi, ntheta, nz]: circumference / caps / length
 args['materials'] = ['gold']
 args['medium'] = 'air'
