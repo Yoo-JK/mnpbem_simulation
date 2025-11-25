@@ -765,8 +765,13 @@ shell_height = {height};
 core_height = shell_height - 2 * shell_thickness;
 
 % Mesh: {n}
+% Create rod particles (initially standing along z-axis)
 p_core = trirod(core_diameter, core_height, {n}, 'triangles');
 p_shell = trirod(shell_diameter, shell_height, {n}, 'triangles');
+
+% Rotate 90 degrees to lie down along x-axis
+p_core = rot(p_core, 90, [0, 1, 0]);
+p_shell = rot(p_shell, 90, [0, 1, 0]);
 
 particles = {{p_core, p_shell}};
 """
