@@ -2,13 +2,13 @@ import os
 from pathlib import Path
 
 args = {}
-args['structure_name'] = 'Au99Cu01_vac/table'
+args['structure_name'] = 'Au90Cu10_vac/table'
 args['structure'] = 'core_shell_rod'
 args['core_diameter'] = 9  # nm
 args['shell_thickness'] = 2  # nm (total diameter = 25nm)
 args['height'] = 37  # nm (along z-axis)
 args['rod_mesh'] = [15, 20, 20]   # [nphi, ntheta, nz]: circumference / caps / length
-args['materials'] = ['Au100Cu0', 'Au99Cu01']  # [core, shell]
+args['materials'] = ['Au100Cu0', 'Au100Cu0']  # [core, shell]
 args['medium'] = 'air'
 args['refractive_index_paths'] = {
         'au100cu0': os.path.join(Path.home(), 'dataset/mnpbem/refrac/Au_100.00_Cu_0.00.txt'),
