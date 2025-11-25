@@ -17,6 +17,7 @@ conda activate mnpbem
 echo "Job started on $(date)"
 
 echo "---------- Start simulation: Au dimer 0.4 nm gap ----------"
+cd /u/yoojk20/workspace/mnpbem_simulation
 ./master.sh --str-conf ./config/dimer/au/str/r0.2/config_str_au_r0.2_g0.4.py --sim-conf ./config/dimer/au/sim/r0.2/config_sim_au_r0.2_g0.4.py --verbose
 
 echo "Job finished on $(date)"
