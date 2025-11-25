@@ -8,6 +8,7 @@ args['core_diameter'] = 9  # nm
 args['shell_thickness'] = 2  # nm (total diameter = 25nm)
 args['height'] = 37  # nm (along z-axis)
 args['rod_mesh'] = [15, 20, 20]   # [nphi, ntheta, nz]: circumference / caps / length
+args['materials'] = ['gold', 'Au96Cu04']  # [core, shell]
 args['mesh_density'] = 144
 args['medium'] = 'air'
 args['refractive_index_paths'] = {

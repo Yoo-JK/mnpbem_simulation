@@ -23,23 +23,7 @@ args['wavelength_range'] = [400, 800, 100]
 args['refine'] = 3
 args['relcutoff'] = 3
 
-args['greentab_nz'] = 50
-args['greentab_scale'] = 5.0
-
 args['calculate_cross_sections'] = True
-args['calculate_fields'] = True
-args['field_region'] = {
-    'x_range': [-40, 40, 81],
-    'y_range': [0, 0, 1],
-    'z_range': [-4, 40, 51]
-}
-args['field_mindist'] = 0.5
-args['field_nmax'] = 2000
-args['field_wavelength_idx'] = 'middle'
-args['export_field_arrays'] = False
-
-args['field_hotspot_count'] = 10
-args['field_hotspot_min_distance'] = 3
 
 args['output_dir'] = os.path.join(Path.home(), 'research/mnpbem/rod')
 args['output_formats'] = ['txt']
