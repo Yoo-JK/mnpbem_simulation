@@ -605,7 +605,7 @@ try
     ylabel('y (nm)', 'FontSize', 12, 'FontWeight', 'bold');
     zlabel('z (nm)', 'FontSize', 12, 'FontWeight', 'bold');
     title('YZ View (Side View)', 'FontSize', 14, 'FontWeight', 'bold');
-    view(0, 0);
+    view(90, 0);
     grid on;
     box on;
     
@@ -703,7 +703,7 @@ try
     xlabel('x (nm)', 'FontSize', 12, 'FontWeight', 'bold');
     zlabel('z (nm)', 'FontSize', 12, 'FontWeight', 'bold');
     title('ZX View (Front View)', 'FontSize', 14, 'FontWeight', 'bold');
-    view(90, 0);
+    view(0, 0);
     grid on;
     box on;
     
