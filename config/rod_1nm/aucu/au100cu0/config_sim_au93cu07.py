@@ -12,12 +12,12 @@ args['waitbar'] = 1
 
 args['excitation_type'] = 'planewave'
 args['polarizations'] = [
-    [0, 0, 1],
+    [1, 0, 0],
     [0, 1, 0],
 ]
 args['propagation_dirs'] = [
-    [1, 0, 0],
-    [1, 0, 0],
+    [0, 0, 1],
+    [0, 0, 1],
 ]
 
 args['wavelength_range'] = [400, 800, 100]  # 400-800 nm, 100 points
