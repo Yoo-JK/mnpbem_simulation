@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 
 args = {}
-args['structure_name'] = 'Au90Cu10_vac/johnson_christy'
+args['structure_name'] = 'AuAu_coreshell/johnson_christy'
 args['structure'] = 'core_shell_rod'
 args['core_diameter'] = 9  # nm
 args['shell_thickness'] = 2  # nm (total diameter = 25nm)
@@ -29,9 +29,9 @@ args['refractive_index_paths'] = {
 #     'silver': os.path.join(Path.home(), 'materials/silver_jc.dat')
 # }
 
-args['use_substrate'] = True
+args['use_substrate'] = False
 args['substrate'] = {
     'material': 'glass',  # or 'silicon', custom dict
-    'position': -6.51,  # z-coordinate of interface (nm)
+    'position': -6.511,  # z-coordinate of interface (nm)
 }
 

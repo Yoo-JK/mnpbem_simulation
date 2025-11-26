@@ -22,7 +22,7 @@ args['refractive_index_paths'] = {
 #     'silver': os.path.join(Path.home(), 'materials/silver_jc.dat')
 # }
 
-args['use_substrate'] = True
+args['use_substrate'] = False
 args['substrate'] = {
     'material': 'glass',  # or 'silicon', custom dict
     'position': -4.51,  # z-coordinate of interface (nm)
