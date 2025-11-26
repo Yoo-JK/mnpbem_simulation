@@ -134,7 +134,7 @@ args['relcutoff'] = 3
 args['calculate_cross_sections'] = True
 
 # Calculate electric field distribution
-args['calculate_fields'] = True
+args['calculate_fields'] = False
 
 # Field calculation region (only used if calculate_fields=True)
 args['field_region'] = {
@@ -166,19 +166,19 @@ args['field_hotspot_min_distance'] = 3  # Minimum distance between hotspots (gri
 # ============================================================================
 
 # Output directory for results
-args['output_dir'] = os.path.join(Path.home(), 'research/mnpbem/test')
+args['output_dir'] = os.path.join(Path.home(), 'research/mnpbem/dimer')
 
 # Data file save formats (for postprocessing)
 # Available: 'txt', 'csv', 'json'
 # Note: MATLAB always saves 'txt' and 'mat' formats automatically
-args['output_formats'] = ['txt', 'csv', 'json']
+args['output_formats'] = ['txt']
 
 # Generate plots
 args['save_plots'] = True
 
 # Plot formats
 # Available: 'png', 'pdf', 'eps', 'svg'
-args['plot_format'] = ['png', 'pdf']
+args['plot_format'] = ['png']
 
 # Plot DPI (resolution)
 args['plot_dpi'] = 300
