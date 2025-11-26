@@ -6,6 +6,7 @@ cd /home/yoojk20/workspace/mnpbem_simulation
 echo "***************************************** Au rod (Small and Big) with table refractive index *****************************************"
 ./master.sh --str-conf ./config/rod/au/au100cu0/config_str_au.py --sim-conf ./config/rod/au/au100cu0/config_sim_au.py --verbose
 ./master.sh --str-conf ./config/rod/au/au100cu0/config_str_auau.py --sim-conf ./config/rod/au/au100cu0/config_sim_auau.py --verbose
+./master.sh --str-conf ./config/rod/au/au100cu0/config_str_auau_cs.py --sim-conf ./config/rod/au/au100cu0/config_sim_auau_cs.py --verbose
 
 echo "***************************************** Au rod (Small and Big) with johnson refractive index *****************************************"
 #./master.sh --str-conf ./config/rod/au/johnson/config_str_au.py --sim-conf ./config/rod/au/johnson/config_sim_au.py --verbose
