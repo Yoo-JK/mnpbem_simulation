@@ -2,9 +2,12 @@ import os
 from pathlib import Path
 
 args = {}
+
+args['use_parallel'] = True
+args['num_workers'] = 4
 args['mnpbem_path'] = os.path.join(Path.home(), 'workspace/MNPBEM')
 
-args['simulation_name'] = 'table/Au97Cu03'
+args['simulation_name'] = 'table/contact/Au97Cu03'
 args['simulation_type'] = 'ret'
 args['interp'] = 'curv'
 

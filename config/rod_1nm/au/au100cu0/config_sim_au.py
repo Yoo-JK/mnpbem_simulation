@@ -3,8 +3,11 @@ from pathlib import Path
 
 args = {}
 
+args['use_parallel'] = True
+args['num_workers'] = 4
+
 args['mnpbem_path'] = os.path.join(Path.home(), 'workspace/MNPBEM')
-args['simulation_name'] = 'table/Au'
+args['simulation_name'] = 'table/1nm/Au'
 
 args['simulation_type'] = 'ret'
 args['interp'] = 'curv'

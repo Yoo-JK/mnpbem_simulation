@@ -3,8 +3,11 @@ from pathlib import Path
 
 args = {}
 
+args['use_parallel'] = True
+args['num_workers'] = 4
+
 args['mnpbem_path'] = os.path.join(Path.home(), 'workspace/MNPBEM')
-args['simulation_name'] = 'johnson/Au'
+args['simulation_name'] = 'johnson/contact/Au'
 
 args['simulation_type'] = 'ret'
 args['interp'] = 'curv'
