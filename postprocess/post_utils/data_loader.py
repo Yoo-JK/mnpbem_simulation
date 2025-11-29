@@ -15,7 +15,7 @@ class DataLoader:
     def __init__(self, config, verbose=False):
         self.config = config
         self.verbose = verbose
-        self.output_dir = config.get('output_dir', './results')
+        self.output_dir = os.path.join(config.get('output_dir'), config.get('simulation_name'))
     
     def load_simulation_results(self):
         """Load simulation results from MATLAB output."""
