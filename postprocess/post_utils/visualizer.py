@@ -9,7 +9,7 @@ class Visualizer:
     def __init__(self, config, verbose=False):
         self.config = config
         self.verbose = verbose
-        self.output_dir = config.get('output_dir', './results')
+        self.output_dir = os.path.join(config.get('output_dir'), config.get('simulation_name'))
         self.save_plots = config.get('save_plots', True)
         self.plot_format = config.get('plot_format', ['png', 'pdf'])
         self.dpi = config.get('plot_dpi', 300)
