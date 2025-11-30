@@ -1,11 +1,12 @@
 #!/bin/bash
-#SBATCH --job-name=mnpbem
+#SBATCH --job-name=auag04
 #SBATCH --account=yoojk20-ic
 #SBATCH --partition=IllinoisComputes
 #SBATCH --time=72:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=128
+#SBATCH --export=NONE
 
 module purge
 module load matlab/24.1
