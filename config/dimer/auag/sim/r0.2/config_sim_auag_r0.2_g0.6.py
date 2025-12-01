@@ -166,7 +166,7 @@ args['field_hotspot_min_distance'] = 3  # Minimum distance between hotspots (gri
 # ============================================================================
 
 # Output directory for results
-args['output_dir'] = os.path.join(Path.home(), 'research/mnpbem/test')
+args['output_dir'] = os.path.join(Path.home(), 'research/mnpbem/dimer')
 
 # Data file save formats (for postprocessing)
 # Available: 'txt', 'csv', 'json'
