@@ -17,7 +17,7 @@ args['use_parallel'] = True  # Set to False to disable parallel computing
 # args['num_workers'] = 'env'  # Recommended for Slurm clusters
 
 # Alternative: specify exact number
-args['num_workers'] = 56
+args['num_workers'] = 14
 
 # ============================================================================
 # MNPBEM TOOLBOX PATH (REQUIRED)

@@ -17,7 +17,7 @@ args['use_parallel'] = True  # Set to False to disable parallel computing
 # args['num_workers'] = 'env'  # Recommended for Slurm clusters
 
 # Alternative: specify exact number
-args['num_workers'] = 28
+args['num_workers'] = 7
 
 # ============================================================================
 # MNPBEM TOOLBOX PATH (REQUIRED)
@@ -134,7 +134,7 @@ args['relcutoff'] = 3
 args['calculate_cross_sections'] = True
 
 # Calculate electric field distribution
-args['calculate_fields'] = True
+args['calculate_fields'] = False
 
 # Field calculation region (only used if calculate_fields=True)
 args['field_region'] = {
