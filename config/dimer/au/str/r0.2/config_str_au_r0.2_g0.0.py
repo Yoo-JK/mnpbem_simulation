@@ -35,7 +35,7 @@ args['roundings'] = [0.2]  # [Au: round, Ag: medium, AgCl: sharp]
 args['mesh_density'] = 12
 
 # --- Dimer Configuration ---
-args['gap'] = 0.001  # 5nm gap for strong coupling
+args['gap'] = -0.1  # 5nm gap for strong coupling
 args['offset'] = [0, 0, 0]  # End-to-end (no offset)
 args['tilt_angle'] = 0  # 15° tilt
 args['tilt_axis'] = [1, 0, 0] 
