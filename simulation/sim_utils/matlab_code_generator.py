@@ -248,13 +248,53 @@ fprintf('=== Parallel Setup Complete ===\\n\\n');
         return code
     
     def _generate_parallel_cleanup(self):
-        """Generate parallel pool cleanup code."""
+        """Generate parallel pool cleanup code with forced termination."""
         code = """
 %% Parallel Computing Cleanup
 if exist('parallel_enabled', 'var') && parallel_enabled && ~isempty(gcp('nocreate'))
     fprintf('\\nCleaning up parallel pool...\\n');
-    delete(gcp('nocreate'));
-    fprintf('✓ Parallel pool closed\\n');
+    
+    try
+        pool = gcp('nocreate');
+        if ~isempty(pool)
+            % Get pool info
+            n_workers = pool.NumWorkers;
+            fprintf('  Shutting down %d workers...\\n', n_workers);
+            
+            % Delete the pool
+            delete(pool);
+            
+            % Wait for pool to fully terminate (with timeout)
+            fprintf('  Waiting for workers to terminate...\\n');
+            timeout = 15;  % 15 seconds timeout
+            start_time = tic;
+            
+            while ~isempty(gcp('nocreate')) && toc(start_time) < timeout
+                pause(0.5);
+                if mod(toc(start_time), 3) < 0.5  % Print every 3 seconds
+                    fprintf('    Still waiting... (%.1f seconds)\\n', toc(start_time));
+                end
+            end
+            
+            % Verify pool is gone
+            remaining_pool = gcp('nocreate');
+            if isempty(remaining_pool)
+                fprintf('✓ Parallel pool closed successfully\\n');
+            else
+                fprintf('⚠ Warning: Pool cleanup timeout after %.1f seconds\\n', toc(start_time));
+                fprintf('   Forcing exit (OS will terminate remaining workers)\\n');
+                % Force delete again
+                try
+                    delete(remaining_pool);
+                catch
+                    % Ignore errors
+                end
+            end
+        end
+    catch ME
+        fprintf('⚠ Warning during pool cleanup: %s\\n', ME.message);
+        fprintf('   Continuing with exit...\\n');
+    end
 end
 """
         return code
@@ -1394,12 +1434,12 @@ fprintf('================================================================\\n');
 fprintf('Cleaning up...\\n');
 
 """
-        
-        # Add parallel cleanup if parallel was enabled
-        if use_parallel:
-            code += self._generate_parallel_cleanup()
-        
-        code += """
+    
+    # Add parallel cleanup if parallel was enabled
+    if use_parallel:
+        code += self._generate_parallel_cleanup()
+    
+    code += """
 % Close all waitbars
 try
     multiWaitbar('CloseAll');
@@ -1416,13 +1456,22 @@ fprintf('  ✓ Closed all figures\\n');
 clear bem sig field_data meshfield;
 fprintf('  ✓ Cleared temporary variables\\n');
 
+% Close all file handles (CRITICAL!)
+fclose('all');
+fprintf('  ✓ Closed all file handles\\n');
+
 fprintf('================================================================\\n');
 fprintf('\\n');
 fprintf('=== MNPBEM Simulation Completed Successfully ===\\n');
 fprintf('\\n');
 
 %% Exit MATLAB
-quit force;
+fprintf('Preparing to exit MATLAB...\\n');
+pause(1);  % Brief pause to flush all output
+
+% Use exit instead of quit force for better reliability
+fprintf('Exiting now.\\n');
+exit;
 """
         return code
     
