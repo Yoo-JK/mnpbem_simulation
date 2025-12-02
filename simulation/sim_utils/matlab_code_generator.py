@@ -1434,10 +1434,42 @@ fprintf('================================================================\\n');
 fprintf('Cleaning up...\\n');
 
 """
-    
+
         # Add parallel cleanup if parallel was enabled
         if use_parallel:
-            code += self._generate_parallel_cleanup()
+            code += """
+%% Parallel Computing Cleanup
+if exist('parallel_enabled', 'var') && parallel_enabled && ~isempty(gcp('nocreate'))
+    fprintf('Cleaning up parallel pool...\\n');
+    
+    try
+        pool = gcp('nocreate');
+        if ~isempty(pool)
+            % Delete the pool with force
+            delete(pool);
+            
+            % Wait briefly for pool to terminate
+            pause(2);
+            
+            % Force-verify pool is gone
+            remaining_pool = gcp('nocreate');
+            if isempty(remaining_pool)
+                fprintf('✓ Parallel pool closed\\n');
+            else
+                fprintf('⚠ Forcing pool termination\\n');
+                try
+                    delete(gcp('nocreate'));
+                catch
+                    % Ignore errors on force delete
+                end
+            end
+        end
+    catch ME
+        fprintf('⚠ Pool cleanup warning: %s\\n', ME.message);
+    end
+end
+
+"""
         
         code += """
 % Close all waitbars
@@ -1452,26 +1484,43 @@ end
 close all;
 fprintf('  ✓ Closed all figures\\n');
 
-% Clear large variables to free memory
-clear bem sig field_data meshfield;
+% Clear large variables to free memory (CRITICAL for field data!)
+clear bem sig field_data meshfield e_induced e_incoming e_total enhancement;
 fprintf('  ✓ Cleared temporary variables\\n');
 
-% Close all file handles (CRITICAL!)
+% CRITICAL: Close all file handles AND force sync to disk
 fclose('all');
 fprintf('  ✓ Closed all file handles\\n');
+
+% Force MATLAB to flush all file buffers (CRITICAL for large files!)
+if exist('field_data.mat', 'file')
+    fprintf('  → Verifying field_data.mat was written...\\n');
+    file_info = dir('field_data.mat');
+    fprintf('    File size: %.2f MB\\n', file_info.bytes / 1024 / 1024);
+end
 
 fprintf('================================================================\\n');
 fprintf('\\n');
 fprintf('=== MNPBEM Simulation Completed Successfully ===\\n');
 fprintf('\\n');
 
-%% Exit MATLAB
+%% Force Exit MATLAB
 fprintf('Preparing to exit MATLAB...\\n');
-pause(1);  % Brief pause to flush all output
 
-% Use exit instead of quit force for better reliability
-fprintf('Exiting now.\\n');
-exit;
+% Longer pause to ensure all I/O operations complete (CRITICAL!)
+pause(3);
+
+% Try diary off first (in case it was on)
+try
+    diary off;
+catch
+end
+
+% Force exit with maximum priority
+fprintf('Exiting MATLAB now.\\n');
+
+% Use 'quit force' instead of 'exit' for better reliability with large files
+quit force;
 """
         return code
     
