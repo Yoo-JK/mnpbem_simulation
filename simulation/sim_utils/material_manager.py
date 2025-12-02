@@ -474,6 +474,25 @@ end
         """Inout for advanced dimer cube with multi-shell structure."""
         shell_layers = self.config.get('shell_layers', [])
         n_shells = len(shell_layers)
+        use_nonlocal = self.nonlocal_gen.is_needed()
+
+        if use_nonlocal and n_shells == 0:
+            # epstab: [medium(1), metal_drude(2), metal_nonlocal(3)]
+            # Particles: [P1-outer, P1-inner, P2-outer, P2-inner]
+            code = """inout = [
+    3, 1;  % P1-Outer: nonlocal(3) inside, medium(1) outside
+    2, 3;  % P1-Inner: drude(2) inside, nonlocal(3) outside
+    3, 1;  % P2-Outer: nonlocal(3) inside, medium(1) outside
+    2, 3   % P2-Inner: drude(2) inside, nonlocal(3) outside
+];"""
+            return code
+        
+        elif use_nonlocal and n_shells > 0:
+
+            raise NotImplementedError(
+                "Nonlocal with shell_layers is not yet implemented. "
+                "Use shell_layers=[] for nonlocal simulations."
+            )        
         
         inout_lines = []
         
@@ -578,15 +597,30 @@ end
 
 
         if callable(result):
-            return result()
+
+            if self.structure == 'advanced_dimer_cube':
+
+                return result(use_nonlocal=use_nonlocal)
+
+            else:
+
+                return result()
         else:
             return result
 
     
-    def _closed_advanced_dimer_cube(self):
+    def _closed_advanced_dimer_cube(self, use_nonlocal=False):
         """Closed surfaces for advanced dimer cube."""
         n_shells = len(self.config.get('shell_layers', []))
-        n_particles_total = 2 * (1 + n_shells)
+        n_particles_base = 2 * (1 + n_shells)
+
+        if use_nonlocal:
+            n_particles_total = n_particles_base * 2
+            if self.verbose:
+                print(f"  ✓ Advanced dimer with nonlocal: {n_particles_base} base → {n_particles_total} with covers")
+        else:
+            n_particles_total = n_particles_base
+
         closed_indices = list(range(1, n_particles_total + 1))
         return f"closed = [{', '.join(map(str, closed_indices))}];"
     
