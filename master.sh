@@ -293,7 +293,7 @@ except Exception as e:
     # Run MATLAB with dynamic MNPBEM path
     cd "$RUN_FOLDER"
     if [ "$VERBOSE" = true ]; then
-        matlab -nodisplay -nodesktop -r "addpath(genpath('$MNPBEM_PATH')); run('simulation_script.m'); quit" 2>&1 | tee "logs/matlab.log"
+        matlab -nodisplay -nodesktop -r "addpath(genpath('$MNPBEM_PATH')); run('simulation_script.m')" 2>&1 | tee "logs/matlab.log"
     else
         matlab -nodisplay -nodesktop -r "addpath(genpath('$MNPBEM_PATH')); run('simulation_script.m'); quit" > "logs/matlab.log" 2>&1
     fi
