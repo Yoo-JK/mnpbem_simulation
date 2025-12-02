@@ -488,9 +488,43 @@ fprintf('  Total particles after cover layers: %d\\n', length(particles));
         if structure == 'advanced_dimer_cube':
             shell_layers = self.config.get('shell_layers', [])
             if len(shell_layers) > 0:
-                raise NotImplementedError(
-                    "Nonlocal with shell_layers not implemented. Use shell_layers=[]"
-                )
+                core_size = self.config.get('core_size', 30)
+                materials = self.config.get('materials', [])
+                roundings = self.config.get('roundings', None)
+                if roundings is None:
+                    rounding = self.config.get('rounding', 0.25)
+                    roundings = [rounding] * len(materials)
+                mesh = self.config.get('mesh_density', 12)
+
+                code = f"""
+% Apply nonlocal cover layers to core-shell structure
+d_cover = {d};
+particles_with_cover = {{}};
+
+for i = 1:length(particles)
+    p_outer = particles{{i}};
+    verts = p_outer.verts;
+    current_size = max(verts(:,1)) - min(verts(:,1));
+    
+    layer_idx = mod(i-1, {len(materials)}) + 1;
+    roundings_array = {roundings};
+    rounding_val = roundings_array(layer_idx);
+    
+    size_inner = current_size - 2*d_cover;
+    p_inner = tricube({mesh}, size_inner, 'e', rounding_val);
+    
+    center_outer = mean(p_outer.verts, 1);
+    center_inner = mean(p_inner.verts, 1);
+    p_inner = shift(p_inner, center_outer - center_inner);
+    
+    particles_with_cover{{end+1}} = p_outer;
+    particles_with_cover{{end+1}} = p_inner;
+end
+
+particles = particles_with_cover;
+fprintf('  Total boundaries: %d\\n', length(particles));
+"""
+                return code
             
             # advanced_dimer_cube 파라미터 가져오기
             core_size = self.config.get('core_size', 30)
