@@ -1435,11 +1435,11 @@ fprintf('Cleaning up...\\n');
 
 """
     
-    # Add parallel cleanup if parallel was enabled
-    if use_parallel:
-        code += self._generate_parallel_cleanup()
-    
-    code += """
+        # Add parallel cleanup if parallel was enabled
+        if use_parallel:
+            code += self._generate_parallel_cleanup()
+        
+        code += """
 % Close all waitbars
 try
     multiWaitbar('CloseAll');

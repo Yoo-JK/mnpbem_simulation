@@ -483,8 +483,58 @@ fprintf('  Total particles after cover layers: %d\\n', length(particles));
     def _apply_coverlayer_cube(self):
         """Apply cover layer to cube structures."""
         d = self.nonlocal_gen.cover_thickness
+        structure = self.config.get('structure', '')
+
+        if structure == 'advanced_dimer_cube':
+            shell_layers = self.config.get('shell_layers', [])
+            if len(shell_layers) > 0:
+                raise NotImplementedError(
+                    "Nonlocal with shell_layers not implemented. Use shell_layers=[]"
+                )
+            
+            # advanced_dimer_cube 파라미터 가져오기
+            core_size = self.config.get('core_size', 30)
+            roundings = self.config.get('roundings', None)
+            if roundings is None:
+                rounding = self.config.get('rounding', 0.25)
+            else:
+                rounding = roundings[0]
+            mesh = self.config.get('mesh_density', 12)
+            
+            code = f"""
+% Apply nonlocal cover layers to advanced_dimer_cube
+d_cover = {d};
+particles_with_cover = {{}};
+
+fprintf('  Applying cover layers to advanced_dimer_cube...\\n');
+
+for i = 1:length(particles)
+    p_outer = particles{{i}};  % Original cube (outer boundary)
+    
+    % Create inner boundary (smaller cube)
+    size_inner = {core_size} - 2*d_cover;
+    p_inner = tricube({mesh}, size_inner, 'e', {rounding});
+    
+    % Align centers
+    center_outer = mean(p_outer.verts, 1);
+    center_inner = mean(p_inner.verts, 1);
+    p_inner = shift(p_inner, center_outer - center_inner);
+    
+    % Add: outer first, then inner
+    particles_with_cover{{end+1}} = p_outer;
+    particles_with_cover{{end+1}} = p_inner;
+    
+    fprintf('    ✓ Particle %d: cover layer %.3f nm\\n', i, d_cover);
+end
+
+particles = particles_with_cover;
+fprintf('  Total boundaries: %d\\n', length(particles));
+"""
+            return code        
         
-        code = f"""
+        else:
+
+            code = f"""
 % Apply nonlocal cover layers to cubes
 d_cover = {d};
 particles_with_cover = {{}};
@@ -512,7 +562,7 @@ end
 particles = particles_with_cover;
 fprintf('  Total particles after cover layers: %d\\n', length(particles));
 """
-        return code
+            return code
     
     def _apply_coverlayer_manual(self):
         """Generic cover layer application."""
