@@ -114,6 +114,22 @@ class FieldExporter:
         x_grid = field_data['x_grid']
         y_grid = field_data['y_grid']
         z_grid = field_data['z_grid']
+
+        if not isinstance(x_grid, np.ndarray):
+            # Single point - convert to array
+            x_grid = np.array([[x_grid]])
+            y_grid = np.array([[y_grid]])
+            z_grid = np.array([[z_grid]])
+        elif x_grid.ndim == 0:
+            # 0D array - convert to 2D
+            x_grid = np.array([[x_grid.item()]])
+            y_grid = np.array([[y_grid.item()]])
+            z_grid = np.array([[z_grid.item()]])
+        elif x_grid.ndim == 1:
+            # 1D array - convert to 2D
+            x_grid = x_grid.reshape(1, -1)
+            y_grid = y_grid.reshape(1, -1)
+            z_grid = z_grid.reshape(1, -1)
         
         grid_info = {
             'shape': list(x_grid.shape),
