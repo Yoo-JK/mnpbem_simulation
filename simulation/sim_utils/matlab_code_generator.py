@@ -1193,8 +1193,8 @@ else
 fprintf('\\nStarting wavelength loop (serial execution)...\\n\\n');
 """
     
-    # FIXED: Serial loop without polarization loop
-    code += """
+        # FIXED: Serial loop without polarization loop
+        code += """
     % Progress bar
     multiWaitbar('BEM Calculation', 0, 'Color', 'g', 'CanCancel', 'on');
     
@@ -1255,7 +1255,7 @@ fprintf('Average time per wavelength: %.2f seconds\\n', ...
 fprintf('================================================================\\n');
 """
         
-        return code    
+        return code
     
     def _generate_field_setup(self):
         """Generate field mesh setup - AFTER greentab."""
@@ -1385,32 +1385,32 @@ field_data = struct();
     def _generate_field_calculation_in_loop(self):
         """Generate field calculation - same for both substrate and non-substrate."""
         code = """
-                % Calculate fields at selected wavelength
-                if ien == field_wavelength_idx
-                    fprintf('\\n  → Calculating fields at λ = %.1f nm...\\n', enei(ien));
-                    field_calc_start = tic;
-                    
-                    e_induced = emesh(sig);
-                    e_incoming = emesh(exc.field(emesh.pt, enei(ien)));
-                    e_total = e_induced + e_incoming;
-                    
-                    e_intensity = dot(e_total, e_total, 3);
-                    e0_intensity = dot(e_incoming, e_incoming, 3);
-                    enhancement = sqrt(e_intensity ./ e0_intensity);
-                    
-                    field_data(ipol).polarization = pol(ipol, :);
-                    field_data(ipol).wavelength = enei(ien);
-                    field_data(ipol).e_total = e_total;
-                    field_data(ipol).enhancement = enhancement;
-                    field_data(ipol).intensity = e_intensity;
-                    field_data(ipol).x_grid = x_grid;
-                    field_data(ipol).y_grid = y_grid;
-                    field_data(ipol).z_grid = z_grid;
-                    
-                    field_calc_time = toc(field_calc_start);
-                    fprintf('  → Field calculation completed in %.2f seconds\\n', field_calc_time);
-                end
-    """
+        % Calculate fields at selected wavelength
+        if ien == field_wavelength_idx
+            fprintf('\\n  → Calculating fields at λ = %.1f nm...\\n', enei(ien));
+            field_calc_start = tic;
+            
+            e_induced = emesh(sig);
+            e_incoming = emesh(exc.field(emesh.pt, enei(ien)));
+            e_total = e_induced + e_incoming;
+            
+            e_intensity = dot(e_total, e_total, 3);
+            e0_intensity = dot(e_incoming, e_incoming, 3);
+            enhancement = sqrt(e_intensity ./ e0_intensity);
+            
+            field_data(ipol).polarization = pol(ipol, :);
+            field_data(ipol).wavelength = enei(ien);
+            field_data(ipol).e_total = e_total;
+            field_data(ipol).enhancement = enhancement;
+            field_data(ipol).intensity = e_intensity;
+            field_data(ipol).x_grid = x_grid;
+            field_data(ipol).y_grid = y_grid;
+            field_data(ipol).z_grid = z_grid;
+            
+            field_calc_time = toc(field_calc_start);
+            fprintf('  → Field calculation completed in %.2f seconds\\n', field_calc_time);
+        end
+"""
         
         return code
     
