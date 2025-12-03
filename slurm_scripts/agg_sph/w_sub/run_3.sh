@@ -1,11 +1,11 @@
 #!/bin/bash
-#SBATCH --job-name=3_agg
+#SBATCH --job-name=3_agg_s
 #SBATCH --account=yoojk20-ic
 #SBATCH --partition=IllinoisComputes
 #SBATCH --time=72:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=1
+#SBATCH --cpus-per-task=2
 #SBATCH --export=NONE
 
 module purge
