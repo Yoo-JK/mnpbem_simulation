@@ -1724,7 +1724,7 @@ for ichunk = 1:n_chunks
                 end
                 
                 % BEM calculation (cross sections only)
-                sig = bem \\\\ exc(p, enei(ien));
+                sig = bem \\ exc(p, enei(ien));
                 
                 % Store results
                 sca(ien, :) = exc.sca(sig);
@@ -1754,7 +1754,7 @@ for ichunk = 1:n_chunks
             
             try
                 % BEM calculation (cross sections only)
-                sig = bem \\\\ exc(p, enei(ien));
+                sig = bem \\ exc(p, enei(ien));
                 
                 % Store results
                 sca(ien, :) = exc.sca(sig);
@@ -1787,7 +1787,7 @@ for ichunk = 1:n_chunks
         
         try
             % BEM calculation (cross sections only)
-            sig = bem \\\\ exc(p, enei(ien));
+            sig = bem \\ exc(p, enei(ien));
             
             % Store results
             sca(ien, :) = exc.sca(sig);
@@ -1950,7 +1950,7 @@ field_calc_start = tic;
 
 % Recalculate sig at peak wavelength
 fprintf('  Computing BEM solution at peak wavelength...\\n');
-sig_peak = bem \\\\ exc(p, enei(field_wavelength_idx));
+sig_peak = bem \\ exc(p, enei(field_wavelength_idx));
 
 % Calculate fields for ALL polarizations
 for ipol = 1:n_polarizations
