@@ -82,11 +82,40 @@ class FieldExporter:
         }
         
         for i, field_data in enumerate(field_data_list):
-            # Downsample arrays
-            enhancement = field_data['enhancement'][::downsample, ::downsample]
-            x_grid = field_data['x_grid'][::downsample, ::downsample]
-            y_grid = field_data['y_grid'][::downsample, ::downsample]
-            z_grid = field_data['z_grid'][::downsample, ::downsample]
+            # ✅ FIX: Handle scalar data
+            enhancement = field_data['enhancement']
+            x_grid = field_data['x_grid']
+            y_grid = field_data['y_grid']
+            z_grid = field_data['z_grid']
+            
+            # Convert scalars to 2D arrays
+            if not isinstance(enhancement, np.ndarray):
+                enhancement = np.array([[enhancement]])
+            elif enhancement.ndim == 0:
+                enhancement = np.array([[enhancement.item()]])
+            elif enhancement.ndim == 1:
+                enhancement = enhancement.reshape(1, -1)
+            
+            if not isinstance(x_grid, np.ndarray):
+                x_grid = np.array([[x_grid]])
+                y_grid = np.array([[y_grid]])
+                z_grid = np.array([[z_grid]])
+            elif x_grid.ndim == 0:
+                x_grid = np.array([[x_grid.item()]])
+                y_grid = np.array([[y_grid.item()]])
+                z_grid = np.array([[z_grid.item()]])
+            elif x_grid.ndim == 1:
+                x_grid = x_grid.reshape(1, -1)
+                y_grid = y_grid.reshape(1, -1)
+                z_grid = z_grid.reshape(1, -1)
+            
+            # Downsample arrays (if large enough)
+            if enhancement.shape[0] > downsample and enhancement.shape[1] > downsample:
+                enhancement = enhancement[::downsample, ::downsample]
+                x_grid = x_grid[::downsample, ::downsample]
+                y_grid = y_grid[::downsample, ::downsample]
+                z_grid = z_grid[::downsample, ::downsample]
+            # else: keep as is (too small to downsample)
             
             field_dict = {
                 'polarization_index': i + 1,
@@ -114,6 +143,22 @@ class FieldExporter:
         x_grid = field_data['x_grid']
         y_grid = field_data['y_grid']
         z_grid = field_data['z_grid']
+
+        if not isinstance(x_grid, np.ndarray):
+            # Single point - convert to array
+            x_grid = np.array([[x_grid]])
+            y_grid = np.array([[y_grid]])
+            z_grid = np.array([[z_grid]])
+        elif x_grid.ndim == 0:
+            # 0D array - convert to 2D
+            x_grid = np.array([[x_grid.item()]])
+            y_grid = np.array([[y_grid.item()]])
+            z_grid = np.array([[z_grid.item()]])
+        elif x_grid.ndim == 1:
+            # 1D array - convert to 2D
+            x_grid = x_grid.reshape(1, -1)
+            y_grid = y_grid.reshape(1, -1)
+            z_grid = z_grid.reshape(1, -1)
         
         grid_info = {
             'shape': list(x_grid.shape),

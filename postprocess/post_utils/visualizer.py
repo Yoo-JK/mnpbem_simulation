@@ -258,6 +258,14 @@ class Visualizer:
         z_grid = field_data['z_grid']
         wavelength = field_data['wavelength']
         
+        # ✅ FIX: Handle scalar enhancement
+        if not isinstance(enhancement, np.ndarray):
+            enhancement = np.array([[enhancement]])
+        elif enhancement.ndim == 0:
+            enhancement = np.array([[enhancement.item()]])
+        elif enhancement.ndim == 1:
+            enhancement = enhancement.reshape(1, -1)
+        
         # Determine plane type
         plane_type, extent, x_label, y_label = self._determine_plane(x_grid, y_grid, z_grid)
         
@@ -316,7 +324,7 @@ class Visualizer:
         plt.close(fig)
         
         return saved_files
-    
+
     def _plot_field_intensity(self, field_data, polarization_idx):
         """Plot field intensity |E|²."""
         intensity = field_data['intensity']
@@ -324,6 +332,14 @@ class Visualizer:
         y_grid = field_data['y_grid']
         z_grid = field_data['z_grid']
         wavelength = field_data['wavelength']
+        
+        # ✅ FIX: Handle scalar intensity
+        if not isinstance(intensity, np.ndarray):
+            intensity = np.array([[intensity]])
+        elif intensity.ndim == 0:
+            intensity = np.array([[intensity.item()]])
+        elif intensity.ndim == 1:
+            intensity = intensity.reshape(1, -1)
         
         # Determine plane type
         plane_type, extent, x_label, y_label = self._determine_plane(x_grid, y_grid, z_grid)
@@ -470,6 +486,21 @@ class Visualizer:
     
     def _determine_plane(self, x_grid, y_grid, z_grid):
         """Determine which 2D plane is being plotted."""
+        if not isinstance(x_grid, np.ndarray):
+            x_grid = np.array([[x_grid]])
+            y_grid = np.array([[y_grid]])
+            z_grid = np.array([[z_grid]])
+        
+        if x_grid.ndim == 0:
+            x_grid = np.array([[x_grid.item()]])
+            y_grid = np.array([[y_grid.item()]])
+            z_grid = np.array([[z_grid.item()]])
+        
+        if x_grid.ndim == 1:
+            x_grid = x_grid.reshape(1, -1)
+            y_grid = y_grid.reshape(1, -1)
+            z_grid = z_grid.reshape(1, -1)
+        
         x_constant = len(np.unique(x_grid)) == 1
         y_constant = len(np.unique(y_grid)) == 1
         z_constant = len(np.unique(z_grid)) == 1
@@ -478,6 +509,13 @@ class Visualizer:
             plane_type = 'xz'
             x_min, x_max = x_grid.min(), x_grid.max()
             z_min, z_max = z_grid.min(), z_grid.max()
+            # ✅ FIX: Extend extent if single point
+            if x_min == x_max:
+                x_min -= 0.5
+                x_max += 0.5
+            if z_min == z_max:
+                z_min -= 0.5
+                z_max += 0.5
             extent = [x_min, x_max, z_min, z_max]
             x_label = 'x (nm)'
             y_label = 'z (nm)'
@@ -485,6 +523,13 @@ class Visualizer:
             plane_type = 'xy'
             x_min, x_max = x_grid.min(), x_grid.max()
             y_min, y_max = y_grid.min(), y_grid.max()
+            # ✅ FIX: Extend extent if single point
+            if x_min == x_max:
+                x_min -= 0.5
+                x_max += 0.5
+            if y_min == y_max:
+                y_min -= 0.5
+                y_max += 0.5
             extent = [x_min, x_max, y_min, y_max]
             x_label = 'x (nm)'
             y_label = 'y (nm)'
@@ -492,22 +537,44 @@ class Visualizer:
             plane_type = 'yz'
             y_min, y_max = y_grid.min(), y_grid.max()
             z_min, z_max = z_grid.min(), z_grid.max()
+            # ✅ FIX: Extend extent if single point
+            if y_min == y_max:
+                y_min -= 0.5
+                y_max += 0.5
+            if z_min == z_max:
+                z_min -= 0.5
+                z_max += 0.5
             extent = [y_min, y_max, z_min, z_max]
             x_label = 'y (nm)'
             y_label = 'z (nm)'
         else:
             plane_type = '3d'
-            extent = [x_grid.min(), x_grid.max(), y_grid.min(), y_grid.max()]
+            x_min, x_max = x_grid.min(), x_grid.max()
+            y_min, y_max = y_grid.min(), y_grid.max()
+            if x_min == x_max:
+                x_min -= 0.5
+                x_max += 0.5
+            if y_min == y_max:
+                y_min -= 0.5
+                y_max += 0.5
+            extent = [x_min, x_max, y_min, y_max]
             x_label = 'x (nm)'
             y_label = 'y (nm)'
         
         return plane_type, extent, x_label, y_label
-    
+
     def _is_2d_slice(self, field_data):
         """Check if field data is a 2D slice (for vector plots)."""
         x_grid = field_data['x_grid']
         y_grid = field_data['y_grid']
         z_grid = field_data['z_grid']
+        
+        # ✅ FIX: Handle scalars
+        if not isinstance(x_grid, np.ndarray):
+            return False  # Single point, not a slice
+        
+        if x_grid.ndim == 0:
+            return False  # Single point
         
         x_constant = len(np.unique(x_grid)) == 1
         y_constant = len(np.unique(y_grid)) == 1
@@ -528,3 +595,4 @@ class Visualizer:
                 print(f"  Saved: {filepath}")
         
         return saved_files
+
