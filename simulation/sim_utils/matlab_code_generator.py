@@ -1507,6 +1507,7 @@ fprintf('================================================================\\n');
         1. Safer parallel pool cleanup
         2. Longer pause before quit (5 seconds instead of 3)
         3. Force file sync
+        4. FIXED: Use 'exit' instead of invalid 'quit force'
         """
         use_parallel = self.config.get('use_parallel', False)
         
@@ -1569,12 +1570,12 @@ catch
     % Ignore if diary wasn't on
 end
 
-% Safe force exit
+% Safe exit
 fprintf('Exiting MATLAB now.\\n');
 fprintf('\\n');
 
-% Use 'quit force' for maximum reliability
-quit force;
+% FIXED: Use 'exit' instead of invalid 'quit force'
+exit;
 """
         return code
     
@@ -1609,12 +1610,20 @@ quit force;
                 self._closed_args = "1"
 
     def _generate_wavelength_loop_with_chunking(self):
-        """Wavelength loop with memory-efficient chunking."""
+        """
+        Wavelength loop with memory-efficient chunking AND field calculation support.
+        
+        Strategy: 
+        1. Calculate ALL cross sections first (no field in loop)
+        2. Find peak AFTER all chunks complete
+        3. Calculate field separately for peak wavelength
+        """
         
         wavelength_range = self.config['wavelength_range']
         chunk_size = self.config.get('wavelength_chunk_size', 20)
         use_parallel = self.config.get('use_parallel', False)
         excitation_type = self.config['excitation_type']
+        calculate_fields = self.config.get('calculate_fields', False)
         
         code = f"""
 %% Wavelength Loop with Chunking (Memory-Efficient!)
@@ -1671,7 +1680,7 @@ fprintf('  ✓ EELS excitation initialized\\n');
 total_start = tic;
 
 %% ========================================
-%% CHUNK LOOP (Sequential)
+%% CHUNK LOOP: Calculate cross sections ONLY (NO field calculation)
 %% ========================================
 for ichunk = 1:n_chunks
     % Calculate wavelength indices for this chunk
@@ -1700,7 +1709,6 @@ for ichunk = 1:n_chunks
 """
 
         if use_parallel:
-            # use_parallel=True: MATLAB if-else 전체 포함
             code += """    % Parallel/Serial processing within chunk
     if exist('parallel_enabled', 'var') && parallel_enabled
         fprintf('  Using parallel execution for this chunk\\n\\n');
@@ -1715,8 +1723,8 @@ for ichunk = 1:n_chunks
                             i_local, n_chunk, enei(ien));
                 end
                 
-                % BEM calculation
-                sig = bem \\ exc(p, enei(ien));
+                % BEM calculation (cross sections only)
+                sig = bem \\\\ exc(p, enei(ien));
                 
                 % Store results
                 sca(ien, :) = exc.sca(sig);
@@ -1745,8 +1753,8 @@ for ichunk = 1:n_chunks
             end
             
             try
-                % BEM calculation
-                sig = bem \\ exc(p, enei(ien));
+                % BEM calculation (cross sections only)
+                sig = bem \\\\ exc(p, enei(ien));
                 
                 % Store results
                 sca(ien, :) = exc.sca(sig);
@@ -1764,7 +1772,7 @@ for ichunk = 1:n_chunks
     end
 """
         else:
-            # use_parallel=False: MATLAB if-else 없이 serial만
+            # Serial only
             code += """    % Serial processing within chunk
     fprintf('  Using serial execution for this chunk\\n\\n');
     
@@ -1778,8 +1786,8 @@ for ichunk = 1:n_chunks
         end
         
         try
-            % BEM calculation
-            sig = bem \\ exc(p, enei(ien));
+            % BEM calculation (cross sections only)
+            sig = bem \\\\ exc(p, enei(ien));
             
             % Store results
             sca(ien, :) = exc.sca(sig);
@@ -1796,10 +1804,9 @@ for ichunk = 1:n_chunks
     end
 """
         
-        # 공통 코드 (chunk timing)
+        # Chunk timing
         code += """    
     chunk_time = toc(chunk_start);
-
     fprintf('\\n  ✓ Chunk %d completed in %.1f seconds (%.1f min)\\n', ...
             ichunk, chunk_time, chunk_time/60);
     fprintf('  Average: %.2f sec/wavelength\\n', chunk_time/n_chunk);
@@ -1808,14 +1815,171 @@ for ichunk = 1:n_chunks
     pause(1);
 end
 
-% Total timing
+% Total timing for cross sections
 total_time = toc(total_start);
+calculation_time = total_time;
 fprintf('\\n');
 fprintf('================================================================\\n');
 fprintf('ALL CHUNKS COMPLETED\\n');
 fprintf('Total time: %.1f seconds (%.1f minutes)\\n', total_time, total_time/60);
 fprintf('Average: %.2f seconds/wavelength\\n', total_time/n_wavelengths);
 fprintf('================================================================\\n');
+"""
+
+        # ✅ CRITICAL: Field calculation AFTER all chunks complete
+        if calculate_fields:
+            code += """
+%% ========================================
+%% FIELD CALCULATION (After all chunks complete)
+%% ========================================
+fprintf('\\n');
+fprintf('================================================================\\n');
+fprintf('           Field Calculation at Peak Wavelength                \\n');
+fprintf('================================================================\\n');
+"""
+            
+            # Determine peak wavelength
+            field_wl_idx = self.config.get('field_wavelength_idx', 'middle')
+            
+            if field_wl_idx == 'middle':
+                code += """
+% Use middle wavelength
+field_wavelength_idx = round(n_wavelengths / 2);
+fprintf('Using middle wavelength: λ = %.1f nm (index %d)\\n', ...
+        enei(field_wavelength_idx), field_wavelength_idx);
+"""
+            elif field_wl_idx == 'peak':
+                code += """
+% Find absorption peak wavelength
+fprintf('Finding absorption peak...\\n');
+abs_avg = mean(abs_cross, 2);
+[max_abs, field_wavelength_idx] = max(abs_avg);
+fprintf('  ✓ Peak absorption: %.2e nm² at λ = %.1f nm (index %d)\\n', ...
+        max_abs, enei(field_wavelength_idx), field_wavelength_idx);
+"""
+            elif field_wl_idx == 'peak_ext':
+                code += """
+% Find extinction peak wavelength
+fprintf('Finding extinction peak...\\n');
+ext_avg = mean(ext, 2);
+[max_ext, field_wavelength_idx] = max(ext_avg);
+fprintf('  ✓ Peak extinction: %.2e nm² at λ = %.1f nm (index %d)\\n', ...
+        max_ext, enei(field_wavelength_idx), field_wavelength_idx);
+"""
+            elif field_wl_idx == 'peak_sca':
+                code += """
+% Find scattering peak wavelength
+fprintf('Finding scattering peak...\\n');
+sca_avg = mean(sca, 2);
+[max_sca, field_wavelength_idx] = max(sca_avg);
+fprintf('  ✓ Peak scattering: %.2e nm² at λ = %.1f nm (index %d)\\n', ...
+        max_sca, enei(field_wavelength_idx), field_wavelength_idx);
+"""
+            elif isinstance(field_wl_idx, int):
+                code += f"""
+% Use specified wavelength index
+field_wavelength_idx = {field_wl_idx};
+fprintf('Using specified wavelength: λ = %.1f nm (index %d)\\n', ...
+        enei(field_wavelength_idx), field_wavelength_idx);
+"""
+            else:
+                code += """
+% Default: use middle wavelength
+field_wavelength_idx = round(n_wavelengths / 2);
+fprintf('Using middle wavelength: λ = %.1f nm (index %d)\\n', ...
+        enei(field_wavelength_idx), field_wavelength_idx);
+"""
+            
+            # Create field mesh
+            use_substrate = self.config.get('use_substrate', False)
+            
+            if use_substrate:
+                mindist = self.config.get('field_mindist', 0.5)
+                nmax = self.config.get('field_nmax', 2000)
+                code += f"""
+% Create meshfield (substrate mode with greentab)
+fprintf('\\nCreating meshfield for substrate...\\n');
+x_grid = reshape(x_grid, grid_shape);
+y_grid = reshape(y_grid, grid_shape);
+z_grid = reshape(z_grid, grid_shape);
+
+emesh = meshfield(p, x_grid, y_grid, z_grid, op, ...
+                  'mindist', {mindist}, 'nmax', {nmax});
+fprintf('  ✓ Meshfield ready: %d points\\n', emesh.pt.n);
+"""
+            else:
+                field_region = self.config.get('field_region', {})
+                mindist = self.config.get('field_mindist', 0.2)
+                nmax = self.config.get('field_nmax', 2000)
+                x_range = field_region.get('x_range', [-50, 50, 101])
+                y_range = field_region.get('y_range', [0, 0, 1])
+                z_range = field_region.get('z_range', [0, 0, 1])
+                
+                code += """
+% Create meshfield
+fprintf('\\nCreating field grid...\\n');
+"""
+                
+                if y_range[2] == 1:  # xz-plane
+                    code += f"""x_field = linspace({x_range[0]}, {x_range[1]}, {x_range[2]});
+z_field = linspace({z_range[0]}, {z_range[1]}, {z_range[2]});
+[x_grid, z_grid] = meshgrid(x_field, z_field);
+y_grid = {y_range[0]} * ones(size(x_grid));
+"""
+                elif z_range[2] == 1:  # xy-plane
+                    code += f"""x_field = linspace({x_range[0]}, {x_range[1]}, {x_range[2]});
+y_field = linspace({y_range[0]}, {y_range[1]}, {y_range[2]});
+[x_grid, y_grid] = meshgrid(x_field, y_field);
+z_grid = {z_range[0]} * ones(size(x_grid));
+"""
+                
+                code += f"""
+emesh = meshfield(p, x_grid, y_grid, z_grid, op, ...
+                  'mindist', {mindist}, 'nmax', {nmax});
+fprintf('  ✓ Meshfield created: %d points\\n', numel(x_grid));
+"""
+            
+            # Calculate fields at peak wavelength
+            code += """
+% Initialize field data storage
+field_data = struct();
+
+% Calculate fields at peak wavelength
+fprintf('\\nCalculating fields at λ = %.1f nm...\\n', enei(field_wavelength_idx));
+field_calc_start = tic;
+
+% Recalculate sig at peak wavelength
+fprintf('  Computing BEM solution at peak wavelength...\\n');
+sig_peak = bem \\\\ exc(p, enei(field_wavelength_idx));
+
+% Calculate fields for ALL polarizations
+for ipol = 1:n_polarizations
+    fprintf('  Processing polarization %d/%d...\\n', ipol, n_polarizations);
+    
+    e_induced = emesh(sig_peak);
+    e_incoming = emesh(exc.field(emesh.pt, enei(field_wavelength_idx)));
+    e_total = e_induced + e_incoming;
+    
+    e_intensity = dot(e_total, e_total, 3);
+    e0_intensity = dot(e_incoming, e_incoming, 3);
+    enhancement = sqrt(e_intensity ./ e0_intensity);
+    
+    field_data(ipol).polarization = pol(ipol, :);
+    field_data(ipol).wavelength = enei(field_wavelength_idx);
+    field_data(ipol).e_total = e_total;
+    field_data(ipol).enhancement = enhancement;
+    field_data(ipol).intensity = e_intensity;
+    field_data(ipol).x_grid = x_grid;
+    field_data(ipol).y_grid = y_grid;
+    field_data(ipol).z_grid = z_grid;
+end
+
+field_calc_time = toc(field_calc_start);
+fprintf('\\n✓ Field calculation completed in %.2f seconds\\n', field_calc_time);
+fprintf('================================================================\\n');
+
+% Update total calculation time
+calculation_time = calculation_time + field_calc_time;
 """
         
         return code
