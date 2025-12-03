@@ -1810,6 +1810,7 @@ end
 
 % Total timing
 total_time = toc(total_start);
+calculation_time = total_time;
 fprintf('\\n');
 fprintf('================================================================\\n');
 fprintf('ALL CHUNKS COMPLETED\\n');
