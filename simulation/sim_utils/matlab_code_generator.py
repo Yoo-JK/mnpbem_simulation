@@ -1582,7 +1582,9 @@ fprintf('  ✓ Closed all file handles\\n');
 if exist('field_data.mat', 'file')
     fprintf('  → Verifying field_data.mat...\\n');
     file_info = dir('field_data.mat');
-    fprintf('    File size: %.2f MB\\n', file_info.bytes / 1024 / 1024);
+    if ~isempty(file_info)
+        fprintf('    File size: %.2f MB\\n', file_info(1).bytes / 1024 / 1024);
+    end
 end
 
 fprintf('================================================================\\n');
