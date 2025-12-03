@@ -49,9 +49,19 @@ class MatlabCodeGenerator:
         
         # Excitation
         excitation = self._generate_excitation()
-        
-        # Wavelength loop (now with parallel support!)
-        wavelength_loop = self._generate_wavelength_loop()
+
+        # Wavelength loop (with chunking support!)
+        chunk_size = self.config.get('wavelength_chunk_size', None)
+        if chunk_size:
+            # Use memory-efficient chunking
+            wavelength_loop = self._generate_wavelength_loop_with_chunking()
+            if self.verbose:
+                print(f"✓ Using wavelength chunking: {chunk_size} wavelengths per chunk")
+        else:
+            # Use standard loop
+            wavelength_loop = self._generate_wavelength_loop()
+            if self.verbose:
+                print("✓ Using standard wavelength loop (no chunking)")
         
         # Save results
         save_results = self._generate_save_results()
@@ -1110,14 +1120,12 @@ fprintf('    - Polarizations: %d\\n', size(pol, 1));
 fprintf('    - Propagation directions: %d\\n', size(dir, 1));
 """
         elif excitation_type == 'dipole':
-            code += """% Dipole excitation
-pt = compoint(p, dip_pos, op);
+            code += """pt = compoint(p, dip_pos, op);
 exc = dipole(pt, dip_mom, op);
 fprintf('  ✓ Dipole excitation initialized\\n');
 """
         elif excitation_type == 'eels':
-            code += """% EELS excitation
-exc = eelsret(p, impact, beam_energy, 'width', beam_width, op);
+            code += """exc = eelsret(p, impact, beam_energy, 'width', beam_width, op);
 fprintf('  ✓ EELS excitation initialized\\n');
 """
     
@@ -1599,3 +1607,183 @@ quit force;
                 self._closed_args = material_code[start:end].strip()
             else:
                 self._closed_args = "1"
+
+    def _generate_wavelength_loop_with_chunking(self):
+        """Wavelength loop with memory-efficient chunking."""
+        
+        wavelength_range = self.config['wavelength_range']
+        chunk_size = self.config.get('wavelength_chunk_size', 20)
+        use_parallel = self.config.get('use_parallel', False)
+        excitation_type = self.config['excitation_type']
+        
+        code = f"""
+%% Wavelength Loop with Chunking (Memory-Efficient!)
+if ~exist('enei', 'var')
+    enei = linspace({wavelength_range[0]}, {wavelength_range[1]}, {wavelength_range[2]});
+end
+
+n_wavelengths = length(enei);
+n_polarizations = size(pol, 1);
+
+% Chunking setup
+chunk_size = {chunk_size};
+n_chunks = ceil(n_wavelengths / chunk_size);
+
+fprintf('\\n');
+fprintf('================================================================\\n');
+fprintf('     Starting BEM Calculation with Wavelength Chunking         \\n');
+fprintf('================================================================\\n');
+fprintf('Total wavelengths: %d\\n', n_wavelengths);
+fprintf('Chunk size: %d wavelengths\\n', chunk_size);
+fprintf('Number of chunks: %d\\n', n_chunks);
+fprintf('----------------------------------------------------------------\\n');
+
+% Initialize result arrays
+sca = zeros(n_wavelengths, n_polarizations);
+ext = zeros(n_wavelengths, n_polarizations);
+abs_cross = zeros(n_wavelengths, n_polarizations);
+"""
+
+        if use_parallel:
+            code += self._generate_parallel_setup()
+        
+        code += """
+%% Initialize Excitation (once, outside all loops!)
+fprintf('\\nInitializing excitation object...\\n');
+"""
+
+        if excitation_type == 'planewave':
+            code += """exc = planewave(pol, dir, op);
+fprintf('  ✓ Plane wave excitation initialized\\n');
+"""
+        elif excitation_type == 'dipole':
+            code += """pt = compoint(p, dip_pos, op);
+exc = dipole(pt, dip_mom, op);
+fprintf('  ✓ Dipole excitation initialized\\n');
+"""
+        elif excitation_type == 'eels':
+            code += """exc = eelsret(p, impact, beam_energy, 'width', beam_width, op);
+fprintf('  ✓ EELS excitation initialized\\n');
+"""
+        
+        code += """
+% Start overall timer
+total_start = tic;
+
+%% ========================================
+%% CHUNK LOOP (Sequential)
+%% ========================================
+for ichunk = 1:n_chunks
+    % Calculate wavelength indices for this chunk
+    idx_start = (ichunk-1) * chunk_size + 1;
+    idx_end = min(ichunk * chunk_size, n_wavelengths);
+    chunk_indices = idx_start:idx_end;
+    n_chunk = length(chunk_indices);
+    
+    fprintf('\\n');
+    fprintf('================================================================\\n');
+    fprintf('  Processing Chunk %d/%d: wavelengths %d-%d (%d points)\\n', ...
+            ichunk, n_chunks, idx_start, idx_end, n_chunk);
+    fprintf('  λ range: %.1f - %.1f nm\\n', ...
+            enei(idx_start), enei(idx_end));
+    fprintf('================================================================\\n');
+    
+    chunk_start = tic;
+    
+    % CRITICAL: Clear BEM solver between chunks!
+    if ichunk > 1
+        fprintf('  → Clearing BEM memory from previous chunk...\\n');
+        bem = clear(bem);
+        fprintf('  ✓ Memory cleared\\n');
+    end
+    
+"""
+
+        if use_parallel:
+            code += """    % Parallel processing within chunk
+    if exist('parallel_enabled', 'var') && parallel_enabled
+        fprintf('  Using parallel execution for this chunk\\n\\n');
+        
+        parfor i_local = 1:n_chunk
+            ien = chunk_indices(i_local);
+            
+            try
+                % Progress
+                if mod(i_local-1, max(1, floor(n_chunk/5))) == 0
+                    fprintf('    [Worker] λ %d/%d (%.1f nm)\\n', ...
+                            i_local, n_chunk, enei(ien));
+                end
+                
+                % BEM calculation
+                sig = bem \\ exc(p, enei(ien));
+                
+                % Store results
+                sca(ien, :) = exc.sca(sig);
+                ext(ien, :) = exc.ext(sig);
+                abs_cross(ien, :) = ext(ien, :) - sca(ien, :);
+                
+            catch ME
+                fprintf('    ERROR at λ %d (%.1f nm): %s\\n', ...
+                        ien, enei(ien), ME.message);
+                sca(ien, :) = zeros(1, n_polarizations);
+                ext(ien, :) = zeros(1, n_polarizations);
+                abs_cross(ien, :) = zeros(1, n_polarizations);
+            end
+        end
+        
+    else
+"""
+        else:
+            code += """    % Serial processing within chunk
+"""
+        
+        code += """        fprintf('  Using serial execution for this chunk\\n\\n');
+        
+        for i_local = 1:n_chunk
+            ien = chunk_indices(i_local);
+            
+            % Progress
+            if mod(i_local-1, max(1, floor(n_chunk/10))) == 0
+                fprintf('    Progress: %d/%d (λ = %.1f nm)\\n', ...
+                        i_local, n_chunk, enei(ien));
+            end
+            
+            try
+                % BEM calculation
+                sig = bem \\ exc(p, enei(ien));
+                
+                % Store results
+                sca(ien, :) = exc.sca(sig);
+                ext(ien, :) = exc.ext(sig);
+                abs_cross(ien, :) = ext(ien, :) - sca(ien, :);
+                
+            catch ME
+                fprintf('    ERROR at λ %d (%.1f nm): %s\\n', ...
+                        ien, enei(ien), ME.message);
+                sca(ien, :) = zeros(1, n_polarizations);
+                ext(ien, :) = zeros(1, n_polarizations);
+                abs_cross(ien, :) = zeros(1, n_polarizations);
+            end
+        end
+    end
+    
+    chunk_time = toc(chunk_start);
+    fprintf('\\n  ✓ Chunk %d completed in %.1f seconds (%.1f min)\\n', ...
+            ichunk, chunk_time, chunk_time/60);
+    fprintf('  Average: %.2f sec/wavelength\\n', chunk_time/n_chunk);
+    
+    % Force garbage collection between chunks
+    pause(1);
+end
+
+% Total timing
+total_time = toc(total_start);
+fprintf('\\n');
+fprintf('================================================================\\n');
+fprintf('ALL CHUNKS COMPLETED\\n');
+fprintf('Total time: %.1f seconds (%.1f minutes)\\n', total_time, total_time/60);
+fprintf('Average: %.2f seconds/wavelength\\n', total_time/n_wavelengths);
+fprintf('================================================================\\n');
+"""
+        
+        return code
