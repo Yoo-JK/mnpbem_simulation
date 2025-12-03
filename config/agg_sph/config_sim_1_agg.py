@@ -8,6 +8,7 @@ args = {}
 # ============================================================================
 args['use_parallel'] = False
 args['num_workers'] = 1  # Adjust: N=1-3: 8-16, N=4-5: 16-32, N=6-7: 32-64
+args['wavelength_chunk_size'] = 10
 
 # ============================================================================
 # PATHS
@@ -18,7 +19,7 @@ args['output_dir'] = os.path.join(Path.home(), 'research/mnpbem/sphere_cluster')
 # ============================================================================
 # SIMULATION SETTINGS
 # ============================================================================
-args['simulation_name'] = '5_agg'
+args['simulation_name'] = '1_agg'
 args['simulation_type'] = 'ret'  # 'ret' for 50nm spheres
 args['interp'] = 'curv'
 args['waitbar'] = 0
@@ -76,11 +77,11 @@ args['field_hotspot_min_distance'] = 3
 # ============================================================================
 # OUTPUT
 # ============================================================================
-args['output_formats'] = ['txt', 'csv', 'json']
+args['output_formats'] = ['txt']
 args['save_plots'] = True
-args['plot_format'] = ['png', 'pdf']
+args['plot_format'] = ['png']
 args['plot_dpi'] = 300
-args['spectrum_xaxis'] = 'wavelength'
+args['spectrum_xaxis'] = 'eV'
 
 # ============================================================================
 # ADVANCED
