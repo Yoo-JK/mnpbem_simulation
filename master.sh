@@ -292,12 +292,27 @@ except Exception as e:
     
     # Run MATLAB with dynamic MNPBEM path
     cd "$RUN_FOLDER"
+    
+    # Start MATLAB in background to avoid tee pipe issues
+    matlab -nodisplay -nodesktop -r "addpath(genpath('$MNPBEM_PATH')); run('simulation_script.m')" > "logs/matlab.log" 2>&1 &
+    MATLAB_PID=$!
+    
     if [ "$VERBOSE" = true ]; then
-        matlab -nodisplay -nodesktop -r "addpath(genpath('$MNPBEM_PATH')); run('simulation_script.m')" 2>&1 | tee "logs/matlab.log"
-    else
-        matlab -nodisplay -nodesktop -r "addpath(genpath('$MNPBEM_PATH')); run('simulation_script.m')" > "logs/matlab.log" 2>&1
+        # Verbose mode: Follow log file in real-time
+        print_msg "  Following MATLAB output (PID: $MATLAB_PID)..." "$BLUE"
+        echo ""
+        
+        # Use tail -f to follow log, will exit when MATLAB process ends
+        tail -f "logs/matlab.log" --pid=$MATLAB_PID 2>/dev/null || true
+        
+        echo ""
+        print_msg "  MATLAB process finished" "$BLUE"
     fi
+    
+    # Wait for MATLAB to complete
+    wait $MATLAB_PID
     MATLAB_EXIT_CODE=$?
+    
     cd - > /dev/null
     
     if [ $MATLAB_EXIT_CODE -ne 0 ]; then
