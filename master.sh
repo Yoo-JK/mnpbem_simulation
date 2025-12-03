@@ -295,7 +295,7 @@ except Exception as e:
     if [ "$VERBOSE" = true ]; then
         matlab -nodisplay -nodesktop -r "addpath(genpath('$MNPBEM_PATH')); run('simulation_script.m')" 2>&1 | tee "logs/matlab.log"
     else
-        matlab -nodisplay -nodesktop -r "addpath(genpath('$MNPBEM_PATH')); run('simulation_script.m'); quit" > "logs/matlab.log" 2>&1
+        matlab -nodisplay -nodesktop -r "addpath(genpath('$MNPBEM_PATH')); run('simulation_script.m')" > "logs/matlab.log" 2>&1
     fi
     MATLAB_EXIT_CODE=$?
     cd - > /dev/null
