@@ -40,6 +40,3 @@ args['substrate'] = {
 }
 
 # Custom refractive index (optional)
-args['refractive_index_paths'] = {
-        'gold': os.path.join(Path.home(), 'materials/gold_palik.dat')
-}
