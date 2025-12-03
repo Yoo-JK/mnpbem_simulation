@@ -1551,7 +1551,47 @@ field_data = struct();
                 e_intensity = dot(e_total, e_total, 2);
                 e0_intensity = dot(e_incoming, e_incoming, 2);
                 enhancement = sqrt(e_intensity ./ e0_intensity);
-
+                
+                % ✅ FIX: Handle meshfield point filtering (mindist option)
+                % meshfield removes points too close to particle surface
+                n_grid_points = numel(x_grid);
+                n_field_points = length(enhancement);
+                
+                if n_field_points < n_grid_points
+                    % Points were filtered - create full grid with NaN
+                    fprintf('    → Grid filtering: %d/%d points used (mindist=%.2f nm)\\n', ...
+                            n_field_points, n_grid_points, emesh.mindist);
+                    
+                    % Create NaN-filled arrays
+                    enhancement_full = nan(n_grid_points, 1);
+                    e_intensity_full = nan(n_grid_points, 1);
+                    
+                    % Fill valid points using meshfield indices
+                    if isfield(emesh, 'ind') && ~isempty(emesh.ind)
+                        enhancement_full(emesh.ind) = enhancement;
+                        e_intensity_full(emesh.ind) = e_intensity;
+                    else
+                        % Fallback: match by coordinates (slower but works)
+                        fprintf('    ⚠ Warning: emesh.ind not found, using coordinate matching\\n');
+                        x_flat = x_grid(:);
+                        y_flat = y_grid(:);
+                        z_flat = z_grid(:);
+                        for ii = 1:n_field_points
+                            % Find matching coordinates
+                            dx = abs(x_flat - emesh.pt.pos(ii,1));
+                            dy = abs(y_flat - emesh.pt.pos(ii,2));
+                            dz = abs(z_flat - emesh.pt.pos(ii,3));
+                            [~, idx] = min(dx + dy + dz);
+                            enhancement_full(idx) = enhancement(ii);
+                            e_intensity_full(idx) = e_intensity(ii);
+                        end
+                    end
+                    
+                    enhancement = enhancement_full;
+                    e_intensity = e_intensity_full;
+                end
+                
+                % Now safely reshape
                 enhancement = reshape(enhancement, grid_shape);
                 e_intensity = reshape(e_intensity, grid_shape);
                 
@@ -1566,7 +1606,11 @@ field_data = struct();
             end
             
             field_calc_time = toc(field_calc_start);
-            fprintf('  → Field calculation completed in %.2f seconds\\n', field_calc_time);
+            fprintf('\\n✓ Field calculation completed in %.2f seconds\\n', field_calc_time);
+            fprintf('================================================================\\n');
+            
+            % Update total calculation time
+            calculation_time = calculation_time + field_calc_time;
         end
 """
         
