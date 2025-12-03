@@ -1424,22 +1424,29 @@ field_data = struct();
             fprintf('\\n  → Calculating fields at λ = %.1f nm...\\n', enei(ien));
             field_calc_start = tic;
             
-            e_induced = emesh(sig);
-            e_incoming = emesh(exc.field(emesh.pt, enei(ien)));
-            e_total = e_induced + e_incoming;
-            
-            e_intensity = dot(e_total, e_total, 3);
-            e0_intensity = dot(e_incoming, e_incoming, 3);
-            enhancement = sqrt(e_intensity ./ e0_intensity);
-            
-            field_data(ipol).polarization = pol(ipol, :);
-            field_data(ipol).wavelength = enei(ien);
-            field_data(ipol).e_total = e_total;
-            field_data(ipol).enhancement = enhancement;
-            field_data(ipol).intensity = e_intensity;
-            field_data(ipol).x_grid = x_grid;
-            field_data(ipol).y_grid = y_grid;
-            field_data(ipol).z_grid = z_grid;
+            % ✅ CRITICAL FIX: Loop over each polarization separately
+            for ipol = 1:n_polarizations
+                % Create single-polarization excitation
+                exc_single = planewave(pol(ipol, :), dir(ipol, :), op);
+                
+                % Calculate fields
+                e_induced = emesh(sig);
+                e_incoming = emesh(exc_single.field(emesh.pt, enei(ien)));
+                e_total = e_induced + e_incoming;
+                
+                e_intensity = dot(e_total, e_total, 3);
+                e0_intensity = dot(e_incoming, e_incoming, 3);
+                enhancement = sqrt(e_intensity ./ e0_intensity);
+                
+                field_data(ipol).polarization = pol(ipol, :);
+                field_data(ipol).wavelength = enei(ien);
+                field_data(ipol).e_total = e_total;
+                field_data(ipol).enhancement = enhancement;
+                field_data(ipol).intensity = e_intensity;
+                field_data(ipol).x_grid = x_grid;
+                field_data(ipol).y_grid = y_grid;
+                field_data(ipol).z_grid = z_grid;
+            end
             
             field_calc_time = toc(field_calc_start);
             fprintf('  → Field calculation completed in %.2f seconds\\n', field_calc_time);
@@ -1996,7 +2003,7 @@ emesh = meshfield(p, x_grid, y_grid, z_grid, op, ...
 fprintf('  ✓ Meshfield created: %d points\\n', numel(x_grid));
 """
             
-            # Calculate fields at peak wavelength
+            # ✅ CRITICAL FIX: Calculate fields at peak wavelength
             code += """
 % Initialize field data storage
 field_data = struct();
@@ -2009,12 +2016,16 @@ field_calc_start = tic;
 fprintf('  Computing BEM solution at peak wavelength...\\n');
 sig_peak = bem \\ exc(p, enei(field_wavelength_idx));
 
-% Calculate fields for ALL polarizations
+% ✅ CRITICAL FIX: Calculate fields for each polarization separately
 for ipol = 1:n_polarizations
     fprintf('  Processing polarization %d/%d...\\n', ipol, n_polarizations);
     
+    % Create single-polarization excitation (CRITICAL!)
+    exc_single = planewave(pol(ipol, :), dir(ipol, :), op);
+    
+    % Calculate fields
     e_induced = emesh(sig_peak);
-    e_incoming = emesh(exc.field(emesh.pt, enei(field_wavelength_idx)));
+    e_incoming = emesh(exc_single.field(emesh.pt, enei(field_wavelength_idx)));
     e_total = e_induced + e_incoming;
     
     e_intensity = dot(e_total, e_total, 3);
