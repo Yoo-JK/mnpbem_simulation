@@ -248,9 +248,16 @@ fprintf('=== Parallel Setup Complete ===\\n\\n');
         return code
     
     def _generate_parallel_cleanup(self):
-        """Generate parallel pool cleanup code with forced termination."""
+        """
+        Generate safe parallel pool cleanup code.
+        
+        ✅ IMPROVEMENTS:
+        1. Longer timeout for worker termination (15 seconds)
+        2. Force kill if timeout
+        3. Better verification
+        """
         code = """
-%% Parallel Computing Cleanup
+%% Parallel Computing Cleanup (IMPROVED!)
 if exist('parallel_enabled', 'var') && parallel_enabled && ~isempty(gcp('nocreate'))
     fprintf('\\nCleaning up parallel pool...\\n');
     
@@ -264,36 +271,38 @@ if exist('parallel_enabled', 'var') && parallel_enabled && ~isempty(gcp('nocreat
             % Delete the pool
             delete(pool);
             
-            % Wait for pool to fully terminate (with timeout)
+            % IMPROVED: Wait with timeout for complete termination
             fprintf('  Waiting for workers to terminate...\\n');
-            timeout = 15;  % 15 seconds timeout
+            timeout = 15;  % 15 seconds timeout (increased from 2!)
             start_time = tic;
             
             while ~isempty(gcp('nocreate')) && toc(start_time) < timeout
                 pause(0.5);
-                if mod(toc(start_time), 3) < 0.5  % Print every 3 seconds
-                    fprintf('    Still waiting... (%.1f seconds)\\n', toc(start_time));
+                % Print status every 3 seconds
+                if mod(toc(start_time), 3) < 0.5
+                    fprintf('    Still waiting... (%.1f seconds elapsed)\\n', toc(start_time));
                 end
             end
             
-            % Verify pool is gone
+            % Verify pool is completely gone
             remaining_pool = gcp('nocreate');
             if isempty(remaining_pool)
-                fprintf('✓ Parallel pool closed successfully\\n');
+                fprintf('  ✓ Parallel pool closed successfully\\n');
             else
-                fprintf('⚠ Warning: Pool cleanup timeout after %.1f seconds\\n', toc(start_time));
-                fprintf('   Forcing exit (OS will terminate remaining workers)\\n');
-                % Force delete again
+                fprintf('  WARNING: Pool cleanup timeout after %.1f seconds\\n', timeout);
+                fprintf('     Some workers may still be running\\n');
+                fprintf('     MATLAB will force-terminate on exit\\n');
+                % Try force delete one more time
                 try
-                    delete(remaining_pool);
+                    delete(gcp('nocreate'));
                 catch
-                    % Ignore errors
+                    % Ignore errors - will be cleaned up on exit
                 end
             end
         end
     catch ME
-        fprintf('⚠ Warning during pool cleanup: %s\\n', ME.message);
-        fprintf('   Continuing with exit...\\n');
+        fprintf('  Warning during pool cleanup: %s\\n', ME.message);
+        fprintf('     Continuing with exit anyway...\\n');
     end
 end
 """
@@ -1036,9 +1045,18 @@ fprintf('Impact parameter: [%.2f, %.2f] nm\\n', impact(1), impact(2));
 fprintf('Beam energy: %.2e eV\\n', beam_energy);
 """
         return code
-    
+
     def _generate_wavelength_loop(self):
-        """Generate wavelength loop - use consistent wavelength array."""
+        """
+        Generate wavelength loop with proper parallel execution.
+        
+        CRITICAL FIXES (2024-12-03):
+        1. Excitation MUST be initialized OUTSIDE parfor loop
+        2. MNPBEM processes ALL polarizations at once (no polarization loop needed)
+        3. Improved error handling and pool cleanup
+        
+        Based on MNPBEM official example: Demo/planewave/ret/demospecret9.m
+        """
         wavelength_range = self.config['wavelength_range']
         calculate_fields = self.config.get('calculate_fields', False)
         excitation_type = self.config['excitation_type']
@@ -1078,154 +1096,158 @@ abs_cross = zeros(n_wavelengths, n_polarizations);
         if calculate_fields:
             code += self._generate_field_setup()
         
+        # CRITICAL FIX 1: Initialize excitation BEFORE the loop!
+        code += """
+%% Initialize Excitation Object (CRITICAL: Must be before parallel loop!)
+fprintf('\\nInitializing excitation object...\\n');
+"""
+    
+        if excitation_type == 'planewave':
+            code += """% Plane wave excitation (ALL polarizations at once)
+exc = planewave(pol, dir, op);
+fprintf('  ✓ Plane wave excitation initialized\\n');
+fprintf('    - Polarizations: %d\\n', size(pol, 1));
+fprintf('    - Propagation directions: %d\\n', size(dir, 1));
+"""
+        elif excitation_type == 'dipole':
+            code += """% Dipole excitation
+pt = compoint(p, dip_pos, op);
+exc = dipole(pt, dip_mom, op);
+fprintf('  ✓ Dipole excitation initialized\\n');
+"""
+        elif excitation_type == 'eels':
+            code += """% EELS excitation
+exc = eelsret(p, impact, beam_energy, 'width', beam_width, op);
+fprintf('  ✓ EELS excitation initialized\\n');
+"""
+    
         code += """
 % Start timer
 calculation_start = tic;
 
 """
-        
+    
         # Generate loop - parfor if parallel enabled, regular for otherwise
         if use_parallel:
-            code += """% Decide between parfor and for loop based on parallel_enabled flag
+            code += """% ========================================
+% PARALLEL EXECUTION (parfor loop)
+% ========================================
 if exist('parallel_enabled', 'var') && parallel_enabled
-    fprintf('\\nUsing PARALLEL execution (parfor loop)\\n\\n');
+    fprintf('\\n Using PARALLEL execution (parfor loop)\\n');
+    fprintf('    Progress updates may appear out of order\\n');
+    fprintf('    Each worker computes independently\\n\\n');
     
-    % PARALLEL LOOP with parfor
+    %% PARALLEL LOOP (FIXED!)
+    % - Excitation object (exc) is already initialized
+    % - MNPBEM processes ALL polarizations at once
+    % - No need for inner polarization loop
     parfor ien = 1:n_wavelengths
-        % Progress indicator (less frequent in parallel mode)
-        if mod(ien-1, max(1, floor(n_wavelengths/10))) == 0
-            fprintf('  Progress: wavelength %d/%d (λ = %.1f nm)\\n', ien, n_wavelengths, enei(ien));
-        end
-        
-        % Temporary arrays for this wavelength
-        sca_temp = zeros(1, n_polarizations);
-        ext_temp = zeros(1, n_polarizations);
-        abs_temp = zeros(1, n_polarizations);
-        
-        % Loop over polarizations
-        for ipol = 1:n_polarizations
-"""
+        try
+            % Progress indicator (less frequent for parallel)
+            if mod(ien-1, max(1, floor(n_wavelengths/10))) == 0
+                fprintf('  [Worker] Processing wavelength %d/%d (λ = %.1f nm)\\n', ...
+                        ien, n_wavelengths, enei(ien));
+            end
             
-            # Excitation code for parallel loop
-            if excitation_type == 'planewave':
-                code += """            % Plane wave excitation
-            exc = planewave(pol(ipol, :), dir(ipol, :), op);
-"""
-            elif excitation_type == 'dipole':
-                code += """            % Dipole excitation
-            pt = compoint(p, dip_pos, op);
-            dip = dipole(pt, dip_mom, op);
-            exc = dip;
-"""
-            elif excitation_type == 'eels':
-                code += """            % EELS excitation
-            exc = eelsret(p, impact, beam_energy, 'width', beam_width, op);
-"""
-            
-            code += """            
-            % Solve BEM equation
+            % FIXED: Just use pre-initialized exc object!
+            % MNPBEM automatically handles ALL polarizations in one call
             sig = bem \\ exc(p, enei(ien));
             
-            % Calculate cross sections
-            sca_temp(ipol) = exc.sca(sig);
-            ext_temp(ipol) = exc.ext(sig);
-            abs_temp(ipol) = ext_temp(ipol) - sca_temp(ipol);
+            % Extract cross sections (returns vector for all polarizations)
+            sca(ien, :) = exc.sca(sig);
+            ext(ien, :) = exc.ext(sig);
+            abs_cross(ien, :) = ext(ien, :) - sca(ien, :);
+            
+        catch ME
+            % Error handling: print error but continue with other wavelengths
+            fprintf('  ERROR at wavelength %d (%.1f nm): %s\\n', ...
+                    ien, enei(ien), ME.message);
+            % Leave zeros for this wavelength
+            sca(ien, :) = zeros(1, n_polarizations);
+            ext(ien, :) = zeros(1, n_polarizations);
+            abs_cross(ien, :) = zeros(1, n_polarizations);
         end
-        
-        % Store results
-        sca(ien, :) = sca_temp;
-        ext(ien, :) = ext_temp;
-        abs_cross(ien, :) = abs_temp;
     end
     
-else
-    fprintf('\\nUsing SERIAL execution (regular for loop)\\n\\n');
+    fprintf('\\n✓ Parallel computation completed\\n');
     
-    % SERIAL LOOP (fallback)
-    for ien = 1:n_wavelengths
+else
+    % ========================================
+    % SERIAL EXECUTION (for loop)
+    % ========================================
+    fprintf('\\n Using SERIAL execution (for loop)\\n\\n');
 """
         else:
-            code += """% SERIAL LOOP
-for ien = 1:n_wavelengths
+            # Serial execution only
+            code += """% ========================================
+% SERIAL EXECUTION (for loop)
+% ========================================
+fprintf('\\nStarting wavelength loop (serial execution)...\\n\\n');
 """
+    
+    # FIXED: Serial loop without polarization loop
+    code += """
+    % Progress bar
+    multiWaitbar('BEM Calculation', 0, 'Color', 'g', 'CanCancel', 'on');
+    
+    %% SERIAL LOOP (FIXED!)
+    for ien = 1:n_wavelengths
+        % Update progress bar
+        multiWaitbar('BEM Calculation', ien / n_wavelengths);
         
-        # Common serial loop body
-        code += """        progress_pct = (ien-1) / n_wavelengths * 100;
+        % Text progress indicator
+        if mod(ien-1, max(1, floor(n_wavelengths/20))) == 0
+            fprintf('  Progress: %d/%d (λ = %.1f nm, %.1f%%)\\n', ...
+                    ien, n_wavelengths, enei(ien), 100*ien/n_wavelengths);
+        end
         
-        bar_length = 40;
-        filled = floor(bar_length * (ien-1) / n_wavelengths);
-        bar = ['[' repmat('=', 1, filled) repmat('.', 1, bar_length - filled) ']'];
-        
-        fprintf('\\r%s %.1f%% | λ = %.1f nm', bar, progress_pct, enei(ien));
-        
-        % Loop over polarizations
-        for ipol = 1:n_polarizations
-"""
-        
-        # Excitation code for serial loop
-        if excitation_type == 'planewave':
-            code += """            % Plane wave excitation
-            exc = planewave(pol(ipol, :), dir(ipol, :), op);
-"""
-        elif excitation_type == 'dipole':
-            code += """            % Dipole excitation
-            pt = compoint(p, dip_pos, op);
-            dip = dipole(pt, dip_mom, op);
-            exc = dip;
-"""
-        elif excitation_type == 'eels':
-            code += """            % EELS excitation
-            exc = eelsret(p, impact, beam_energy, 'width', beam_width, op);
-"""
-        
-        code += """            
-            % Solve BEM equation
+        try
+            % FIXED: Use pre-initialized exc object
+            % MNPBEM handles ALL polarizations automatically
             sig = bem \\ exc(p, enei(ien));
             
-            % Calculate cross sections
-            sca(ien, ipol) = exc.sca(sig);
-            ext(ien, ipol) = exc.ext(sig);
-            abs_cross(ien, ipol) = ext(ien, ipol) - sca(ien, ipol);
+            % Extract cross sections (vector for all polarizations)
+            sca(ien, :) = exc.sca(sig);
+            ext(ien, :) = exc.ext(sig);
+            abs_cross(ien, :) = ext(ien, :) - sca(ien, :);
+            
+        catch ME
+            fprintf('  ⚠ ERROR at wavelength %d (%.1f nm): %s\\n', ...
+                    ien, enei(ien), ME.message);
+            sca(ien, :) = zeros(1, n_polarizations);
+            ext(ien, :) = zeros(1, n_polarizations);
+            abs_cross(ien, :) = zeros(1, n_polarizations);
+        end
 """
-        
+    
         if calculate_fields:
             code += self._generate_field_calculation_in_loop()
         
-        code += """        end
+        code += """    end
+    
+    % Close waitbar
+    multiWaitbar('CloseAll');
+    fprintf('\\n✓ Serial computation completed\\n');
 """
         
-        # Close loops
         if use_parallel:
-            code += """    end
-end
-"""
-        else:
-            code += """end
+            code += """end  % End of parallel/serial decision
 """
         
-        # Progress completion
-        if not use_parallel:
-            code += """
-% Complete progress bar
-fprintf('\\r[');
-fprintf(repmat('=', 1, 40));
-fprintf('] 100.0%%\\n');
-"""
-        else:
-            code += """
-fprintf('\\nAll wavelengths completed\\n');
-"""
-        
+        # Timing
         code += """
+% Calculation timing
 calculation_time = toc(calculation_start);
 fprintf('\\n');
 fprintf('================================================================\\n');
-fprintf('Calculation completed in %.2f seconds (%.2f minutes)\\n', calculation_time, calculation_time/60);
-fprintf('Average time per wavelength: %.2f seconds\\n', calculation_time/n_wavelengths);
+fprintf('Calculation completed in %.2f seconds (%.2f minutes)\\n', ...
+        calculation_time, calculation_time/60);
+fprintf('Average time per wavelength: %.2f seconds\\n', ...
+        calculation_time / n_wavelengths);
 fprintf('================================================================\\n');
 """
         
-        return code
+        return code    
     
     def _generate_field_setup(self):
         """Generate field mesh setup - AFTER greentab."""
@@ -1470,7 +1492,14 @@ fprintf('================================================================\\n');
         return code
     
     def _generate_footer(self):
-        """Generate script footer with proper cleanup and exit."""
+        """
+        Generate safe cleanup and exit code.
+        
+        IMPROVEMENTS:
+        1. Safer parallel pool cleanup
+        2. Longer pause before quit (5 seconds instead of 3)
+        3. Force file sync
+        """
         use_parallel = self.config.get('use_parallel', False)
         
         code = """
@@ -1483,39 +1512,7 @@ fprintf('Cleaning up...\\n');
 
         # Add parallel cleanup if parallel was enabled
         if use_parallel:
-            code += """
-%% Parallel Computing Cleanup
-if exist('parallel_enabled', 'var') && parallel_enabled && ~isempty(gcp('nocreate'))
-    fprintf('Cleaning up parallel pool...\\n');
-    
-    try
-        pool = gcp('nocreate');
-        if ~isempty(pool)
-            % Delete the pool with force
-            delete(pool);
-            
-            % Wait briefly for pool to terminate
-            pause(2);
-            
-            % Force-verify pool is gone
-            remaining_pool = gcp('nocreate');
-            if isempty(remaining_pool)
-                fprintf('✓ Parallel pool closed\\n');
-            else
-                fprintf('⚠ Forcing pool termination\\n');
-                try
-                    delete(gcp('nocreate'));
-                catch
-                    % Ignore errors on force delete
-                end
-            end
-        end
-    catch ME
-        fprintf('⚠ Pool cleanup warning: %s\\n', ME.message);
-    end
-end
-
-"""
+            code += self._generate_parallel_cleanup()
         
         code += """
 % Close all waitbars
@@ -1530,7 +1527,7 @@ end
 close all;
 fprintf('  ✓ Closed all figures\\n');
 
-% Clear large variables to free memory (CRITICAL for field data!)
+% Clear large variables to free memory
 clear bem sig field_data meshfield e_induced e_incoming e_total enhancement;
 fprintf('  ✓ Cleared temporary variables\\n');
 
@@ -1538,9 +1535,9 @@ fprintf('  ✓ Cleared temporary variables\\n');
 fclose('all');
 fprintf('  ✓ Closed all file handles\\n');
 
-% Force MATLAB to flush all file buffers (CRITICAL for large files!)
+% Verify important files were written
 if exist('field_data.mat', 'file')
-    fprintf('  → Verifying field_data.mat was written...\\n');
+    fprintf('  → Verifying field_data.mat...\\n');
     file_info = dir('field_data.mat');
     fprintf('    File size: %.2f MB\\n', file_info.bytes / 1024 / 1024);
 end
@@ -1550,22 +1547,25 @@ fprintf('\\n');
 fprintf('=== MNPBEM Simulation Completed Successfully ===\\n');
 fprintf('\\n');
 
-%% Force Exit MATLAB
+%% Safe Exit Sequence
 fprintf('Preparing to exit MATLAB...\\n');
 
-% Longer pause to ensure all I/O operations complete (CRITICAL!)
-pause(3);
+% IMPROVED: Longer pause for I/O completion (5 seconds instead of 3)
+fprintf('  Waiting for all I/O operations to complete...\\n');
+pause(5);
 
-% Try diary off first (in case it was on)
+% Turn off diary if it was on
 try
     diary off;
 catch
+    % Ignore if diary wasn't on
 end
 
-% Force exit with maximum priority
+% Safe force exit
 fprintf('Exiting MATLAB now.\\n');
+fprintf('\\n');
 
-% Use 'quit force' instead of 'exit' for better reliability with large files
+% Use 'quit force' for maximum reliability
 quit force;
 """
         return code
