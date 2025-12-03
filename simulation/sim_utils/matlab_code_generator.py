@@ -22,7 +22,7 @@ class MatlabCodeGenerator:
         """Generate complete MATLAB simulation script."""
 
         self._extract_closed_args(material_code)
-        
+        
         # Header
         header = self._generate_header()
         
@@ -812,7 +812,7 @@ fprintf('✓ Nonlocal setup validated\\n');
         return code
 
     def _generate_substrate_greentab(self):
-        """Generate Green function tabulation with comprehensive fixes."""
+        """Generate Green function tabulation with field point coverage."""
         use_substrate = self.config.get('use_substrate', False)
         sim_type = self.config['simulation_type']
         
@@ -841,8 +841,8 @@ enei = linspace({wl_min}, {wl_max}, {wl_num});
 fprintf('Simulation wavelengths: %.1f to %.1f nm (%d points)\\n', ...
         min(enei), max(enei), length(enei));
 """
-    
-        # Field points setup if needed (저장만 하고 tabulation에는 사용 안 함)
+
+        # ✅ FIX: Field points를 tabulation에 포함!
         if calculate_fields:
             field_region = self.config.get('field_region', {})
             x_range = field_region.get('x_range', [-50, 50, 101])
@@ -850,8 +850,8 @@ fprintf('Simulation wavelengths: %.1f to %.1f nm (%d points)\\n', ...
             z_range = field_region.get('z_range', [0, 0, 1])
             
             code += """
-% Set up field points (will be used later for meshfield, NOT for tabulation)
-fprintf('\\nPreparing field mesh coordinates...\\n');
+% Set up field points for Green function tabulation
+fprintf('\\nPreparing field mesh for tabulation...\\n');
 """
         
             if y_range[2] == 1:  # xz-plane
@@ -870,20 +870,22 @@ z_grid = {z_range[0]} * ones(size(x_grid));
             code += """
 % Store grid shape for later use
 grid_shape = size(x_grid);
-fprintf('Field grid prepared: %dx%d points\\n', grid_shape(1), grid_shape(2));
-"""
-    
-        # Green function table 생성 - PARTICLE만 사용!
-        code += """
-% Check if existing greentab is compatible (particle only)
-if ~exist('greentab', 'var') || ~greentab.ismember(layer, enei, p)
+fprintf('Field grid: %dx%d points\\n', grid_shape(1), grid_shape(2));
+
+% Create compoint object for field mesh (CRITICAL for tabulation!)
+fprintf('  Creating compoint for field mesh...\\n');
+pt_field = compoint(p, [x_grid(:), y_grid(:), z_grid(:)], op);
+fprintf('  → Field points: %d\\n', pt_field.n);
+
+% Check compatibility: particle + field points
+if ~exist('greentab', 'var') || ~greentab.ismember(layer, enei, {p, pt_field})
     fprintf('Creating new Green function table...\\n');
     
-    % Create tabulation grid for particle ONLY
-    fprintf('  Creating tabulation grid (particle only)...\\n');
+    % CRITICAL FIX: Include BOTH particle and field points in tabulation!
+    fprintf('  Creating tabulation grid (particle + field points)...\\n');
 """
-    
-        code += f"""    tab = tabspace(layer, p, 'nz', {nz}, 'scale', {scale});
+        
+            code += f"""    tab = tabspace(layer, {{p, pt_field}}, 'nz', {nz}, 'scale', {scale});
     
     % Initialize Green function table
     fprintf('  Initializing compgreentablayer...\\n');
@@ -901,12 +903,44 @@ if ~exist('greentab', 'var') || ~greentab.ismember(layer, enei, p)
 else
     fprintf('✓ Using existing compatible Green function table\\n');
 end
+"""
+        else:
+            # No field calculation: particle only (original behavior)
+            code += """
+% No field calculation: tabulate for particle only
+if ~exist('greentab', 'var') || ~greentab.ismember(layer, enei, p)
+    fprintf('Creating new Green function table...\\n');
+    
+    % Create tabulation grid for particle ONLY
+    fprintf('  Creating tabulation grid (particle only)...\\n');
+"""
 
+            code += f"""    tab = tabspace(layer, p, 'nz', {nz}, 'scale', {scale});
+    
+    % Initialize Green function table
+    fprintf('  Initializing compgreentablayer...\\n');
+    greentab = compgreentablayer(layer, tab);
+    
+    % Precompute for actual simulation wavelengths
+    fprintf('  Precomputing Green functions for %d wavelengths...\\n', length(enei));
+    fprintf('  This may take several minutes...\\n');
+    
+    tic_start = tic;
+    greentab = set(greentab, enei, op);
+    time_elapsed = toc(tic_start);
+    
+    fprintf('  ✓ Green function table ready (%.1f seconds)\\n', time_elapsed);
+else
+    fprintf('✓ Using existing compatible Green function table\\n');
+end
+"""
+
+        code += """
 % Add to options
 op.greentab = greentab;
 fprintf('✓ Green function table added to BEM options\\n\\n');
 """
-    
+
         return code
     
     def _generate_bem_solver(self):
