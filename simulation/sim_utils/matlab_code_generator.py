@@ -1417,25 +1417,44 @@ field_data = struct();
         return code
     
     def _generate_field_calculation_in_loop(self):
-        """Generate field calculation - same for both substrate and non-substrate."""
+        """Generate field calculation - fixed dimension handling."""
         code = """
         % Calculate fields at selected wavelength
         if ien == field_wavelength_idx
             fprintf('\\n  → Calculating fields at λ = %.1f nm...\\n', enei(ien));
             field_calc_start = tic;
             
-            % ✅ CRITICAL FIX: Loop over each polarization separately
+            % ✅ FIX: Calculate induced field ONCE (for all polarizations)
+            fprintf('  Computing induced fields...\\n');
+            e_induced_all = emesh(sig);
+            
+            % ✅ FIX: Loop over each polarization separately
             for ipol = 1:n_polarizations
+                fprintf('    Processing polarization %d/%d...\\n', ipol, n_polarizations);
+                
                 % Create single-polarization excitation
                 exc_single = planewave(pol(ipol, :), dir(ipol, :), op);
                 
-                % Calculate fields
-                e_induced = emesh(sig);
+                % Extract induced field for this polarization
+                if n_polarizations > 1
+                    e_induced = e_induced_all(:, :, ipol);
+                else
+                    e_induced = e_induced_all;
+                end
+                
+                % Calculate incoming field for this polarization
                 e_incoming = emesh(exc_single.field(emesh.pt, enei(ien)));
+                
+                % Ensure 2D arrays for addition
+                if ndims(e_incoming) == 3
+                    e_incoming = squeeze(e_incoming);
+                end
+                
+                % Total field
                 e_total = e_induced + e_incoming;
                 
-                e_intensity = dot(e_total, e_total, 3);
-                e0_intensity = dot(e_incoming, e_incoming, 3);
+                e_intensity = dot(e_total, e_total, 2);
+                e0_intensity = dot(e_incoming, e_incoming, 2);
                 enhancement = sqrt(e_intensity ./ e0_intensity);
                 
                 field_data(ipol).polarization = pol(ipol, :);
@@ -2016,20 +2035,37 @@ field_calc_start = tic;
 fprintf('  Computing BEM solution at peak wavelength...\\n');
 sig_peak = bem \\ exc(p, enei(field_wavelength_idx));
 
-% ✅ CRITICAL FIX: Calculate fields for each polarization separately
+% ✅ FIX: Calculate induced field ONCE (for all polarizations)
+fprintf('  Computing induced fields...\\n');
+e_induced_all = emesh(sig_peak);
+
+% ✅ FIX: Calculate fields for each polarization separately
 for ipol = 1:n_polarizations
     fprintf('  Processing polarization %d/%d...\\n', ipol, n_polarizations);
     
-    % Create single-polarization excitation (CRITICAL!)
+    % Create single-polarization excitation
     exc_single = planewave(pol(ipol, :), dir(ipol, :), op);
     
-    % Calculate fields
-    e_induced = emesh(sig_peak);
+    % Extract induced field for this polarization
+    if n_polarizations > 1
+        e_induced = e_induced_all(:, :, ipol);
+    else
+        e_induced = e_induced_all;
+    end
+    
+    % Calculate incoming field for this polarization
     e_incoming = emesh(exc_single.field(emesh.pt, enei(field_wavelength_idx)));
+    
+    % Ensure 2D arrays for addition
+    if ndims(e_incoming) == 3
+        e_incoming = squeeze(e_incoming);
+    end
+    
+    % Total field
     e_total = e_induced + e_incoming;
     
-    e_intensity = dot(e_total, e_total, 3);
-    e0_intensity = dot(e_incoming, e_incoming, 3);
+    e_intensity = dot(e_total, e_total, 2);
+    e0_intensity = dot(e_incoming, e_incoming, 2);
     enhancement = sqrt(e_intensity ./ e0_intensity);
     
     field_data(ipol).polarization = pol(ipol, :);
