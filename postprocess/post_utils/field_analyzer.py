@@ -69,6 +69,12 @@ class FieldAnalyzer:
     
     def _calculate_statistics(self, data):
         """Calculate statistical measures of field data."""
+        if not isinstance(data, np.ndarray):
+            data = np.array([data])
+
+        if data.ndim == 0:
+            data = np.array([data.item()])
+        
         data_flat = data.flatten()
         data_flat = data_flat[np.isfinite(data_flat)]  # Remove inf/nan
         
@@ -101,24 +107,21 @@ class FieldAnalyzer:
                        num_hotspots=10, min_distance=3):
         """
         Find local maximum enhancement hotspots.
-        
-        Parameters
-        ----------
-        enhancement : ndarray
-            Enhancement field data
-        x_grid, y_grid, z_grid : ndarray
-            Coordinate grids
-        num_hotspots : int
-            Maximum number of hotspots to return
-        min_distance : int
-            Minimum distance between hotspots (in grid points)
-            
-        Returns
-        -------
-        list
-            List of hotspot dictionaries with position and value
         """
-        # Find local maxima using maximum filter
+        if not isinstance(enhancement, np.ndarray):
+            enhancement = np.array([enhancement])
+        
+        if enhancement.ndim == 0:
+            enhancement = np.array([enhancement.item()])
+        
+        if enhancement.size == 1:
+            hotspot = {
+                'rank': 1,
+                'position': [float(x_grid), float(y_grid), float(z_grid)],
+                'enhancement': float(enhancement.item()),
+                'intensity_enhancement': float(enhancement.item()**2)
+            }
+            return [hotspot]
 
         if np.iscomplexobj(enhancement):
             enhancement = np.abs(enhancement)
@@ -173,6 +176,23 @@ class FieldAnalyzer:
         
         Returns volume/area above various enhancement thresholds.
         """
+        if not isinstance(enhancement, np.ndarray):
+            enhancement = np.array([enhancement])
+        
+        if enhancement.ndim == 0:
+            enhancement = np.array([enhancement.item()])
+        
+        if not isinstance(x_grid, np.ndarray):
+            x_grid = np.array([x_grid])
+            y_grid = np.array([y_grid])
+            z_grid = np.array([z_grid])
+        
+        if enhancement.ndim == 1:
+            enhancement = enhancement.reshape(1, 1)
+            x_grid = x_grid.reshape(1, 1) if x_grid.ndim == 1 else x_grid
+            y_grid = y_grid.reshape(1, 1) if y_grid.ndim == 1 else y_grid
+            z_grid = z_grid.reshape(1, 1) if z_grid.ndim == 1 else z_grid
+
         # Calculate grid spacing (assuming uniform)
         if enhancement.ndim == 2:
             dx = np.abs(x_grid[0, 1] - x_grid[0, 0]) if x_grid.shape[1] > 1 else 1.0
@@ -180,7 +200,7 @@ class FieldAnalyzer:
             dz = 0
             element_area = dx * dy if dx > 0 and dy > 0 else 1.0
             is_3d = False
-        else:
+        else:  # 3D
             dx = np.abs(x_grid[0, 0, 1] - x_grid[0, 0, 0]) if x_grid.shape[2] > 1 else 1.0
             dy = np.abs(y_grid[0, 1, 0] - y_grid[0, 0, 0]) if y_grid.shape[1] > 1 else 1.0
             dz = np.abs(z_grid[1, 0, 0] - z_grid[0, 0, 0]) if z_grid.shape[0] > 1 else 1.0
