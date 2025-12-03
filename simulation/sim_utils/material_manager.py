@@ -425,6 +425,7 @@ end
             'ellipsoid': self._inout_single,
             'triangle': self._inout_single,
             'dimer_sphere': self._inout_dimer,
+            'sphere_cluster_aggregate': self._inout_sphere_cluster_aggregate,
             'dimer_cube': self._inout_dimer,
             'core_shell_sphere': self._inout_core_shell_single,
             'core_shell_cube': self._inout_core_shell_single,
@@ -468,6 +469,20 @@ end
     2, 3;  % P2-Core: inside=core(2), outside=shell(3)
     3, 1   % P2-Shell: inside=shell(3), outside=medium(1)
 ];"""
+        return code
+
+    def _inout_sphere_cluster_aggregate(self):
+        """Inout for sphere cluster aggregate."""
+        n_spheres = self.config.get('n_spheres', 1)
+        
+        inout_lines = []
+        for i in range(n_spheres):
+            if i < n_spheres - 1:
+                inout_lines.append(f"    2, 1;  % Sphere {i+1}")
+            else:
+                inout_lines.append(f"    2, 1   % Sphere {i+1}")
+        
+        code = "inout = [\n" + "\n".join(inout_lines) + "\n];"
         return code
     
     def _inout_advanced_dimer_cube(self):
@@ -574,6 +589,7 @@ end
             'core_shell_cube': "closed = [1, 2];",
             'core_shell_rod': "closed = [1, 2];",
             'dimer_core_shell_cube': "closed = [1, 2, 3, 4];",
+            'sphere_cluster_aggregate': self._closed_sphere_cluster_aggregate,
             'advanced_dimer_cube': self._closed_advanced_dimer_cube,
             'from_shape': self._closed_from_shape
         }
@@ -635,3 +651,9 @@ end
         else:
             closed_indices = list(range(1, n_materials + 1))
             return f"closed = [{', '.join(map(str, closed_indices))}];"
+
+    def _closed_sphere_cluster_aggregate(self):
+        """Closed surfaces for sphere cluster aggregate."""
+        n_spheres = self.config.get('n_spheres', 1)
+        closed_indices = list(range(1, n_spheres + 1))
+        return f"closed = [{', '.join(map(str, closed_indices))}];"
