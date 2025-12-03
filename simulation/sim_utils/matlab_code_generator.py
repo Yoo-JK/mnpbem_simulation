@@ -181,8 +181,9 @@ fprintf('  ✓ Iterative solver: relcutoff=%d\\n', relcutoff);
         return code
     
     def _generate_parallel_setup(self):
-        """Generate parallel pool setup code."""
+        """Generate parallel pool setup code with computational threads control."""
         num_workers = self.config.get('num_workers', 'auto')
+        max_comp_threads = self.config.get('max_comp_threads', 'auto')
         
         code = """
 %% Parallel Computing Setup
@@ -218,6 +219,73 @@ fprintf('Using specified workers: %d\\n', requested_workers);
             code += """% Default to 1 worker (serial)
 requested_workers = 1;
 fprintf('Using default: 1 worker (serial execution)\\n');
+"""
+        
+        # ✅ NEW: Computational threads configuration
+        code += """
+%% Computational Threads Configuration
+% Control threads used by BLAS, FFT, and other low-level operations
+total_cores = feature('numcores');
+fprintf('\\nTotal system cores: %d\\n', total_cores);
+
+"""
+        
+        if max_comp_threads == 'auto':
+            code += """% Auto-calculate: divide cores by workers
+if requested_workers > 1
+    % Parallel mode: divide cores among workers
+    comp_threads = max(1, floor(total_cores / requested_workers));
+    fprintf('Auto-calculated computational threads: %d per worker\\n', comp_threads);
+    fprintf('  (Total cores %d / %d workers = %d threads each)\\n', ...
+            total_cores, requested_workers, comp_threads);
+else
+    % Serial mode: use all cores for single worker
+    comp_threads = total_cores;
+    fprintf('Serial mode: using all %d cores for computational threads\\n', comp_threads);
+end
+"""
+        elif max_comp_threads == 'max':
+            code += """% Use maximum: all cores for each worker (may cause over-subscription!)
+comp_threads = total_cores;
+fprintf('WARNING: Using all %d cores per worker\\n', comp_threads);
+if requested_workers > 1
+    fprintf('  This will cause over-subscription: %d workers × %d threads = %d threads!\\n', ...
+            requested_workers, comp_threads, requested_workers * comp_threads);
+end
+"""
+        elif isinstance(max_comp_threads, int):
+            code += f"""% Using specified computational threads
+comp_threads = {max_comp_threads};
+fprintf('Using specified computational threads: %d per worker\\n', comp_threads);
+"""
+        else:
+            code += """% Default: 1 thread per worker
+comp_threads = 1;
+fprintf('Using default: 1 computational thread per worker\\n');
+"""
+        
+        code += """
+% Set computational threads
+fprintf('Setting maxNumCompThreads to %d...\\n', comp_threads);
+maxNumCompThreads(comp_threads);
+current_threads = maxNumCompThreads();
+fprintf('  ✓ Current maxNumCompThreads: %d\\n', current_threads);
+
+% Display parallelism summary
+fprintf('\\n--- Parallelism Configuration ---\\n');
+fprintf('  Workers (parfor):        %d\\n', requested_workers);
+fprintf('  Threads per worker:      %d\\n', comp_threads);
+fprintf('  Total parallel threads:  %d\\n', requested_workers * comp_threads);
+fprintf('  System cores available:  %d\\n', total_cores);
+if requested_workers * comp_threads > total_cores
+    fprintf('  ⚠ WARNING: Over-subscription detected!\\n');
+    fprintf('     %d parallel threads competing for %d cores\\n', ...
+            requested_workers * comp_threads, total_cores);
+else
+    fprintf('  ✓ Good: No over-subscription\\n');
+end
+fprintf('----------------------------------\\n\\n');
+
 """
         
         code += """
@@ -1418,6 +1486,9 @@ fprintf('  ✓ Meshfield created: %d points\\n', numel(x_grid));
 """
     
         code += """
+% CRITICAL: Store grid shape for reshape operations
+grid_shape = size(x_grid);
+
 % Initialize field data storage
 field_data = struct();
 """
@@ -1434,17 +1505,16 @@ field_data = struct();
             fprintf('\\n  → Calculating fields at λ = %.1f nm...\\n', enei(ien));
             field_calc_start = tic;
             
-            % ✅ FIX: Calculate induced field ONCE (for all polarizations)
             fprintf('  Computing induced fields...\\n');
             e_induced_all = emesh(sig);
+
+            grid_shape = size(x_grid);
             
-            % ✅ FIX: Loop over each polarization separately
             for ipol = 1:n_polarizations
                 fprintf('    Processing polarization %d/%d...\\n', ipol, n_polarizations);
                 
 """
         
-        # ✅ FIX: Create correct excitation type (simplified - no continue needed)
         if excitation_type == 'planewave':
             code += """                % Create single-polarization plane wave excitation
                 exc_single = planewave(pol(ipol, :), dir(ipol, :), op);
@@ -1481,6 +1551,9 @@ field_data = struct();
                 e_intensity = dot(e_total, e_total, 2);
                 e0_intensity = dot(e_incoming, e_incoming, 2);
                 enhancement = sqrt(e_intensity ./ e0_intensity);
+
+                enhancement = reshape(enhancement, grid_shape);
+                e_intensity = reshape(e_intensity, grid_shape);
                 
                 field_data(ipol).polarization = pol(ipol, :);
                 field_data(ipol).wavelength = enei(ien);
@@ -2107,6 +2180,10 @@ for ipol = 1:n_polarizations
     e_intensity = dot(e_total, e_total, 2);
     e0_intensity = dot(e_incoming, e_incoming, 2);
     enhancement = sqrt(e_intensity ./ e0_intensity);
+
+    grid_shape = size(x_grid);
+    enhancement = reshape(enhancement, grid_shape);
+    e_intensity = reshape(e_intensity, grid_shape);
     
     field_data(ipol).polarization = pol(ipol, :);
     field_data(ipol).wavelength = enei(field_wavelength_idx);

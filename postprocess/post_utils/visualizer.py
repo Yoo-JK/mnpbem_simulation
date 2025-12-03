@@ -2,6 +2,8 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
+from matplotlib.patches import Circle, Rectangle
+from .geometry_cross_section import GeometryCrossSection
 
 class Visualizer:
     """Handles all visualization tasks."""
@@ -15,6 +17,7 @@ class Visualizer:
         self.dpi = config.get('plot_dpi', 300)
         self.polarizations = config.get('polarizations', [])
         self.propagation_dirs = config.get('propagation_dirs', [])
+        self.geometry = GeometryCrossSection(config, verbose)
     
     def _format_vector_label(self, vec):
         """Format vector as compact string."""
@@ -258,7 +261,7 @@ class Visualizer:
         z_grid = field_data['z_grid']
         wavelength = field_data['wavelength']
         
-        # ✅ FIX: Handle scalar enhancement
+        # FIX: Handle scalar enhancement
         if not isinstance(enhancement, np.ndarray):
             enhancement = np.array([[enhancement]])
         elif enhancement.ndim == 0:
@@ -269,7 +272,7 @@ class Visualizer:
         # Determine plane type
         plane_type, extent, x_label, y_label = self._determine_plane(x_grid, y_grid, z_grid)
         
-        # ✅ FIX: Use polarization label
+        # FIX: Use polarization label
         pol_label = self._get_polarization_label(polarization_idx)
         
         # Create figure
@@ -284,6 +287,11 @@ class Visualizer:
                      fontsize=11, fontweight='bold')
         cbar1 = plt.colorbar(im1, ax=ax1)
         cbar1.set_label('|E|/|E₀|', fontsize=11)
+
+        z_plane = float(z_grid.flat[0])  # Extract z-coordinate
+        sections = self.geometry.get_cross_section(z_plane)
+        for section in sections:
+            self._draw_material_boundary(ax1, section, plane_type)
         
         # Log scale
         enhancement_log = np.maximum(enhancement, 1e-10)
@@ -305,7 +313,11 @@ class Visualizer:
             ax2.set_title(f'Field Enhancement (Log Scale)\nλ = {wavelength:.1f} nm, {pol_label}', 
                          fontsize=11, fontweight='bold')
             cbar2 = plt.colorbar(im2, ax=ax2)
+            for section in sections:
+                self._draw_material_boundary(ax2, section, plane_type)
+
             cbar2.set_label('|E|/|E₀|', fontsize=11)
+
         else:
             im2 = ax2.imshow(enhancement, extent=extent, origin='lower', 
                             cmap='hot', aspect='auto')
@@ -313,8 +325,11 @@ class Visualizer:
             ax2.set_ylabel(y_label, fontsize=11)
             ax2.set_title(f'Field Enhancement\nλ = {wavelength:.1f} nm, {pol_label}', 
                          fontsize=11, fontweight='bold')
-            cbar2 = plt.colorbar(im2, ax=ax2)
-            cbar2.set_label('|E|/|E₀|', fontsize=11)
+            cbar2 = plt.colorbar(im2, ax=ax2)            
+            for section in sections:
+                self._draw_material_boundary(ax2, section, plane_type)    
+
+            cbar2.set_label('|E|/|E₀|', fontsize=11)        
         
         plt.tight_layout()
         
@@ -333,7 +348,7 @@ class Visualizer:
         z_grid = field_data['z_grid']
         wavelength = field_data['wavelength']
         
-        # ✅ FIX: Handle scalar intensity
+        # FIX: Handle scalar intensity
         if not isinstance(intensity, np.ndarray):
             intensity = np.array([[intensity]])
         elif intensity.ndim == 0:
@@ -344,7 +359,7 @@ class Visualizer:
         # Determine plane type
         plane_type, extent, x_label, y_label = self._determine_plane(x_grid, y_grid, z_grid)
         
-        # ✅ FIX: Use polarization label
+        # FIX: Use polarization label
         pol_label = self._get_polarization_label(polarization_idx)
         
         # Create figure
@@ -375,6 +390,11 @@ class Visualizer:
         
         cbar = plt.colorbar(im, ax=ax)
         cbar.set_label('|E|² (a.u.)', fontsize=11)
+
+        z_plane = float(z_grid.flat[0])
+        sections = self.geometry.get_cross_section(z_plane)
+        for section in sections:
+            self._draw_material_boundary(ax, section, plane_type)
         
         plt.tight_layout()
         
@@ -397,7 +417,7 @@ class Visualizer:
         # Determine plane and extract relevant components
         plane_type, extent, x_label, y_label = self._determine_plane(x_grid, y_grid, z_grid)
         
-        # ✅ FIX: Use polarization label
+        # FIX: Use polarization label
         pol_label = self._get_polarization_label(polarization_idx)
         
         # Properly extract coordinates and field components
@@ -596,3 +616,52 @@ class Visualizer:
         
         return saved_files
 
+
+    def _draw_material_boundary(self, ax, section, plane_type):
+        """
+        Draw material boundary on field plot.
+        
+        Parameters
+        ----------
+        ax : matplotlib axis
+            Axis to draw on
+        section : dict
+            Cross-section information from GeometryCrossSection
+        plane_type : str
+            Type of plane ('xy', 'xz', 'yz')
+        """
+        if section['type'] == 'circle':
+            # Draw circle
+            center = section['center']
+            radius = section['radius']
+            
+            circle = Circle(
+                center,
+                radius,
+                fill=False,
+                edgecolor='gray',
+                linestyle='--',
+                linewidth=2,
+                label=section.get('label', 'Material boundary')
+            )
+            ax.add_patch(circle)
+        
+        elif section['type'] == 'rectangle':
+            # Draw rectangle
+            bounds = section['bounds']  # [x_min, x_max, y_min, y_max]
+            x_min, x_max, y_min, y_max = bounds
+            
+            width = x_max - x_min
+            height = y_max - y_min
+            
+            rectangle = Rectangle(
+                (x_min, y_min),
+                width,
+                height,
+                fill=False,
+                edgecolor='gray',
+                linestyle='--',
+                linewidth=2,
+                label=section.get('label', 'Material boundary')
+            )
+            ax.add_patch(rectangle)
