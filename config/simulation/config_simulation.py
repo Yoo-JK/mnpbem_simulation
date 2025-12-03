@@ -19,6 +19,7 @@ args['use_parallel'] = True  # Set to False to disable parallel computing
 
 # Alternative: specify exact number
 args['num_workers'] = 128
+args['wavelength_chunk_size'] = 10
 
 # ============================================================================
 # MNPBEM TOOLBOX PATH (REQUIRED)
@@ -268,3 +269,4 @@ args['matlab_options'] = '-nodisplay -nosplash -nodesktop'
 # args['simulation_type'] = 'ret'
 # args['calculate_fields'] = True
 # args['export_field_arrays'] = True  # Export field arrays to JSON
+
