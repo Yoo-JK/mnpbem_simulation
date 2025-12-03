@@ -1237,18 +1237,64 @@ fprintf('\\nSetting up field calculation mesh...\\n');
 
 % Select wavelength for field calculation
 """
-    
+
         field_wl_idx = self.config.get('field_wavelength_idx', 'middle')
         
         if field_wl_idx == 'middle':
-            code += "field_wavelength_idx = round(n_wavelengths / 2);\n"
+            code += """% Use middle wavelength
+field_wavelength_idx = round(n_wavelengths / 2);
+"""
+        elif field_wl_idx == 'peak':
+            code += """% Find absorption peak wavelength
+fprintf('  Finding absorption peak...\\n');
+
+% Average absorption over polarizations
+abs_avg = mean(abs_cross, 2);
+
+% Find maximum
+[max_abs, field_wavelength_idx] = max(abs_avg);
+
+fprintf('  → Peak absorption: %.2e nm^2 at λ = %.1f nm (index %d)\\n', ...
+        max_abs, enei(field_wavelength_idx), field_wavelength_idx);
+"""
+        elif field_wl_idx == 'peak_ext':
+            code += """% Find extinction peak wavelength
+fprintf('  Finding extinction peak...\\n');
+
+% Average extinction over polarizations
+ext_avg = mean(ext, 2);
+
+% Find maximum
+[max_ext, field_wavelength_idx] = max(ext_avg);
+
+fprintf('  → Peak extinction: %.2e nm^2 at λ = %.1f nm (index %d)\\n', ...
+        max_ext, enei(field_wavelength_idx), field_wavelength_idx);
+"""
+        elif field_wl_idx == 'peak_sca':
+            code += """% Find scattering peak wavelength
+fprintf('  Finding scattering peak...\\n');
+
+% Average scattering over polarizations
+sca_avg = mean(sca, 2);
+
+% Find maximum
+[max_sca, field_wavelength_idx] = max(sca_avg);
+
+fprintf('  → Peak scattering: %.2e nm^2 at λ = %.1f nm (index %d)\\n', ...
+        max_sca, enei(field_wavelength_idx), field_wavelength_idx);
+"""
         elif isinstance(field_wl_idx, int):
-            code += f"field_wavelength_idx = {field_wl_idx};\n"
+            code += f"""% Use specified wavelength index
+field_wavelength_idx = {field_wl_idx};
+"""
         else:
-            code += "field_wavelength_idx = round(n_wavelengths / 2);\n"
+            code += """% Default: use middle wavelength
+field_wavelength_idx = round(n_wavelengths / 2);
+"""
         
-        code += """fprintf('Field calculation at wavelength index %d: λ = %.1f nm\\n', ...
-        field_wavelength_idx, enei(field_wavelength_idx));
+        code += """
+fprintf('Field calculation at wavelength: λ = %.1f nm (index %d)\\n', ...
+        enei(field_wavelength_idx), field_wavelength_idx);
 
 """
     
