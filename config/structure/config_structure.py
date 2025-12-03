@@ -222,6 +222,60 @@ args['rotation_angle'] = 0  # degrees, particle 2 rotation around z-axis
 # args['rotation_angle'] = 0
 
 # ============================================================================
+# SECTION 4.5: SPHERE CLUSTER AGGREGATE
+# ============================================================================
+# Compact close-packed sphere clusters (1-7 spheres in contact)
+# Perfect for studying plasmon coupling in nanoparticle aggregates
+
+# args['structure'] = 'sphere_cluster_aggregate'
+# args['n_spheres'] = 5  # 1-7 (see structure types below)
+# args['diameter'] = 50  # nm
+# args['gap'] = -0.1  # negative = 0.1nm overlap (contact)
+# args['mesh_density'] = 144
+
+# --- Structure Types by n_spheres ---
+# N=1: Single sphere
+# N=2: Dimer (horizontal, end-to-end)
+# N=3: Triangle (2 bottom, 1 top)
+# N=4: Square (2×2 grid)
+# N=5: Pentagon (3 bottom, 2 top)
+# N=6: Hexagon (3 bottom, 3 top, compact)
+# N=7: Hexagon (4 bottom, 3 top, extended)
+
+# All spheres are positioned in XY plane (z=0)
+# Gap < 0 creates conduction contact (0.1nm overlap = true contact)
+# Perfect for studying hotspot formation and coupled plasmon modes
+
+# args['materials'] = ['gold']
+
+# Example 1: Gold trimer on substrate
+# args['structure'] = 'sphere_cluster_aggregate'
+# args['n_spheres'] = 3
+# args['diameter'] = 50
+# args['gap'] = -0.1  # contact
+# args['mesh_density'] = 144
+# args['materials'] = ['gold']
+# args['use_substrate'] = True
+# args['substrate'] = {'material': 'gold', 'position': -25.01}
+
+# Example 2: Silver hexagonal cluster
+# args['structure'] = 'sphere_cluster_aggregate'
+# args['n_spheres'] = 6
+# args['diameter'] = 30
+# args['gap'] = -0.05  # tight contact
+# args['mesh_density'] = 144
+# args['materials'] = ['silver']
+
+# Example 3: Large 7-sphere aggregate
+# args['structure'] = 'sphere_cluster_aggregate'
+# args['n_spheres'] = 7
+# args['diameter'] = 50
+# args['gap'] = -0.1
+# args['mesh_density'] = 144
+# args['materials'] = ['gold']
+# Perfect for maximum field enhancement at multiple junctions
+
+# ============================================================================
 # SECTION 5: DDA SHAPE FILE
 # ============================================================================
 # Import structures from DDA simulation .shape files
@@ -300,6 +354,9 @@ args['use_substrate'] = False
 # Advanced Dimer Cube:
 #   core_size, shell_layers, materials, roundings (or rounding),
 #   gap, offset, tilt_angle, tilt_axis, rotation_angle, mesh_density
+
+# Sphere Cluster Aggregate:
+#   n_spheres (1-7), diameter, gap, mesh_density
 #
 # DDA Shape:
 #   shape_file, voxel_size, voxel_method, materials

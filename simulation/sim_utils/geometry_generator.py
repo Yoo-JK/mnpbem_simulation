@@ -353,6 +353,7 @@ class GeometryGenerator:
             'core_shell_rod': self._core_shell_rod,
             'dimer_core_shell_cube': self._dimer_core_shell_cube,
             'advanced_dimer_cube': self._advanced_dimer_cube,
+            'sphere_cluster_aggregate': self._sphere_cluster_aggregate,
             'from_shape': self._from_shape,
         }
         
@@ -747,6 +748,152 @@ p2 = shift(p2, [shift_distance, 0, 0]);
 
 particles = {{p1, p2}};
 """
+        return code
+
+    def _sphere_cluster_aggregate(self):
+        """Generate compact sphere cluster (close-packed aggregate structure).
+        
+        Structures:
+            N=1: Single sphere
+            N=2: Dimer (horizontal)
+            N=3: Triangle (2 bottom, 1 top)
+            N=4: Square 2x2
+            N=5: Pentagon (3 bottom, 2 top)
+            N=6: Hexagon (3 bottom, 3 top)
+            N=7: Hexagon (4 bottom, 3 top)
+        
+        All spheres are in contact (gap = -0.1nm, 0.1nm overlap).
+        """
+        n_spheres = self.config.get('n_spheres', 1)
+        diameter = self.config.get('diameter', 50)
+        gap = self.config.get('gap', -0.1)
+        mesh = self.config.get('mesh_density', 144)
+        
+        # Center-to-center spacing for contact
+        spacing = diameter + gap
+        
+        # 60-degree triangle height
+        dy_60deg = spacing * 0.866025404  # sin(60°) = sqrt(3)/2
+        
+        # Define xy positions for each cluster (z=0 for all, substrate contact handled separately)
+        # Format: [(x, y), ...]
+        cluster_positions = {
+            1: [(0, 0)],
+            
+            2: [(-spacing/2, 0), 
+                (spacing/2, 0)],
+            
+            3: [(-spacing/2, 0),         # bottom-left
+                (spacing/2, 0),          # bottom-right
+                (0, dy_60deg)],          # top
+            
+            4: [(-spacing/2, -spacing/2), # bottom-left
+                (spacing/2, -spacing/2),  # bottom-right
+                (-spacing/2, spacing/2),  # top-left
+                (spacing/2, spacing/2)],  # top-right
+            
+            5: [(-spacing, 0),            # bottom-left
+                (0, 0),                   # bottom-center
+                (spacing, 0),             # bottom-right
+                (-spacing/2, dy_60deg),   # top-left
+                (spacing/2, dy_60deg)],   # top-right
+            
+            6: [(-spacing, 0),            # bottom-left
+                (0, 0),                   # bottom-center
+                (spacing, 0),             # bottom-right
+                (-spacing/2, dy_60deg),   # middle-left
+                (spacing/2, dy_60deg),    # middle-right
+                (0, 2*dy_60deg)],         # top-center
+            
+            7: [(-1.5*spacing, 0),        # bottom row (4)
+                (-0.5*spacing, 0),
+                (0.5*spacing, 0),
+                (1.5*spacing, 0),
+                (-spacing, dy_60deg),     # top row (3)
+                (0, dy_60deg),
+                (spacing, dy_60deg)]
+        }
+        
+        if n_spheres not in cluster_positions:
+            raise ValueError(f"n_spheres must be 1-7, got {n_spheres}")
+        
+        positions = cluster_positions[n_spheres]
+        
+        # Generate MATLAB code
+        code = f"""
+%% Geometry: Compact Sphere Cluster (Close-Packed Aggregate)
+n_spheres = {n_spheres};
+diameter = {diameter};
+gap = {gap};  % negative = 0.1nm overlap (contact)
+spacing = diameter + gap;  % {spacing:.3f} nm
+
+fprintf('\\n=== Creating Compact Sphere Cluster ===\\n');
+fprintf('  Number of spheres: %d\\n', n_spheres);
+fprintf('  Diameter: %.2f nm\\n', diameter);
+fprintf('  Gap: %.3f nm (%.1f nm overlap)\\n', gap, abs(gap));
+fprintf('  Center-to-center spacing: %.3f nm\\n', spacing);
+fprintf('  Structure type: ');
+
+% Define positions for each sphere
+positions = [
+"""
+        
+        # Add position coordinates
+        for i, (x, y) in enumerate(positions):
+            if i < len(positions) - 1:
+                code += f"    {x:.6f}, {y:.6f}, 0;  % Sphere {i+1}\n"
+            else:
+                code += f"    {x:.6f}, {y:.6f}, 0   % Sphere {i+1}\n"
+        
+        code += """];
+
+% Determine structure name
+switch n_spheres
+    case 1
+        fprintf('Single sphere\\n');
+    case 2
+        fprintf('Dimer\\n');
+    case 3
+        fprintf('Triangle\\n');
+    case 4
+        fprintf('Square (2x2)\\n');
+    case 5
+        fprintf('Pentagon (3+2)\\n');
+    case 6
+        fprintf('Hexagon (3+3)\\n');
+    case 7
+        fprintf('Hexagon (4+3)\\n');
+end
+
+% Create particles
+particles = {};
+for i = 1:n_spheres
+    % Create sphere
+    p_sphere = trisphere(""" + f"{mesh}" + """, diameter);
+    
+    % Shift to position
+    p_sphere = shift(p_sphere, positions(i, :));
+    
+    % Add to particle list
+    particles{end+1} = p_sphere;
+    
+    fprintf('  Sphere %d: (%.2f, %.2f, 0) nm\\n', i, positions(i, 1), positions(i, 2));
+end
+
+% Calculate cluster bounds
+x_coords = positions(:, 1);
+y_coords = positions(:, 2);
+x_min = min(x_coords) - diameter/2;
+x_max = max(x_coords) + diameter/2;
+y_min = min(y_coords) - diameter/2;
+y_max = max(y_coords) + diameter/2;
+
+fprintf('  Cluster bounds: x=[%.2f, %.2f], y=[%.2f, %.2f] nm\\n', ...
+        x_min, x_max, y_min, y_max);
+fprintf('  All spheres in XY plane (z=0)\\n');
+fprintf('=================================\\n');
+"""
+        
         return code
     
     def _dimer_cube(self):
