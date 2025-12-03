@@ -19,7 +19,7 @@ args['output_dir'] = os.path.join(Path.home(), 'research/mnpbem/sphere_cluster')
 # ============================================================================
 # SIMULATION SETTINGS
 # ============================================================================
-args['simulation_name'] = '1_agg'
+args['simulation_name'] = '5_agg'
 args['simulation_type'] = 'ret'  # 'ret' for 50nm spheres
 args['interp'] = 'curv'
 args['waitbar'] = 0
