@@ -111,8 +111,12 @@ def main():
                 print(f"\n  Field data processed:")
                 for i, field in enumerate(data['fields']):
                     print(f"    Polarization {i+1}: λ = {field['wavelength']:.1f} nm")
-                    grid_shape = field['enhancement'].shape
-                    print(f"      Grid size: {grid_shape}")
+
+                    enhancement = field['enhancement']
+                    if hasattr(enhancement, 'shape'):
+                        print(f"      Grid size: {enhancement.shape}")
+                    else:
+                        print(f"      Grid size: (1,) - single point")
         
         return 0
         
