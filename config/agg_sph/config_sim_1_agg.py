@@ -61,8 +61,8 @@ args['calculate_cross_sections'] = True
 args['calculate_fields'] = True
 
 args['field_region'] = {
-    'x_range': [-2, 2, 5],  # Adjust: N≤2: ±80, N=3-4: ±100, N=5-6: ±120, N=7: ±150
-    'y_range': [-2, 2, 5],
+    'x_range': [-150, 150, 151],  # Adjust: N≤2: ±80, N=3-4: ±100, N=5-6: ±120, N=7: ±150
+    'y_range': [-100, 100, 101],
     'z_range': [0, 0, 1],  # 5nm above cluster
 }
 

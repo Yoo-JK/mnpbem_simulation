@@ -17,7 +17,7 @@ args['structure_name'] = 'au_cluster_5_on_substrate'
 args['structure'] = 'sphere_cluster_aggregate'
 
 # --- Cluster Parameters ---
-args['n_spheres'] = 1  # Change to 1, 2, 3, 4, 5, 6, or 7
+args['n_spheres'] = 7  # Change to 1, 2, 3, 4, 5, 6, or 7
 args['diameter'] = 50  # nm
 args['gap'] = -0.1  # negative = 0.1nm overlap (conduction contact)
 args['mesh_density'] = 144  # standard for spheres
@@ -40,6 +40,3 @@ args['substrate'] = {
 }
 
 # Custom refractive index (optional)
-args['refractive_index_paths'] = {
-        'gold': os.path.join(Path.home(), 'materials/gold_palik.dat')
-}
