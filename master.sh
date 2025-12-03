@@ -326,18 +326,17 @@ except Exception as e:
     # Step 3: Postprocess results
     print_msg "📊 Step 3/3: Processing and analyzing results..." "$YELLOW"
 
-    # Get parent directory of RUN_FOLDER
-    # Since PostprocessManager adds simulation_name to output_dir,
-    # we need to pass the parent directory
-    RUN_FOLDER_PARENT=$(dirname "$RUN_FOLDER")
-
-    # Create a temporary config file with updated output_dir
+    # Create a temporary config file with updated paths
+    # PostprocessManager calculates: output_dir + simulation_name
+    # So we set output_dir to RUN_FOLDER and simulation_name to empty string
     TEMP_SIM_CONFIG=$(mktemp)
     cat "$SIMULATION_FILE" > "$TEMP_SIM_CONFIG"
     echo "" >> "$TEMP_SIM_CONFIG"
-    echo "# Override output_dir to parent directory" >> "$TEMP_SIM_CONFIG"
-    echo "# PostprocessManager will append simulation_name to this path" >> "$TEMP_SIM_CONFIG"
-    echo "args['output_dir'] = '$RUN_FOLDER_PARENT'" >> "$TEMP_SIM_CONFIG"
+    echo "# Override for postprocessing to prevent path duplication" >> "$TEMP_SIM_CONFIG"
+    echo "# PostprocessManager calculates: output_dir + simulation_name" >> "$TEMP_SIM_CONFIG"
+    echo "# So we set output_dir to RUN_FOLDER and simulation_name to empty string" >> "$TEMP_SIM_CONFIG"
+    echo "args['output_dir'] = '$RUN_FOLDER'" >> "$TEMP_SIM_CONFIG"
+    echo "args['simulation_name'] = ''" >> "$TEMP_SIM_CONFIG"
     
     if [ "$VERBOSE" = true ]; then
         python run_postprocess.py --str-conf "$STRUCTURE_FILE" --sim-conf "$TEMP_SIM_CONFIG" --verbose 2>&1 | tee -a "$RUN_FOLDER/logs/pipeline.log"
