@@ -19,7 +19,7 @@ echo "Job started on $(date)"
 
 echo "---------- Start simulation: Aggregation 1 Sphere(s) ----------"
 cd /u/yoojk20/workspace/mnpbem_simulation
-./master.sh --str-conf ./config/agg_sph/config_str_1_agg.py --sim-conf ./config/agg_sph/config_sim_1_agg.py --verbose
+./master.sh --str-conf ./config/agg_sph/wo_sub/config_str_1_agg.py --sim-conf ./config/agg_sph/wo_sub/config_sim_1_agg.py --verbose
 
 echo "Job finished on $(date)"
 
