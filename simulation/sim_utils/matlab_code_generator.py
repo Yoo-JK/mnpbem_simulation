@@ -1450,8 +1450,9 @@ z_grid = reshape(z_grid, grid_shape);
 
 % Create meshfield using op with greentab
 fprintf('  Creating meshfield...\\n');
+field_mindist = {mindist};  % Store mindist for later use
 emesh = meshfield(p, x_grid, y_grid, z_grid, op, ...
-                  'mindist', {mindist}, 'nmax', {nmax});
+                  'mindist', field_mindist, 'nmax', {nmax});
 fprintf('  ✓ Meshfield ready with %d points\\n', emesh.pt.n);
 """
         else:
@@ -1480,8 +1481,9 @@ z_grid = {z_range[0]} * ones(size(x_grid));
         
             code += f"""
 % Create meshfield
+field_mindist = {mindist};  % Store mindist for later use
 emesh = meshfield(p, x_grid, y_grid, z_grid, op, ...
-                  'mindist', {mindist}, 'nmax', {nmax});
+                  'mindist', field_mindist, 'nmax', {nmax});
 fprintf('  ✓ Meshfield created: %d points\\n', numel(x_grid));
 """
     
@@ -1560,7 +1562,7 @@ field_data = struct();
                 if n_field_points < n_grid_points
                     % Points were filtered - create full grid with NaN
                     fprintf('    → Grid filtering: %d/%d points used (mindist=%.2f nm)\\n', ...
-                            n_field_points, n_grid_points, emesh.mindist);
+                            n_field_points, n_grid_points, field_mindist);
                     
                     % Create NaN-filled arrays
                     enhancement_full = nan(n_grid_points, 1);
@@ -2128,8 +2130,9 @@ x_grid = reshape(x_grid, grid_shape);
 y_grid = reshape(y_grid, grid_shape);
 z_grid = reshape(z_grid, grid_shape);
 
+field_mindist = {mindist};  % Store mindist for later use
 emesh = meshfield(p, x_grid, y_grid, z_grid, op, ...
-                  'mindist', {mindist}, 'nmax', {nmax});
+                  'mindist', field_mindist, 'nmax', {nmax});
 fprintf('  ✓ Meshfield ready: %d points\\n', emesh.pt.n);
 """
             else:
@@ -2159,8 +2162,9 @@ z_grid = {z_range[0]} * ones(size(x_grid));
 """
                 
                 code += f"""
+field_mindist = {mindist};  % Store mindist for later use
 emesh = meshfield(p, x_grid, y_grid, z_grid, op, ...
-                  'mindist', {mindist}, 'nmax', {nmax});
+                  'mindist', field_mindist, 'nmax', {nmax});
 fprintf('  ✓ Meshfield created: %d points\\n', numel(x_grid));
 """
             
@@ -2233,7 +2237,7 @@ for ipol = 1:n_polarizations
     if n_field_points < n_grid_points
         % Points were filtered - create full grid with NaN
         fprintf('    → Grid filtering: %d/%d points used (mindist=%.2f nm)\\n', ...
-                n_field_points, n_grid_points, emesh.mindist);
+                n_field_points, n_grid_points, field_mindist);
         
         % Create NaN-filled arrays
         enhancement_full = nan(n_grid_points, 1);
