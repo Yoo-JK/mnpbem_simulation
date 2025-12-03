@@ -1537,11 +1537,11 @@ fprintf('================================================================\\n');
         """
         Generate safe cleanup and exit code.
         
-        IMPROVEMENTS:
-        1. Safer parallel pool cleanup
-        2. Longer pause before quit (5 seconds instead of 3)
-        3. Force file sync
-        4. FIXED: Use 'exit' instead of invalid 'quit force'
+        CRITICAL FIXES:
+        1. File verification BEFORE clearing variables (prevents index error)
+        2. Safe try-catch for dir() with numel() check
+        3. Waitbar cleanup first to prevent ^H characters
+        4. Improved parallel cleanup with longer timeout
         """
         use_parallel = self.config.get('use_parallel', False)
         
@@ -1558,7 +1558,7 @@ fprintf('Cleaning up...\\n');
             code += self._generate_parallel_cleanup()
         
         code += """
-% Close all waitbars
+% Close all waitbars FIRST (to prevent ^H characters in output)
 try
     multiWaitbar('CloseAll');
     fprintf('  ✓ Closed all waitbars\\n');
@@ -1570,22 +1570,43 @@ end
 close all;
 fprintf('  ✓ Closed all figures\\n');
 
-% Clear large variables to free memory
-clear bem sig field_data meshfield e_induced e_incoming e_total enhancement;
-fprintf('  ✓ Cleared temporary variables\\n');
-
 % CRITICAL: Close all file handles AND force sync to disk
 fclose('all');
 fprintf('  ✓ Closed all file handles\\n');
 
-% Verify important files were written
+% ========================================
+% IMPORTANT: Verify files BEFORE clearing variables!
+% ========================================
 if exist('field_data.mat', 'file')
     fprintf('  → Verifying field_data.mat...\\n');
-    file_info = dir('field_data.mat');
-    if ~isempty(file_info)
-        fprintf('    File size: %.2f MB\\n', file_info(1).bytes / 1024 / 1024);
+    try
+        file_info = dir('field_data.mat');
+        % SAFE: Check both isempty and numel
+        if ~isempty(file_info) && numel(file_info) >= 1
+            fprintf('    File size: %.2f MB\\n', file_info(1).bytes / 1024 / 1024);
+        else
+            fprintf('    Warning: File exists but dir() returned empty\\n');
+        end
+    catch ME
+        fprintf('    Warning: Could not verify file: %s\\n', ME.message);
     end
 end
+
+if exist('simulation_results.mat', 'file')
+    fprintf('  → Verifying simulation_results.mat...\\n');
+    try
+        file_info = dir('simulation_results.mat');
+        if ~isempty(file_info) && numel(file_info) >= 1
+            fprintf('    File size: %.2f MB\\n', file_info(1).bytes / 1024 / 1024);
+        end
+    catch ME
+        fprintf('    Warning: Could not verify file: %s\\n', ME.message);
+    end
+end
+
+% Clear large variables to free memory (AFTER file verification)
+clear bem sig field_data meshfield e_induced e_incoming e_total enhancement;
+fprintf('  ✓ Cleared temporary variables\\n');
 
 fprintf('================================================================\\n');
 fprintf('\\n');
