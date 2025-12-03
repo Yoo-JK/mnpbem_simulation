@@ -1700,7 +1700,8 @@ for ichunk = 1:n_chunks
 """
 
         if use_parallel:
-            code += """    % Parallel processing within chunk
+            # use_parallel=True: MATLAB if-else 전체 포함
+            code += """    % Parallel/Serial processing within chunk
     if exist('parallel_enabled', 'var') && parallel_enabled
         fprintf('  Using parallel execution for this chunk\\n\\n');
         
@@ -1732,12 +1733,7 @@ for ichunk = 1:n_chunks
         end
         
     else
-"""
-        else:
-            code += """    % Serial processing within chunk
-"""
-        
-        code += """        fprintf('  Using serial execution for this chunk\\n\\n');
+        fprintf('  Using serial execution for this chunk\\n\\n');
         
         for i_local = 1:n_chunk
             ien = chunk_indices(i_local);
@@ -1766,8 +1762,44 @@ for ichunk = 1:n_chunks
             end
         end
     end
+"""
+        else:
+            # use_parallel=False: MATLAB if-else 없이 serial만
+            code += """    % Serial processing within chunk
+    fprintf('  Using serial execution for this chunk\\n\\n');
     
+    for i_local = 1:n_chunk
+        ien = chunk_indices(i_local);
+        
+        % Progress
+        if mod(i_local-1, max(1, floor(n_chunk/10))) == 0
+            fprintf('    Progress: %d/%d (λ = %.1f nm)\\n', ...
+                    i_local, n_chunk, enei(ien));
+        end
+        
+        try
+            % BEM calculation
+            sig = bem \\ exc(p, enei(ien));
+            
+            % Store results
+            sca(ien, :) = exc.sca(sig);
+            ext(ien, :) = exc.ext(sig);
+            abs_cross(ien, :) = ext(ien, :) - sca(ien, :);
+            
+        catch ME
+            fprintf('    ERROR at λ %d (%.1f nm): %s\\n', ...
+                    ien, enei(ien), ME.message);
+            sca(ien, :) = zeros(1, n_polarizations);
+            ext(ien, :) = zeros(1, n_polarizations);
+            abs_cross(ien, :) = zeros(1, n_polarizations);
+        end
+    end
+"""
+        
+        # 공통 코드 (chunk timing)
+        code += """    
     chunk_time = toc(chunk_start);
+
     fprintf('\\n  ✓ Chunk %d completed in %.1f seconds (%.1f min)\\n', ...
             ichunk, chunk_time, chunk_time/60);
     fprintf('  Average: %.2f sec/wavelength\\n', chunk_time/n_chunk);
