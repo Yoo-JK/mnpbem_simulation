@@ -1064,6 +1064,10 @@ dip_pos = {pos_str};
 % Dipole moment
 dip_mom = {mom_str};
 
+% ✅ FIX: Dummy polarization for code compatibility
+pol = [0, 0, 1];  % Single "polarization" for dipole
+dir = [0, 0, 1];  % Dummy propagation direction
+
 fprintf('Dipole position: [%.2f, %.2f, %.2f] nm\\n', dip_pos(1), dip_pos(2), dip_pos(3));
 """
         return code
@@ -1084,6 +1088,10 @@ impact = [{impact[0]}, {impact[1]}];
 % Beam parameters
 beam_energy = {energy};
 beam_width = {width};
+
+% ✅ FIX: Dummy polarization for code compatibility
+pol = [0, 0, 1];  % Single "polarization" for EELS
+dir = [0, 0, 1];  % Dummy propagation direction
 
 fprintf('Impact parameter: [%.2f, %.2f] nm\\n', impact(1), impact(2));
 fprintf('Beam energy: %.2e eV\\n', beam_energy);
@@ -1417,25 +1425,61 @@ field_data = struct();
         return code
     
     def _generate_field_calculation_in_loop(self):
-        """Generate field calculation - same for both substrate and non-substrate."""
+        """Generate field calculation - fixed dimension handling and excitation type."""
+        excitation_type = self.config['excitation_type']
+        
         code = """
         % Calculate fields at selected wavelength
         if ien == field_wavelength_idx
             fprintf('\\n  → Calculating fields at λ = %.1f nm...\\n', enei(ien));
             field_calc_start = tic;
             
-            % ✅ CRITICAL FIX: Loop over each polarization separately
+            % ✅ FIX: Calculate induced field ONCE (for all polarizations)
+            fprintf('  Computing induced fields...\\n');
+            e_induced_all = emesh(sig);
+            
+            % ✅ FIX: Loop over each polarization separately
             for ipol = 1:n_polarizations
-                % Create single-polarization excitation
-                exc_single = planewave(pol(ipol, :), dir(ipol, :), op);
+                fprintf('    Processing polarization %d/%d...\\n', ipol, n_polarizations);
                 
-                % Calculate fields
-                e_induced = emesh(sig);
+"""
+        
+        # ✅ FIX: Create correct excitation type (simplified - no continue needed)
+        if excitation_type == 'planewave':
+            code += """                % Create single-polarization plane wave excitation
+                exc_single = planewave(pol(ipol, :), dir(ipol, :), op);
+"""
+        elif excitation_type == 'dipole':
+            code += """                % Dipole excitation
+                pt_single = compoint(p, dip_pos, op);
+                exc_single = dipole(pt_single, dip_mom, op);
+"""
+        elif excitation_type == 'eels':
+            code += """                % EELS excitation
+                exc_single = eelsret(p, impact, beam_energy, 'width', beam_width, op);
+"""
+        
+        code += """                
+                % Extract induced field for this polarization
+                if n_polarizations > 1
+                    e_induced = e_induced_all(:, :, ipol);
+                else
+                    e_induced = e_induced_all;
+                end
+                
+                % Calculate incoming field for this polarization
                 e_incoming = emesh(exc_single.field(emesh.pt, enei(ien)));
+                
+                % Ensure 2D arrays for addition
+                if ndims(e_incoming) == 3
+                    e_incoming = squeeze(e_incoming);
+                end
+                
+                % Total field
                 e_total = e_induced + e_incoming;
                 
-                e_intensity = dot(e_total, e_total, 3);
-                e0_intensity = dot(e_incoming, e_incoming, 3);
+                e_intensity = dot(e_total, e_total, 2);
+                e0_intensity = dot(e_incoming, e_incoming, 2);
                 enhancement = sqrt(e_intensity ./ e0_intensity);
                 
                 field_data(ipol).polarization = pol(ipol, :);
@@ -2003,7 +2047,7 @@ emesh = meshfield(p, x_grid, y_grid, z_grid, op, ...
 fprintf('  ✓ Meshfield created: %d points\\n', numel(x_grid));
 """
             
-            # ✅ CRITICAL FIX: Calculate fields at peak wavelength
+            # ✅ CRITICAL FIX: Calculate fields at peak wavelength with correct excitation type
             code += """
 % Initialize field data storage
 field_data = struct();
@@ -2016,20 +2060,52 @@ field_calc_start = tic;
 fprintf('  Computing BEM solution at peak wavelength...\\n');
 sig_peak = bem \\ exc(p, enei(field_wavelength_idx));
 
-% ✅ CRITICAL FIX: Calculate fields for each polarization separately
+% ✅ FIX: Calculate induced field ONCE (for all polarizations)
+fprintf('  Computing induced fields...\\n');
+e_induced_all = emesh(sig_peak);
+
+% ✅ FIX: Calculate fields for each polarization separately
 for ipol = 1:n_polarizations
     fprintf('  Processing polarization %d/%d...\\n', ipol, n_polarizations);
     
-    % Create single-polarization excitation (CRITICAL!)
+"""
+            
+            # ✅ FIX: Create correct excitation type for field calculation (simplified - no continue)
+            if excitation_type == 'planewave':
+                code += """    % Create single-polarization plane wave excitation
     exc_single = planewave(pol(ipol, :), dir(ipol, :), op);
+"""
+            elif excitation_type == 'dipole':
+                code += """    % Dipole excitation
+    pt_single = compoint(p, dip_pos, op);
+    exc_single = dipole(pt_single, dip_mom, op);
+"""
+            elif excitation_type == 'eels':
+                code += """    % EELS excitation
+    exc_single = eelsret(p, impact, beam_energy, 'width', beam_width, op);
+"""
+            
+            code += """    
+    % Extract induced field for this polarization
+    if n_polarizations > 1
+        e_induced = e_induced_all(:, :, ipol);
+    else
+        e_induced = e_induced_all;
+    end
     
-    % Calculate fields
-    e_induced = emesh(sig_peak);
+    % Calculate incoming field for this polarization
     e_incoming = emesh(exc_single.field(emesh.pt, enei(field_wavelength_idx)));
+    
+    % Ensure 2D arrays for addition
+    if ndims(e_incoming) == 3
+        e_incoming = squeeze(e_incoming);
+    end
+    
+    % Total field
     e_total = e_induced + e_incoming;
     
-    e_intensity = dot(e_total, e_total, 3);
-    e0_intensity = dot(e_incoming, e_incoming, 3);
+    e_intensity = dot(e_total, e_total, 2);
+    e0_intensity = dot(e_incoming, e_incoming, 2);
     enhancement = sqrt(e_intensity ./ e0_intensity);
     
     field_data(ipol).polarization = pol(ipol, :);
@@ -2051,4 +2127,3 @@ calculation_time = calculation_time + field_calc_time;
 """
         
         return code
-
