@@ -7,7 +7,7 @@
 #SBATCH --ntasks=2
 #SBATCH --cpus-per-task=1
 #SBATCH --export=NONE
-#SBATCH --mem 20G
+#SBATCH --mem 60G
 
 module purge
 module load matlab/24.1
