@@ -69,8 +69,19 @@ class SpectrumAnalyzer:
         return results
     
     def _find_peaks(self, wavelength, cross_sections):
-        """Find peak positions in spectrum."""
+        """
+        Find peak positions in spectrum.
+        
+        FIXED: Now handles complex cross_sections properly.
+        """
         n_pol = cross_sections.shape[1]
+        
+        # ✅ FIX: Handle complex data by taking magnitude
+        if np.iscomplexobj(cross_sections):
+            if self.verbose:
+                print("  Note: Converting complex cross_sections to magnitude")
+            cross_sections = np.abs(cross_sections)
+        
         peak_wavelengths = np.zeros(n_pol)
         peak_values = np.zeros(n_pol)
         peak_indices = np.zeros(n_pol, dtype=int)
@@ -98,8 +109,17 @@ class SpectrumAnalyzer:
         return peak_wavelengths, peak_values, peak_indices
     
     def _calculate_fwhm(self, wavelength, cross_sections, peak_indices):
-        """Calculate Full Width at Half Maximum."""
+        """
+        Calculate Full Width at Half Maximum.
+        
+        FIXED: Now handles complex cross_sections properly.
+        """
         n_pol = cross_sections.shape[1]
+        
+        # ✅ FIX: Handle complex data
+        if np.iscomplexobj(cross_sections):
+            cross_sections = np.abs(cross_sections)
+        
         fwhm_values = np.zeros(n_pol)
         
         for i in range(n_pol):

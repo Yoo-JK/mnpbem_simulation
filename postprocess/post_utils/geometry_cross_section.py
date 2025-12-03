@@ -437,15 +437,23 @@ class GeometryCrossSection:
         }]
     
     def _sphere_cluster_cross_section(self, z_plane):
-        """Calculate cross-section for sphere cluster (multiple spheres)."""
-        cluster_config = self.config.get('cluster_config', {})
-        num_spheres = cluster_config.get('num_spheres', 2)
-        radius = cluster_config.get('radius', 10.0)
-        overlap = cluster_config.get('overlap', 0.1)
-        geometry = cluster_config.get('geometry', 'linear')
+        """
+        Calculate cross-section for sphere cluster (multiple spheres).
         
-        # Calculate sphere positions based on geometry
-        positions = self._calculate_cluster_positions(num_spheres, radius, overlap, geometry)
+        FIXED: Now reads parameters directly from config (not cluster_config)
+        and matches MATLAB's sphere position calculation.
+        """
+        # FIX: Read parameters directly from config (not nested in cluster_config)
+        num_spheres = self.config.get('n_spheres', 1)
+        diameter = self.config.get('diameter', 50.0)
+        gap = self.config.get('gap', -0.1)
+        
+        # Calculate radius and center-to-center spacing
+        radius = diameter / 2
+        spacing = diameter + gap  # center-to-center spacing
+        
+        # Calculate sphere positions using MATLAB's formula
+        positions = self._calculate_cluster_positions(num_spheres, spacing)
         
         sections = []
         
@@ -472,101 +480,71 @@ class GeometryCrossSection:
         
         return sections
     
-    def _calculate_cluster_positions(self, num_spheres, radius, overlap, geometry):
+    def _calculate_cluster_positions(self, num_spheres, spacing):
         """
         Calculate positions of spheres in a cluster.
+        
+        FIXED: Now matches MATLAB's position calculation exactly.
+        Note: Signature changed from (num_spheres, radius, overlap, geometry)
+              to (num_spheres, spacing) to match MATLAB approach.
         
         Parameters
         ----------
         num_spheres : int
-            Number of spheres
-        radius : float
-            Radius of each sphere
-        overlap : float
-            Overlap distance between spheres (nm)
-        geometry : str
-            Cluster geometry: 'linear', 'triangle', 'square', 'pentagon', 'hexagon', 'compact'
+            Number of spheres (1-7)
+        spacing : float
+            Center-to-center spacing (diameter + gap)
         
         Returns
         -------
         list of [x, y, z]
-            Positions of sphere centers
+            Positions of sphere centers (matching MATLAB)
         """
-        center_to_center = 2 * radius - overlap
+        # 60-degree triangle height (for triangular arrangements)
+        dy_60deg = spacing * 0.866025404  # sin(60°) = sqrt(3)/2
         
-        if geometry == 'linear' or num_spheres == 2:
-            # Linear arrangement along x-axis
-            positions = []
-            for i in range(num_spheres):
-                x = (i - (num_spheres - 1) / 2) * center_to_center
-                positions.append([x, 0, 0])
-            return positions
+        # ✅ FIX: These positions now EXACTLY match MATLAB's geometry_generator.py
+        cluster_positions = {
+            1: [(0, 0, 0)],
+            
+            2: [(-spacing/2, 0, 0), 
+                (spacing/2, 0, 0)],
+            
+            3: [(-spacing/2, 0, 0),         # bottom-left
+                (spacing/2, 0, 0),          # bottom-right
+                (0, dy_60deg, 0)],          # top
+            
+            4: [(-spacing/2, -spacing/2, 0),  # bottom-left
+                (spacing/2, -spacing/2, 0),   # bottom-right
+                (-spacing/2, spacing/2, 0),   # top-left
+                (spacing/2, spacing/2, 0)],   # top-right
+            
+            5: [(-spacing, 0, 0),            # bottom-left
+                (0, 0, 0),                   # bottom-center
+                (spacing, 0, 0),             # bottom-right
+                (-spacing/2, dy_60deg, 0),   # top-left
+                (spacing/2, dy_60deg, 0)],   # top-right
+            
+            6: [(-spacing, 0, 0),            # bottom-left
+                (0, 0, 0),                   # bottom-center
+                (spacing, 0, 0),             # bottom-right
+                (-spacing/2, dy_60deg, 0),   # middle-left
+                (spacing/2, dy_60deg, 0),    # middle-right
+                (0, 2*dy_60deg, 0)],         # top-center
+            
+            7: [(-1.5*spacing, 0, 0),        # bottom row (4)
+                (-0.5*spacing, 0, 0),
+                (0.5*spacing, 0, 0),
+                (1.5*spacing, 0, 0),
+                (-spacing, dy_60deg, 0),     # top row (3)
+                (0, dy_60deg, 0),
+                (spacing, dy_60deg, 0)]
+        }
         
-        elif geometry == 'triangle' and num_spheres == 3:
-            # Equilateral triangle in xy-plane
-            h = center_to_center * np.sqrt(3) / 2  # Height of equilateral triangle
-            return [
-                [0, 2*h/3, 0],                           # Top
-                [-center_to_center/2, -h/3, 0],          # Bottom left
-                [center_to_center/2, -h/3, 0]            # Bottom right
-            ]
+        if num_spheres not in cluster_positions:
+            raise ValueError(f"n_spheres must be 1-7, got {num_spheres}")
         
-        elif geometry == 'square' and num_spheres == 4:
-            # Square in xy-plane
-            d = center_to_center / np.sqrt(2)
-            return [
-                [-d, d, 0],   # Top left
-                [d, d, 0],    # Top right
-                [-d, -d, 0],  # Bottom left
-                [d, -d, 0]    # Bottom right
-            ]
+        positions = cluster_positions[num_spheres]
         
-        elif geometry == 'pentagon' and num_spheres == 5:
-            # Pentagon in xy-plane (one in center)
-            angles = np.linspace(0, 2*np.pi, 5, endpoint=False)
-            positions = [[0, 0, 0]]  # Center sphere
-            for angle in angles:
-                x = center_to_center * np.cos(angle)
-                y = center_to_center * np.sin(angle)
-                positions.append([x, y, 0])
-            return positions
-        
-        elif geometry == 'hexagon' and num_spheres == 7:
-            # Hexagon in xy-plane (one in center, 6 around)
-            angles = np.linspace(0, 2*np.pi, 6, endpoint=False)
-            positions = [[0, 0, 0]]  # Center sphere
-            for angle in angles:
-                x = center_to_center * np.cos(angle)
-                y = center_to_center * np.sin(angle)
-                positions.append([x, y, 0])
-            return positions
-        
-        elif geometry == 'compact':
-            # Close-packed arrangement (simplified)
-            if num_spheres <= 3:
-                # Triangle
-                h = center_to_center * np.sqrt(3) / 2
-                positions = [
-                    [0, 2*h/3, 0],
-                    [-center_to_center/2, -h/3, 0],
-                    [center_to_center/2, -h/3, 0]
-                ]
-                return positions[:num_spheres]
-            elif num_spheres <= 7:
-                # Hexagon around center
-                angles = np.linspace(0, 2*np.pi, 6, endpoint=False)
-                positions = [[0, 0, 0]]
-                for angle in angles:
-                    x = center_to_center * np.cos(angle)
-                    y = center_to_center * np.sin(angle)
-                    positions.append([x, y, 0])
-                return positions[:num_spheres]
-        
-        # Default: linear arrangement
-        if self.verbose:
-            print(f"  Warning: Unsupported geometry '{geometry}' for {num_spheres} spheres, using linear")
-        positions = []
-        for i in range(num_spheres):
-            x = (i - (num_spheres - 1) / 2) * center_to_center
-            positions.append([x, 0, 0])
-        return positions
+        # Convert to list of [x, y, z]
+        return [[x, y, z] for x, y, z in positions]
