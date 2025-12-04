@@ -17,14 +17,43 @@ class FieldAnalyzer:
     def analyze_field(self, field_data):
         """
         Comprehensive field analysis.
-        """
-        # field_data가 리스트인 경우 첫 번째 polarization 사용
-        if isinstance(field_data, list):
-            pol_data = field_data[0]
-        else:
-            pol_data = field_data
         
-        # 이제 pol_data에서 데이터 추출
+        Parameters
+        ----------
+        field_data : dict or list of dict
+            Single field data dict or list of field data for multiple polarizations
+        
+        Returns
+        -------
+        dict or list of dict
+            Analysis results (single dict if input is dict, list if input is list)
+        """
+        # ✅ FIX: Handle both single and multiple polarizations properly
+        if isinstance(field_data, list):
+            # Multiple polarizations: analyze each separately
+            if self.verbose:
+                print(f"  Analyzing {len(field_data)} polarizations...")
+            
+            return [self._analyze_single_field(pol_data) for pol_data in field_data]
+        else:
+            # Single polarization
+            return self._analyze_single_field(field_data)
+    
+    def _analyze_single_field(self, pol_data):
+        """
+        Analyze a single polarization field data.
+        
+        Parameters
+        ----------
+        pol_data : dict
+            Field data for a single polarization
+        
+        Returns
+        -------
+        dict
+            Analysis results
+        """
+        # Extract data
         enhancement = pol_data.get('enhancement')
         intensity = pol_data.get('intensity')
         x_grid = pol_data.get('x_grid')
@@ -34,9 +63,10 @@ class FieldAnalyzer:
         if enhancement is None:
             return None
         
-        # 복소수 처리
+        # Handle complex data
         if np.iscomplexobj(enhancement):
-            print("  Converting complex enhancement to magnitude...")
+            if self.verbose:
+                print("  Converting complex enhancement to magnitude...")
             enhancement = np.abs(enhancement)
         
         if np.iscomplexobj(intensity):
@@ -47,13 +77,13 @@ class FieldAnalyzer:
             'polarization': pol_data.get('polarization').tolist() if hasattr(pol_data.get('polarization'), 'tolist') else pol_data.get('polarization'),
         }
         
-        # Enhancement statistics (이제 실수 데이터)
+        # Enhancement statistics
         analysis['enhancement_stats'] = self._calculate_statistics(enhancement)
         
-        # Intensity statistics (이제 실수 데이터)
+        # Intensity statistics
         analysis['intensity_stats'] = self._calculate_statistics(intensity)
         
-        # Find hotspots (enhancement는 이미 실수로 변환됨)
+        # Find hotspots
         hotspots = self._find_hotspots(enhancement, x_grid, y_grid, z_grid)
         analysis['hotspots'] = hotspots
         
@@ -125,7 +155,8 @@ class FieldAnalyzer:
 
         if np.iscomplexobj(enhancement):
             enhancement = np.abs(enhancement)
-            print("  Converting complex enhancement to magnitude")
+            if self.verbose:
+                print("  Converting complex enhancement to magnitude")
 
         neighborhood_size = min_distance * 2 + 1
         local_max = maximum_filter(enhancement, size=neighborhood_size)
