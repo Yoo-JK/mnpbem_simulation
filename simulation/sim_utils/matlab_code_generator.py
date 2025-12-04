@@ -1551,6 +1551,7 @@ field_data = struct();
                 else
                     e_induced = e_induced_all;
                 end
+                fprintf('      e_induced size: [%s]\\n', num2str(size(e_induced)));
 
                 % Calculate incoming field for this polarization
                 e_incoming_obj = exc_single.field(emesh.pt, enei(ien));
@@ -1567,10 +1568,37 @@ field_data = struct();
                 else
                     e_incoming = e_incoming_obj;
                 end
+                fprintf('      e_incoming size: [%s]\\n', num2str(size(e_incoming)));
 
                 % Ensure 2D arrays for addition
+                if ndims(e_induced) == 3
+                    e_induced = squeeze(e_induced);
+                end
                 if ndims(e_incoming) == 3
                     e_incoming = squeeze(e_incoming);
+                end
+
+                % Handle size mismatch
+                sz_induced = size(e_induced);
+                sz_incoming = size(e_incoming);
+
+                if ~isequal(sz_induced, sz_incoming)
+                    fprintf('    [!] Size mismatch: e_induced [%s], e_incoming [%s]\\n', ...
+                            num2str(sz_induced), num2str(sz_incoming));
+
+                    if isequal(sz_induced, fliplr(sz_incoming))
+                        e_incoming = e_incoming.';
+                    elseif numel(e_induced) == numel(e_incoming)
+                        e_incoming = reshape(e_incoming, size(e_induced));
+                    elseif sz_induced(1) == sz_incoming(1)
+                        if sz_incoming(2) > sz_induced(2)
+                            e_incoming = e_incoming(:, 1:sz_induced(2));
+                        elseif sz_induced(2) > sz_incoming(2)
+                            e_induced = e_induced(:, 1:sz_incoming(2));
+                        end
+                    end
+                    fprintf('    -> Fixed sizes: e_induced [%s], e_incoming [%s]\\n', ...
+                            num2str(size(e_induced)), num2str(size(e_incoming)));
                 end
 
                 % Total field
@@ -2315,6 +2343,7 @@ for ipol = 1:n_polarizations
     else
         e_induced = e_induced_obj;
     end
+    fprintf('      e_induced size: [%s]\\n', num2str(size(e_induced)));
 
     % STEP 4: Compute incoming field for THIS polarization
     fprintf('    Computing incoming field...\\n');
@@ -2332,13 +2361,53 @@ for ipol = 1:n_polarizations
     else
         e_incoming = e_incoming_obj;
     end
+    fprintf('      e_incoming size: [%s]\\n', num2str(size(e_incoming)));
 
     % STEP 5: Ensure proper dimensions for addition
     if ndims(e_induced) == 3
         e_induced = squeeze(e_induced);
+        fprintf('      e_induced squeezed to: [%s]\\n', num2str(size(e_induced)));
     end
     if ndims(e_incoming) == 3
         e_incoming = squeeze(e_incoming);
+        fprintf('      e_incoming squeezed to: [%s]\\n', num2str(size(e_incoming)));
+    end
+
+    % STEP 5b: Handle size mismatch
+    sz_induced = size(e_induced);
+    sz_incoming = size(e_incoming);
+
+    if ~isequal(sz_induced, sz_incoming)
+        fprintf('    [!] Size mismatch detected!\\n');
+        fprintf('        e_induced: [%s], e_incoming: [%s]\\n', ...
+                num2str(sz_induced), num2str(sz_incoming));
+
+        % Try to fix common dimension issues
+        % Case 1: One is transposed
+        if isequal(sz_induced, fliplr(sz_incoming))
+            fprintf('        -> Transposing e_incoming to match\\n');
+            e_incoming = e_incoming.';
+        % Case 2: e_incoming has extra dimension (e.g., 1xNx3 vs Nx3)
+        elseif numel(e_induced) == numel(e_incoming)
+            fprintf('        -> Reshaping e_incoming to match e_induced\\n');
+            e_incoming = reshape(e_incoming, size(e_induced));
+        else
+            fprintf('        -> Cannot auto-fix, attempting element count match...\\n');
+            % Last resort: if row counts match, use that
+            if sz_induced(1) == sz_incoming(1)
+                % Take only first 3 columns if e_incoming has more
+                if sz_incoming(2) > sz_induced(2)
+                    e_incoming = e_incoming(:, 1:sz_induced(2));
+                    fprintf('        -> Trimmed e_incoming columns\\n');
+                elseif sz_induced(2) > sz_incoming(2)
+                    e_induced = e_induced(:, 1:sz_incoming(2));
+                    fprintf('        -> Trimmed e_induced columns\\n');
+                end
+            end
+        end
+
+        fprintf('        Final sizes - e_induced: [%s], e_incoming: [%s]\\n', ...
+                num2str(size(e_induced)), num2str(size(e_incoming)));
     end
 
     % STEP 6: Calculate total field and enhancement
