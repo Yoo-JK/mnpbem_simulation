@@ -431,7 +431,7 @@ class GeometryGenerator:
         if warnings:
             warning_str = "\n".join([f"%   - {w}" for w in warnings])
             warning_code = f"""
-%% ⚠ Nonlocal Warnings:
+%% [!] Nonlocal Warnings:
 {warning_str}
 """
         else:
@@ -473,7 +473,7 @@ for i = 1:length(particles)
     p_outer = coverlayer.shift( p_inner, d_cover );
     particles_with_cover{{end+1}} = p_outer;
     particles_with_cover{{end+1}} = p_inner;
-    fprintf('  ✓ Particle %d: added %.3f nm cover layer\\n', i, d_cover);
+    fprintf('  [OK] Particle %d: added %.3f nm cover layer\\n', i, d_cover);
 end
 
 particles = particles_with_cover;
@@ -559,7 +559,7 @@ for i = 1:length(particles)
     particles_with_cover{{end+1}} = p_outer;
     particles_with_cover{{end+1}} = p_inner;
     
-    fprintf('    ✓ Particle %d: cover layer %.3f nm\\n', i, d_cover);
+    fprintf('    [OK] Particle %d: cover layer %.3f nm\\n', i, d_cover);
 end
 
 particles = particles_with_cover;
@@ -591,7 +591,7 @@ for i = 1:length(particles)
     particles_with_cover{{end+1}} = p_outer;
     particles_with_cover{{end+1}} = p_inner_smaller;
     
-    fprintf('  ✓ Particle %d: added %.3f nm cover layer (cube)\\n', i, d_cover);
+    fprintf('  [OK] Particle %d: added %.3f nm cover layer (cube)\\n', i, d_cover);
 end
 
 particles = particles_with_cover;
@@ -607,14 +607,14 @@ fprintf('  Total particles after cover layers: %d\\n', length(particles));
 % Manual cover layer application
 d_cover = {d};
 
-fprintf('  ⚠ Manual cover layer mode\\n');
-fprintf('  ⚠ Verify geometry visually before running full simulation!\\n');
+fprintf('  [!] Manual cover layer mode\\n');
+fprintf('  [!] Verify geometry visually before running full simulation!\\n');
 
 if length(particles) > 0
     p1 = particles{{1}};
     p1_outer = coverlayer.shift( p1, d_cover );
     particles = {{p1_outer, p1}};
-    fprintf('  ✓ Applied cover layer to first particle\\n');
+    fprintf('  [OK] Applied cover layer to first particle\\n');
 end
 """
         return code
