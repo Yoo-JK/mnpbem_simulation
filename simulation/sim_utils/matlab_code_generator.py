@@ -2363,34 +2363,68 @@ for ipol = 1:n_polarizations
     end
     fprintf('      e_incoming size: [%s]\\n', num2str(size(e_incoming)));
 
-    % STEP 5: Ensure proper dimensions for addition
-    if ndims(e_induced) == 3
-        e_induced = squeeze(e_induced);
-        fprintf('      e_induced squeezed to: [%s]\\n', num2str(size(e_induced)));
+    % STEP 5: Handle dimension mismatch between grid-form and point-form
+    % emesh(sig) may return grid shape [nx, ny, 3]
+    % exc.field(emesh.pt) returns [n_meshfield_pts, 3]
+    sz_induced = size(e_induced);
+    sz_incoming = size(e_incoming);
+    n_emesh_pts = emesh.pt.n;
+
+    fprintf('      meshfield has %d points (grid has %d)\\n', n_emesh_pts, n_grid_points);
+
+    % CRITICAL FIX: If e_induced is grid-shaped but e_incoming is point-shaped
+    if ndims(e_induced) == 3 && sz_induced(3) == 3 && numel(sz_incoming) == 2 && sz_incoming(1) == n_emesh_pts
+        fprintf('      -> e_induced is grid [%dx%dx3], e_incoming is points [%dx3]\\n', ...
+                sz_induced(1), sz_induced(2), sz_incoming(1));
+        fprintf('      -> Converting e_induced from grid to meshfield points...\\n');
+
+        % Flatten e_induced to [n_grid_points, 3]
+        e_induced_flat = reshape(e_induced, [], 3);
+
+        % Extract only valid meshfield points using emesh_ind
+        if exist('emesh_ind', 'var') && ~isempty(emesh_ind) && length(emesh_ind) == n_emesh_pts
+            e_induced = e_induced_flat(emesh_ind, :);
+            fprintf('      -> Extracted %d points using emesh_ind\\n', size(e_induced, 1));
+        else
+            % Fallback: find non-NaN points
+            fprintf('      [!] emesh_ind not available, using non-NaN extraction\\n');
+            valid_rows = find(~any(isnan(e_induced_flat), 2));
+            if length(valid_rows) == n_emesh_pts
+                e_induced = e_induced_flat(valid_rows, :);
+            else
+                fprintf('      [!] WARNING: Valid point count mismatch!\\n');
+                e_induced = e_induced_flat(valid_rows(1:min(length(valid_rows), n_emesh_pts)), :);
+            end
+        end
+        fprintf('      -> e_induced now: [%s]\\n', num2str(size(e_induced)));
+    else
+        % Standard squeeze for 3D arrays
+        if ndims(e_induced) == 3
+            e_induced = squeeze(e_induced);
+            fprintf('      e_induced squeezed to: [%s]\\n', num2str(size(e_induced)));
+        end
     end
+
     if ndims(e_incoming) == 3
         e_incoming = squeeze(e_incoming);
         fprintf('      e_incoming squeezed to: [%s]\\n', num2str(size(e_incoming)));
     end
 
-    % STEP 5b: Handle size mismatch
-    sz_induced = size(e_induced);
-    sz_incoming = size(e_incoming);
-
-    if ~isequal(sz_induced, sz_incoming)
-        fprintf('    [!] Size mismatch detected!\\n');
+    % Final size verification
+    if ~isequal(size(e_induced), size(e_incoming))
+        fprintf('    [!] Size still mismatched!\\n');
         fprintf('        e_induced: [%s], e_incoming: [%s]\\n', ...
-                num2str(sz_induced), num2str(sz_incoming));
+                num2str(size(e_induced)), num2str(size(e_incoming)));
 
-        % Try to fix common dimension issues
-        % Case 1: One is transposed
-        if isequal(sz_induced, fliplr(sz_incoming))
-            fprintf('        -> Transposing e_incoming to match\\n');
-            e_incoming = e_incoming.';
-        % Case 2: e_incoming has extra dimension (e.g., 1xNx3 vs Nx3)
-        elseif numel(e_induced) == numel(e_incoming)
-            fprintf('        -> Reshaping e_incoming to match e_induced\\n');
+        % Last resort fixes
+        if numel(e_induced) == numel(e_incoming)
+            fprintf('        -> Reshaping e_incoming to match\\n');
             e_incoming = reshape(e_incoming, size(e_induced));
+        elseif size(e_induced, 1) == size(e_incoming, 1)
+            min_cols = min(size(e_induced, 2), size(e_incoming, 2));
+            e_induced = e_induced(:, 1:min_cols);
+            e_incoming = e_incoming(:, 1:min_cols);
+            fprintf('        -> Trimmed to %d columns\\n', min_cols);
         else
             fprintf('        -> Cannot auto-fix, attempting element count match...\\n');
             % Last resort: if row counts match, use that
