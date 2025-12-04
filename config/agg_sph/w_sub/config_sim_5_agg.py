@@ -87,7 +87,7 @@ args['spectrum_xaxis'] = 'eV'
 # ADVANCED
 # ============================================================================
 args['use_mirror_symmetry'] = False
-args['use_iterative_solver'] = True
+args['use_iterative_solver'] = False
 args['use_h2_compression'] = False
 args['use_nonlocality'] = False
 
