@@ -91,17 +91,20 @@ Python backend는 다음 구조들을 지원합니다:
 
 ### ✅ 완전 지원
 - **Single particles**: sphere, cube, rod, ellipsoid
-- **Core-shell**: core_shell_sphere, core_shell_cube
-- **Dimers**: dimer_sphere, dimer_cube
+- **Core-shell**: core_shell_sphere, core_shell_cube, core_shell_rod
+- **Dimers**: dimer_sphere, dimer_cube, dimer_core_shell_cube
+- **Advanced dimer**: advanced_dimer_cube (full transformation: tilt, rotation, offset)
+- **Clusters**: sphere_cluster_aggregate (1-7 spheres)
 
 ### 🚧 부분 지원
-- **advanced_dimer_cube**: 단순화된 버전으로 동작 (전체 transformation 기능은 추후 추가 예정)
+- **triangle**: 현재 cube approximation 사용
 
-### 📝 향후 추가 예정
-- sphere_cluster_aggregate
-- from_shape (DDA 파일)
-- substrate 지원
-- nonlocal 효과
+### ⚠️ 현재 미지원
+- **Field calculation**: pyMNPBEM에서 아직 미지원 (MATLAB backend 사용 필요)
+- **from_shape** (DDA 파일)
+- **substrate** 지원
+- **nonlocal** 효과
+- **EELS** excitation
 
 ## 출력 파일
 
@@ -274,12 +277,15 @@ pip install tqdm
 
 ## 향후 개발 계획
 
+- [x] Advanced dimer 전체 기능 구현 ✅
+- [x] Sphere cluster aggregate 지원 ✅
+- [x] Core-shell rod 추가 ✅
+- [ ] Field 계산 추가 (pyMNPBEM의 field 메서드 구현 대기)
 - [ ] Substrate 지원
 - [ ] Nonlocal 효과 구현
-- [ ] Field 계산 추가
-- [ ] Advanced dimer 전체 기능 구현
-- [ ] Sphere cluster aggregate 지원
+- [ ] EELS excitation 지원
 - [ ] DDA shape 파일 import
+- [ ] Triangle geometry 완전 구현
 - [ ] 병렬 계산 최적화
 - [ ] 진행 상황 표시 개선
 

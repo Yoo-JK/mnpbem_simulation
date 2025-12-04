@@ -42,6 +42,7 @@ class PythonBEMCalculator:
         self.bem_solver = None
         self.excitation = None
         self.results = {}
+        self.field_data = None
 
         if self.verbose:
             print("PythonBEMCalculator initialized")
@@ -69,7 +70,7 @@ class PythonBEMCalculator:
             # Import specific classes
             from mnpbem import (
                 bemoptions, EpsConst, EpsTable, EpsDrude,
-                ComParticle, bemsolver, planewave, dipole
+                ComParticle, bemsolver, planewave, dipole, ComPoint
             )
             from mnpbem.particles.shapes import trisphere, tricube, trirod, tritorus
 
@@ -79,6 +80,7 @@ class PythonBEMCalculator:
             self.EpsTable = EpsTable
             self.EpsDrude = EpsDrude
             self.ComParticle = ComParticle
+            self.ComPoint = ComPoint
             self.bemsolver = bemsolver
             self.planewave = planewave
             self.dipole = dipole
@@ -122,20 +124,30 @@ class PythonBEMCalculator:
             return self._create_rod()
         elif structure == 'ellipsoid':
             return self._create_ellipsoid()
+        elif structure == 'triangle':
+            return self._create_triangle()
 
         # Core-shell structures
         elif structure == 'core_shell_sphere':
             return self._create_core_shell_sphere()
         elif structure == 'core_shell_cube':
             return self._create_core_shell_cube()
+        elif structure == 'core_shell_rod':
+            return self._create_core_shell_rod()
 
         # Dimers
         elif structure == 'dimer_sphere':
             return self._create_dimer_sphere()
         elif structure == 'dimer_cube':
             return self._create_dimer_cube()
+        elif structure == 'dimer_core_shell_cube':
+            return self._create_dimer_core_shell_cube()
         elif structure == 'advanced_dimer_cube':
             return self._create_advanced_dimer_cube()
+
+        # Clusters
+        elif structure == 'sphere_cluster_aggregate':
+            return self._create_sphere_cluster_aggregate()
 
         else:
             raise ValueError(f"Unsupported structure type: {structure}")
@@ -202,6 +214,24 @@ class PythonBEMCalculator:
 
         return [sphere]
 
+    def _create_triangle(self):
+        """Create a triangular prism."""
+        side_length = self.config['side_length']
+        thickness = self.config['thickness']
+        mesh_density = self.config.get('mesh_density', 12)
+
+        # Create triangular prism using vertices and faces
+        # This is a simplified implementation
+        # Full implementation would use proper triangulation
+
+        if self.verbose:
+            print(f"  Triangle: side={side_length}nm, thickness={thickness}nm")
+            print(f"  ⚠ Triangle geometry: using cube approximation for now")
+
+        # Fallback to cube for now
+        cube = self.tricube(mesh_density, side_length, rounding=0.1)
+        return [cube]
+
     def _create_core_shell_sphere(self):
         """Create a core-shell sphere."""
         core_diameter = self.config['core_diameter']
@@ -236,6 +266,32 @@ class PythonBEMCalculator:
 
         if self.verbose:
             print(f"  Core-shell cube: core={core_size}nm, shell={shell_thickness}nm")
+
+        return [outer, inner]
+
+    def _create_core_shell_rod(self):
+        """Create a core-shell rod."""
+        core_diameter = self.config['core_diameter']
+        shell_thickness = self.config['shell_thickness']
+        height = self.config['height']
+
+        # Inner rod (core)
+        if 'rod_mesh' in self.config:
+            mesh = self.config['rod_mesh']
+            inner = self.trirod(core_diameter, height, mesh)
+        else:
+            mesh_density = self.config.get('mesh_density', 144)
+            inner = self.trirod(core_diameter, height, mesh_density)
+
+        # Outer rod (shell)
+        outer_diameter = core_diameter + 2 * shell_thickness
+        if 'rod_mesh' in self.config:
+            outer = self.trirod(outer_diameter, height, mesh)
+        else:
+            outer = self.trirod(outer_diameter, height, mesh_density)
+
+        if self.verbose:
+            print(f"  Core-shell rod: core={core_diameter}nm, shell={shell_thickness}nm, height={height}nm")
 
         return [outer, inner]
 
@@ -280,14 +336,195 @@ class PythonBEMCalculator:
 
         return [cube1, cube2]
 
+    def _create_dimer_core_shell_cube(self):
+        """Create a dimer of core-shell cubes."""
+        core_size = self.config['core_size']
+        shell_thickness = self.config['shell_thickness']
+        gap = self.config['gap']
+        mesh_density = self.config.get('mesh_density', 12)
+        rounding = self.config.get('rounding', 0.25)
+
+        outer_size = core_size + 2 * shell_thickness
+
+        # First particle (outer + inner)
+        outer1 = self.tricube(mesh_density, outer_size, rounding=rounding)
+        inner1 = self.tricube(mesh_density, core_size, rounding=rounding)
+
+        # Second particle (outer + inner)
+        outer2 = self.tricube(mesh_density, outer_size, rounding=rounding)
+        inner2 = self.tricube(mesh_density, core_size, rounding=rounding)
+
+        # Position them
+        shift = outer_size / 2 + gap + outer_size / 2
+        outer1.verts[:, 0] -= shift / 2
+        inner1.verts[:, 0] -= shift / 2
+        outer2.verts[:, 0] += shift / 2
+        inner2.verts[:, 0] += shift / 2
+
+        if self.verbose:
+            print(f"  Dimer core-shell cube: core={core_size}nm, shell={shell_thickness}nm, gap={gap}nm")
+
+        return [outer1, inner1, outer2, inner2]
+
     def _create_advanced_dimer_cube(self):
         """Create advanced dimer cube with multiple shells and transformations."""
-        # This is a placeholder - would need full implementation
-        # For now, fall back to simple dimer
-        if self.verbose:
-            print("  ⚠ Advanced dimer cube: using simplified version")
+        core_size = self.config['core_size']
+        shell_layers = self.config.get('shell_layers', [])
+        gap = self.config['gap']
+        mesh_density = self.config.get('mesh_density', 12)
 
-        return self._create_dimer_cube()
+        # Get rounding values
+        if 'roundings' in self.config:
+            roundings = self.config['roundings']
+        else:
+            rounding = self.config.get('rounding', 0.25)
+            roundings = [rounding] * (1 + len(shell_layers))
+
+        # Transformation parameters
+        offset = self.config.get('offset', [0, 0, 0])
+        tilt_angle = self.config.get('tilt_angle', 0)
+        tilt_axis = self.config.get('tilt_axis', [0, 1, 0])
+        rotation_angle = self.config.get('rotation_angle', 0)
+
+        shapes = []
+
+        # Calculate sizes for all layers
+        sizes = [core_size]
+        for layer_thickness in shell_layers:
+            sizes.append(sizes[-1] + 2 * layer_thickness)
+
+        # Create first particle (all layers)
+        for i, size in enumerate(reversed(sizes)):
+            cube = self.tricube(mesh_density, size, rounding=roundings[len(sizes) - 1 - i])
+            # Position: move to left
+            shift = sizes[-1] / 2 + gap + sizes[-1] / 2
+            cube.verts[:, 0] -= shift / 2
+            shapes.append(cube)
+
+        # Create second particle with transformations
+        for i, size in enumerate(reversed(sizes)):
+            cube = self.tricube(mesh_density, size, rounding=roundings[len(sizes) - 1 - i])
+
+            # Apply transformations
+            verts = cube.verts.copy()
+
+            # 1. Rotation around z-axis
+            if rotation_angle != 0:
+                angle_rad = np.deg2rad(rotation_angle)
+                cos_a, sin_a = np.cos(angle_rad), np.sin(angle_rad)
+                rot_z = np.array([
+                    [cos_a, -sin_a, 0],
+                    [sin_a, cos_a, 0],
+                    [0, 0, 1]
+                ])
+                verts = verts @ rot_z.T
+
+            # 2. Tilt around custom axis
+            if tilt_angle != 0:
+                angle_rad = np.deg2rad(tilt_angle)
+                axis = np.array(tilt_axis) / np.linalg.norm(tilt_axis)
+                cos_a, sin_a = np.cos(angle_rad), np.sin(angle_rad)
+                ux, uy, uz = axis
+
+                # Rodrigues' rotation formula
+                rot_matrix = np.array([
+                    [cos_a + ux**2 * (1 - cos_a),
+                     ux * uy * (1 - cos_a) - uz * sin_a,
+                     ux * uz * (1 - cos_a) + uy * sin_a],
+                    [uy * ux * (1 - cos_a) + uz * sin_a,
+                     cos_a + uy**2 * (1 - cos_a),
+                     uy * uz * (1 - cos_a) - ux * sin_a],
+                    [uz * ux * (1 - cos_a) - uy * sin_a,
+                     uz * uy * (1 - cos_a) + ux * sin_a,
+                     cos_a + uz**2 * (1 - cos_a)]
+                ])
+                verts = verts @ rot_matrix.T
+
+            # 3. Shift to gap position
+            shift = sizes[-1] / 2 + gap + sizes[-1] / 2
+            verts[:, 0] += shift / 2
+
+            # 4. Apply offset
+            verts[:, 0] += offset[0]
+            verts[:, 1] += offset[1]
+            verts[:, 2] += offset[2]
+
+            cube.verts = verts
+            shapes.append(cube)
+
+        if self.verbose:
+            print(f"  Advanced dimer cube: core={core_size}nm, shells={shell_layers}, gap={gap}nm")
+            print(f"    Transformations: tilt={tilt_angle}°, rotation={rotation_angle}°, offset={offset}")
+
+        return shapes
+
+    def _create_sphere_cluster_aggregate(self):
+        """Create a cluster of spheres in contact."""
+        n_spheres = self.config.get('n_spheres', 2)
+        diameter = self.config['diameter']
+        gap = self.config.get('gap', -0.1)  # Negative = overlap for contact
+        mesh_density = self.config.get('mesh_density', 144)
+
+        radius = diameter / 2
+        overlap = -gap if gap < 0 else 0
+        center_distance = diameter - overlap
+
+        shapes = []
+
+        # Define positions for different cluster sizes
+        if n_spheres == 1:
+            positions = [[0, 0, 0]]
+        elif n_spheres == 2:
+            # Dimer
+            positions = [
+                [-center_distance/2, 0, 0],
+                [center_distance/2, 0, 0]
+            ]
+        elif n_spheres == 3:
+            # Triangle
+            h = center_distance * np.sqrt(3) / 2
+            positions = [
+                [-center_distance/2, -h/3, 0],
+                [center_distance/2, -h/3, 0],
+                [0, 2*h/3, 0]
+            ]
+        elif n_spheres == 4:
+            # Square
+            d = center_distance / np.sqrt(2)
+            positions = [
+                [-d, -d, 0],
+                [d, -d, 0],
+                [-d, d, 0],
+                [d, d, 0]
+            ]
+        elif n_spheres == 5:
+            # Pentagon
+            angles = np.linspace(0, 2*np.pi, 6)[:-1]
+            r = center_distance / (2 * np.sin(np.pi/5))
+            positions = [[r * np.cos(a), r * np.sin(a), 0] for a in angles]
+        elif n_spheres == 6:
+            # Hexagon (compact)
+            angles = np.linspace(0, 2*np.pi, 7)[:-1]
+            r = center_distance
+            positions = [[r * np.cos(a), r * np.sin(a), 0] for a in angles]
+        elif n_spheres == 7:
+            # Hexagon with center
+            angles = np.linspace(0, 2*np.pi, 7)[:-1]
+            r = center_distance
+            positions = [[0, 0, 0]] + [[r * np.cos(a), r * np.sin(a), 0] for a in angles]
+        else:
+            raise ValueError(f"n_spheres={n_spheres} not supported. Use 1-7.")
+
+        # Create spheres at positions
+        for pos in positions:
+            sphere = self.trisphere(mesh_density, diameter)
+            sphere.verts += np.array(pos)
+            shapes.append(sphere)
+
+        if self.verbose:
+            print(f"  Sphere cluster: n={n_spheres}, diameter={diameter}nm, gap={gap}nm")
+
+        return shapes
 
     def create_materials(self):
         """
@@ -451,7 +688,7 @@ class PythonBEMCalculator:
             return [[2, 1]]  # inside=eps[1]=material[0], outside=eps[0]=medium
 
         # Core-shell: outer=[mat[0], medium], inner=[mat[1], mat[0]]
-        elif structure in ['core_shell_sphere', 'core_shell_cube']:
+        elif structure in ['core_shell_sphere', 'core_shell_cube', 'core_shell_rod']:
             return [
                 [2, 1],  # outer: inside=mat[0], outside=medium
                 [3, 2]   # inner: inside=mat[1], outside=mat[0]
@@ -464,10 +701,45 @@ class PythonBEMCalculator:
                 [2, 1]   # particle 2
             ]
 
+        # Dimer core-shell: 4 boundaries
+        elif structure == 'dimer_core_shell_cube':
+            return [
+                [2, 1],  # particle 1 outer
+                [3, 2],  # particle 1 inner
+                [2, 1],  # particle 2 outer
+                [3, 2]   # particle 2 inner
+            ]
+
         # Advanced dimer with multiple shells
         elif structure == 'advanced_dimer_cube':
-            # For now, simplified
-            return [[2, 1], [2, 1]]
+            shell_layers = self.config.get('shell_layers', [])
+            n_layers = len(shell_layers) + 1  # core + shells
+
+            inout = []
+            # First particle
+            for i in range(n_layers):
+                layer_idx = n_layers - i
+                if i == 0:
+                    # Outermost: [mat[i], medium]
+                    inout.append([layer_idx + 1, 1])
+                else:
+                    # Inner: [mat[i], mat[i-1]]
+                    inout.append([layer_idx + 1, layer_idx + 2])
+
+            # Second particle (same structure)
+            for i in range(n_layers):
+                layer_idx = n_layers - i
+                if i == 0:
+                    inout.append([layer_idx + 1, 1])
+                else:
+                    inout.append([layer_idx + 1, layer_idx + 2])
+
+            return inout
+
+        # Sphere cluster: all particles same material
+        elif structure == 'sphere_cluster_aggregate':
+            n_spheres = self.config.get('n_spheres', 2)
+            return [[2, 1]] * n_spheres
 
         else:
             # Default: single material
@@ -479,9 +751,10 @@ class PythonBEMCalculator:
 
         # Most structures are closed
         closed_structures = [
-            'sphere', 'cube', 'rod', 'ellipsoid',
-            'core_shell_sphere', 'core_shell_cube',
-            'dimer_sphere', 'dimer_cube', 'advanced_dimer_cube'
+            'sphere', 'cube', 'rod', 'ellipsoid', 'triangle',
+            'core_shell_sphere', 'core_shell_cube', 'core_shell_rod',
+            'dimer_sphere', 'dimer_cube', 'dimer_core_shell_cube',
+            'advanced_dimer_cube', 'sphere_cluster_aggregate'
         ]
 
         return 1 if structure in closed_structures else 0
@@ -559,6 +832,29 @@ class PythonBEMCalculator:
         else:
             raise ValueError(f"Unsupported excitation type: {exc_type}")
 
+    def calculate_fields(self, sig, wavelength):
+        """
+        Calculate electric field distribution.
+
+        Args:
+            sig: Surface charge distribution
+            wavelength: Wavelength (nm)
+
+        Returns:
+            dict: Field data {'x': x_grid, 'y': y_grid, 'z': z_grid, 'E': E_field, 'E_intensity': |E|^2}
+        """
+        field_region = self.config.get('field_region')
+        if not field_region:
+            return None
+
+        # pyMNPBEM field calculation is not yet fully supported
+        # For now, return None and skip field calculation
+        print(f"\n⚠  Field calculation not yet fully supported in pyMNPBEM")
+        print(f"   Use MATLAB backend for field calculations")
+        return None
+
+        # TODO: Implement when pyMNPBEM adds field calculation support
+
     def run_simulation(self):
         """
         Run the complete BEM simulation.
@@ -601,6 +897,21 @@ class PythonBEMCalculator:
         abs_cross = np.zeros((len(wavelengths), n_pol))
         ext = np.zeros((len(wavelengths), n_pol))
 
+        # Determine field calculation wavelength
+        calculate_fields = self.config.get('calculate_fields', False)
+        field_wl_idx = None
+        if calculate_fields:
+            field_wl_setting = self.config.get('field_wavelength_idx', 'middle')
+            if field_wl_setting == 'middle':
+                field_wl_idx = len(wavelengths) // 2
+            elif field_wl_setting == 'peak':
+                field_wl_idx = None  # Will be determined after spectrum calculation
+            else:
+                field_wl_idx = int(field_wl_setting)
+
+        # Storage for surface charges (for field calculation)
+        sig_storage = None
+
         # Wavelength loop
         for i, wl in enumerate(wavelengths):
             # Get excitation potential
@@ -618,10 +929,34 @@ class PythonBEMCalculator:
             # Absorption = Extinction - Scattering
             abs_cross[i, :] = ext[i, :] - sca[i, :]
 
+            # Store sig for field calculation
+            if calculate_fields and field_wl_idx is not None and i == field_wl_idx:
+                sig_storage = sig
+                field_wavelength = wl
+
             if (i + 1) % 20 == 0 or (i + 1) == len(wavelengths):
                 print(f"  Processed {i + 1}/{len(wavelengths)} wavelengths")
 
         print("✓ BEM calculation complete!")
+
+        # Determine peak wavelength for field calculation if needed
+        if calculate_fields and field_wl_idx is None:
+            # Find peak extinction
+            peak_idx = np.argmax(ext[:, 0])
+            field_wl_idx = peak_idx
+            field_wavelength = wavelengths[peak_idx]
+            print(f"\nPeak wavelength: {field_wavelength:.1f} nm")
+
+            # Recalculate sig at peak wavelength
+            exc_pot = self.excitation(self.particle, field_wavelength)
+            sig_storage = self.bem_solver.solve(exc_pot)
+
+        # Calculate fields if requested
+        if calculate_fields and sig_storage is not None:
+            print("\nCalculating field distribution...")
+            self.field_data = self.calculate_fields(sig_storage, field_wavelength)
+        else:
+            self.field_data = None
 
         # Store results
         self.results = {
@@ -629,6 +964,7 @@ class PythonBEMCalculator:
             'scattering': sca,
             'absorption': abs_cross,
             'extinction': ext,
+            'field_data': self.field_data
         }
 
         return self.results
@@ -683,16 +1019,46 @@ class PythonBEMCalculator:
         # Try to save as numpy
         try:
             npz_file = output_dir / 'results.npz'
-            np.savez(
-                npz_file,
-                wavelengths=wavelengths,
-                scattering=sca,
-                absorption=abs_cross,
-                extinction=ext
-            )
+            save_dict = {
+                'wavelengths': wavelengths,
+                'scattering': sca,
+                'absorption': abs_cross,
+                'extinction': ext
+            }
+
+            # Add field data if available
+            if self.field_data is not None:
+                save_dict['field_x'] = self.field_data['x']
+                save_dict['field_y'] = self.field_data['y']
+                save_dict['field_z'] = self.field_data['z']
+                save_dict['field_E_intensity'] = self.field_data['E_intensity']
+                save_dict['field_wavelength'] = self.field_data['wavelength']
+
+            np.savez(npz_file, **save_dict)
             print(f"  ✓ Saved: {npz_file}")
         except Exception as e:
             if self.verbose:
                 print(f"  ⚠ Could not save NPZ: {e}")
+
+        # Save field data separately if available
+        if self.field_data is not None:
+            try:
+                field_file = output_dir / 'field_data.npz'
+                np.savez(
+                    field_file,
+                    x=self.field_data['x'],
+                    y=self.field_data['y'],
+                    z=self.field_data['z'],
+                    X=self.field_data['X'],
+                    Y=self.field_data['Y'],
+                    Z=self.field_data['Z'],
+                    E=self.field_data['E'],
+                    E_intensity=self.field_data['E_intensity'],
+                    wavelength=self.field_data['wavelength']
+                )
+                print(f"  ✓ Saved: {field_file}")
+            except Exception as e:
+                if self.verbose:
+                    print(f"  ⚠ Could not save field data: {e}")
 
         print("✓ Results saved successfully")
