@@ -160,46 +160,82 @@ def main():
         import traceback
         traceback.print_exc()
         sys.exit(1)
-    
-    # Generate MATLAB code
-    print("\nGenerating MATLAB simulation code...")
-    try:
-        sim_manager.generate_matlab_code()
-    except Exception as e:
-        print(f"✗ Error generating MATLAB code: {e}")
-        import traceback
-        traceback.print_exc()
+
+    # Execute simulation based on backend
+    backend = config.get('backend', 'matlab').lower()
+
+    if backend == 'python':
+        # Python backend: run simulation directly
+        print("\nRunning Python BEM simulation...")
+        try:
+            results = sim_manager.execute_simulation()
+            print("✓ Python simulation completed successfully")
+        except Exception as e:
+            print(f"✗ Error running Python simulation: {e}")
+            import traceback
+            traceback.print_exc()
+            sys.exit(1)
+
+        # Print summary
+        print("\n" + "=" * 60)
+        print("Python BEM Simulation Complete")
+        print("=" * 60)
+        print(f"Structure:        {config.get('structure_name', config.get('structure', 'N/A'))}")
+        print(f"Structure type:   {config.get('structure', 'N/A')}")
+        print(f"Simulation:       {config.get('simulation_name', 'N/A')}")
+        print(f"Simulation type:  {config['simulation_type']}")
+        print(f"Excitation:       {config['excitation_type']}")
+        print(f"Wavelength range: {config['wavelength_range'][0]}-{config['wavelength_range'][1]} nm ({config['wavelength_range'][2]} points)")
+        print(f"Run folder:       {run_folder}")
+        print()
+        print(f"Backend:          Python (pyMNPBEM)")
+        print("=" * 60)
+
+    elif backend == 'matlab':
+        # MATLAB backend: generate code and prepare for execution
+        print("\nGenerating MATLAB simulation code...")
+        try:
+            sim_manager.generate_matlab_code()
+        except Exception as e:
+            print(f"✗ Error generating MATLAB code: {e}")
+            import traceback
+            traceback.print_exc()
+            sys.exit(1)
+
+        print("✓ MATLAB code generated successfully")
+
+        # Save MATLAB script to run folder
+        print("\nSaving MATLAB script...")
+        try:
+            output_path = sim_manager.save_matlab_script()
+        except Exception as e:
+            print(f"✗ Error saving MATLAB script: {e}")
+            import traceback
+            traceback.print_exc()
+            sys.exit(1)
+
+        # Print summary
+        print("\n" + "=" * 60)
+        print("Simulation Preparation Complete")
+        print("=" * 60)
+        print(f"Structure:        {config.get('structure_name', config.get('structure', 'N/A'))}")
+        print(f"Structure type:   {config.get('structure', 'N/A')}")
+        print(f"Simulation:       {config.get('simulation_name', 'N/A')}")
+        print(f"Simulation type:  {config['simulation_type']}")
+        print(f"Excitation:       {config['excitation_type']}")
+        print(f"Wavelength range: {config['wavelength_range'][0]}-{config['wavelength_range'][1]} nm ({config['wavelength_range'][2]} points)")
+        print(f"Run folder:       {run_folder}")
+        print()
+        print(f"Backend:          MATLAB")
+        print("Ready for MATLAB execution!")
+        print("=" * 60)
+
+        # Export run folder path to environment for master.sh to use
+        print(f"\nRUN_FOLDER={run_folder}")
+
+    else:
+        print(f"✗ Unknown backend: {backend}")
         sys.exit(1)
-    
-    print("✓ MATLAB code generated successfully")
-    
-    # Save MATLAB script to run folder
-    print("\nSaving MATLAB script...")
-    try:
-        output_path = sim_manager.save_matlab_script()
-    except Exception as e:
-        print(f"✗ Error saving MATLAB script: {e}")
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
-    
-    # Print summary
-    print("\n" + "=" * 60)
-    print("Simulation Preparation Complete")
-    print("=" * 60)
-    print(f"Structure:        {config.get('structure_name', config.get('structure', 'N/A'))}")
-    print(f"Structure type:   {config.get('structure', 'N/A')}")
-    print(f"Simulation:       {config.get('simulation_name', 'N/A')}")
-    print(f"Simulation type:  {config['simulation_type']}")
-    print(f"Excitation:       {config['excitation_type']}")
-    print(f"Wavelength range: {config['wavelength_range'][0]}-{config['wavelength_range'][1]} nm ({config['wavelength_range'][2]} points)")
-    print(f"Run folder:       {run_folder}")
-    print()
-    print("Ready for MATLAB execution!")
-    print("=" * 60)
-    
-    # Export run folder path to environment for master.sh to use
-    print(f"\nRUN_FOLDER={run_folder}")
 
 
 if __name__ == '__main__':

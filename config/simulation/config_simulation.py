@@ -5,6 +5,24 @@ args = {}
 
 
 # ============================================================================
+# BACKEND SELECTION (NEW!)
+# ============================================================================
+# Choose computation backend:
+#   - 'matlab' : Generate MATLAB code and execute with MATLAB (original method)
+#   - 'python' : Run directly in Python using pyMNPBEM (no MATLAB required)
+
+args['backend'] = 'python'  # Set to 'matlab' for original MATLAB workflow
+
+# Backend-specific paths:
+# For MATLAB backend:
+args['mnpbem_path'] = os.path.join(Path.home(), 'scratch/bins/MNPBEM')
+
+# For Python backend:
+args['pymnpbem_path'] = None  # Set to None since we'll use PYTHONPATH
+# args['pymnpbem_path'] = '/tmp/pyMNPBEM'  # Or specify path here
+
+
+# ============================================================================
 # PARALLEL COMPUTING OPTIONS (NEW!)
 # ============================================================================
 # Enable parallel computing with multiple cores

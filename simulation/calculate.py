@@ -1,7 +1,7 @@
 """
 Simulation Manager Class
 
-This class orchestrates the MATLAB code generation process.
+This class orchestrates both MATLAB code generation and Python-native BEM calculations.
 """
 
 import os
@@ -15,11 +15,11 @@ from .sim_utils.matlab_code_generator import MatlabCodeGenerator
 
 class SimulationManager:
     """Manages the entire simulation generation process."""
-    
+
     def __init__(self, config, verbose=False):
         """
         Initialize simulation manager.
-        
+
         Args:
             config (dict): Configuration dictionary
             verbose (bool): Enable verbose output
@@ -28,12 +28,27 @@ class SimulationManager:
         self.verbose = verbose
         self.matlab_code = None
         self.run_folder = None  # Will store the unique run folder path
-        
-        # Initialize sub-managers
-        self.geometry_gen = GeometryGenerator(config, verbose)
-        self.material_mgr = MaterialManager(config, verbose)
-        self.matlab_gen = MatlabCodeGenerator(config, verbose)
-        
+
+        # Determine backend
+        self.backend = self.config.get('backend', 'matlab').lower()
+
+        if self.backend not in ['matlab', 'python']:
+            raise ValueError(f"Invalid backend: {self.backend}. Must be 'matlab' or 'python'")
+
+        if verbose:
+            print(f"Backend: {self.backend}")
+
+        # Initialize backend-specific components
+        if self.backend == 'matlab':
+            # Initialize MATLAB code generators
+            self.geometry_gen = GeometryGenerator(config, verbose)
+            self.material_mgr = MaterialManager(config, verbose)
+            self.matlab_gen = MatlabCodeGenerator(config, verbose)
+        elif self.backend == 'python':
+            # Initialize Python BEM calculator
+            from .sim_utils.python_bem_calculator import PythonBEMCalculator
+            self.python_calc = PythonBEMCalculator(config, verbose)
+
         if verbose:
             print("SimulationManager initialized")
     
@@ -165,7 +180,7 @@ class SimulationManager:
     def get_run_folder(self):
         """Get the run folder path."""
         return self.run_folder
-    
+
     def get_summary(self):
         """Get summary of simulation configuration."""
         summary = {
@@ -174,6 +189,59 @@ class SimulationManager:
             'excitation': self.config['excitation_type'],
             'wavelength_range': self.config['wavelength_range'],
             'materials': self.config['materials'],
-            'run_folder': str(self.run_folder) if self.run_folder else None
+            'run_folder': str(self.run_folder) if self.run_folder else None,
+            'backend': self.backend
         }
         return summary
+
+    def run_python_simulation(self):
+        """
+        Run simulation using Python backend (pyMNPBEM).
+
+        This method runs the BEM calculation directly in Python,
+        without generating or executing MATLAB code.
+
+        Returns:
+            dict: Simulation results
+        """
+        if self.backend != 'python':
+            raise RuntimeError("run_python_simulation() requires backend='python'")
+
+        if self.run_folder is None:
+            raise RuntimeError("Run folder not created. Call create_run_folder() first.")
+
+        print("\n" + "="*60)
+        print("Running Python BEM Simulation")
+        print("="*60)
+
+        # Run simulation
+        results = self.python_calc.run_simulation()
+
+        # Save results
+        self.python_calc.save_results(self.run_folder)
+
+        if self.verbose:
+            print("\n✓ Python simulation completed successfully")
+
+        return results
+
+    def execute_simulation(self):
+        """
+        Execute simulation using the configured backend.
+
+        This is a unified interface that calls the appropriate backend.
+
+        Returns:
+            For Python backend: dict with results
+            For MATLAB backend: str with path to generated script
+        """
+        if self.backend == 'python':
+            return self.run_python_simulation()
+        elif self.backend == 'matlab':
+            # Generate MATLAB code
+            self.generate_matlab_code()
+            # Save MATLAB script
+            script_path = self.save_matlab_script()
+            return script_path
+        else:
+            raise RuntimeError(f"Unknown backend: {self.backend}")

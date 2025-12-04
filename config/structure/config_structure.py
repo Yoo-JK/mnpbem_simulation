@@ -22,10 +22,10 @@ args['structure_name'] = 'my_structure'
 # ============================================================================
 
 # --- Sphere ---
-# args['structure'] = 'sphere'
-# args['diameter'] = 50  # nm
-# args['mesh_density'] = 144
-# args['materials'] = ['gold']
+args['structure'] = 'sphere'
+args['diameter'] = 50  # nm
+args['mesh_density'] = 144
+args['materials'] = ['gold']
 
 # --- Cube ---
 # args['structure'] = 'cube'
@@ -121,11 +121,11 @@ args['structure_name'] = 'my_structure'
 #   - Per-layer rounding control
 #   - Gap, offset, tilt, rotation control
 
-args['structure'] = 'advanced_dimer_cube'
+# args['structure'] = 'advanced_dimer_cube'
 
 # --- Core and Shells (inner → outer) ---
-args['core_size'] = 30  # Au core size (nm)
-args['shell_layers'] = [5, 3]  # [inner→outer] shell thickness (nm)
+# args['core_size'] = 30  # Au core size (nm)
+# args['shell_layers'] = [5, 3]  # [inner→outer] shell thickness (nm)
 # Example: [5, 3] means:
 #   - First shell (inner): 5 nm
 #   - Second shell (outer): 3 nm
@@ -133,40 +133,40 @@ args['shell_layers'] = [5, 3]  # [inner→outer] shell thickness (nm)
 # For triple shell: [5, 3, 2]
 
 # --- Materials (inner → outer) ---
-args['materials'] = ['gold', 'silver', 'agcl']  # [core, inner_shell, outer_shell]
+# args['materials'] = ['gold', 'silver', 'agcl']  # [core, inner_shell, outer_shell]
 # Order: core → inner shells → outer shells
 # Length must equal: 1 (core) + number of shells
 
 # --- Per-Layer Rounding (inner → outer) ---
-args['roundings'] = [0.25, 0.2, 0.15]  # [core, inner, outer]
+# args['roundings'] = [0.25, 0.2, 0.15]  # [core, inner, outer]
 # Order matches materials: [core, shell1, shell2, ...]
 # OR use single value for all layers:
 # args['rounding'] = 0.2
 
 # --- Mesh Density ---
-args['mesh_density'] = 12
+# args['mesh_density'] = 12
 # Recommended: 12-16 for cubes
 
 # --- Dimer Configuration ---
-args['gap'] = 5  # surface-to-surface distance (nm)
+# args['gap'] = 5  # surface-to-surface distance (nm)
 # Can be < 1 nm for strong coupling, or negative for overlap
 
-args['offset'] = [0, 2, 0]  # [x, y, z] additional shift for particle 2 (nm)
+# args['offset'] = [0, 2, 0]  # [x, y, z] additional shift for particle 2 (nm)
 # [0, 0, 0] = end-to-end (default)
 # [0, 10, 0] = side-by-side (L-shape)
 # [0, 0, 5] = vertical stacking
 
-args['tilt_angle'] = 15  # degrees, particle 2 tilt
+# args['tilt_angle'] = 15  # degrees, particle 2 tilt
 # 0 = no tilt (parallel)
 # 90 = perpendicular (T-shape)
 
-args['tilt_axis'] = [0, 1, 0]  # [x, y, z] rotation axis for tilt
+# args['tilt_axis'] = [0, 1, 0]  # [x, y, z] rotation axis for tilt
 # [0, 1, 0] = y-axis (left-right tilt)
 # [1, 0, 0] = x-axis (front-back tilt)
 # [0, 0, 1] = z-axis (in-plane rotation)
 # [1, 1, 0] = diagonal axis
 
-args['rotation_angle'] = 0  # degrees, particle 2 rotation around z-axis
+# args['rotation_angle'] = 0  # degrees, particle 2 rotation around z-axis
 # Additional rotation after tilt
 # 0 = no rotation
 # 45 = 45° twist
@@ -308,7 +308,7 @@ args['rotation_angle'] = 0  # degrees, particle 2 rotation around z-axis
 # ============================================================================
 
 # --- Medium (Surrounding Environment) ---
-args['medium'] = 'water'
+args['medium'] = 'vacuum'
 # Options: 'air', 'water', 'vacuum', 'glass'
 # OR custom constant: args['medium'] = {'type': 'constant', 'epsilon': 1.77}
 
