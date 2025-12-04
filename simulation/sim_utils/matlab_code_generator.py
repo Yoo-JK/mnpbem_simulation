@@ -1840,21 +1840,22 @@ exit;
         """
         Wavelength loop with memory-efficient chunking AND field calculation support.
         
-        ✅ CRITICAL FIX (2024-12-04):
-        1. Field calculation now uses SEPARATE BEM solutions for each polarization
-        2. pt_field is reused to ensure consistent point filtering
-        3. emesh.ind is explicitly created for accurate grid reconstruction
+        ✅ CRITICAL FIX (2024-12-05 - FINAL):
+        1. Field calculation uses SEPARATE BEM solutions for each polarization
+        2. meshfield uses standard x_grid, y_grid, z_grid (NOT pt_field directly!)
+        3. emesh.ind is created through accurate coordinate matching
         
         This fixes:
         - Polarization 2 being all zeros
         - Field concentration in bottom-left corner
         - Coordinate matching errors
+        - meshfield creation error with pt_field
         
         Strategy: 
         1. Calculate ALL cross sections first (no field in loop)
         2. Find peak AFTER all chunks complete
         3. Calculate field separately for peak wavelength - EACH polarization independently
-        4. Use pt_field from greentab for consistent filtering
+        4. Use standard meshfield creation with accurate index mapping
         """
         
         wavelength_range = self.config['wavelength_range']
@@ -2065,7 +2066,7 @@ fprintf('================================================================\\n');
 """
 
         # ================================================================
-        # ✅✅✅ CRITICAL FIX STARTS HERE ✅✅✅
+        # ✅✅✅ CORRECTED FIELD CALCULATION ✅✅✅
         # ================================================================
         if calculate_fields:
             code += """
@@ -2131,40 +2132,67 @@ fprintf('Using middle wavelength: λ = %.1f nm (index %d)\\n', ...
 """
             
             # ================================================================
-            # ✅ CRITICAL FIX 1: Reuse pt_field from greentab
+            # ✅ CORRECTED: Standard meshfield creation (NOT using pt_field)
             # ================================================================
             use_substrate = self.config.get('use_substrate', False)
             
             if use_substrate:
-                code += """
+                mindist = self.config.get('field_mindist', 0.5)
+                nmax = self.config.get('field_nmax', 2000)
+                code += f"""
 % Create meshfield (substrate mode with greentab)
 fprintf('\\nCreating meshfield for substrate...\\n');
 x_grid = reshape(x_grid, grid_shape);
 y_grid = reshape(y_grid, grid_shape);
 z_grid = reshape(z_grid, grid_shape);
 
-% ✅ CRITICAL FIX: Reuse pt_field from greentab to ensure consistent filtering
-% This ensures the same points used in Green function tabulation are used here
-fprintf('  Using pt_field from greentab (ensures consistent point filtering)\\n');
-emesh = meshfield(p, pt_field, op);
+% Use standard meshfield creation
+field_mindist = {mindist};  % Store mindist for later use
+emesh = meshfield(p, x_grid, y_grid, z_grid, op, ...
+                  'mindist', field_mindist, 'nmax', {nmax});
 fprintf('  ✓ Meshfield ready: %d points\\n', emesh.pt.n);
 
-% Create index mapping for later grid reconstruction
+% ✅ CRITICAL FIX: Create accurate index mapping
 if ~isfield(emesh, 'ind') || isempty(emesh.ind)
     fprintf('  Creating index mapping for grid reconstruction...\\n');
+    
+    % Flatten original grids
     x_flat = x_grid(:);
     y_flat = y_grid(:);
     z_flat = z_grid(:);
     
+    % Find indices for each calculated point
     emesh_ind = zeros(emesh.pt.n, 1);
+    n_matched = 0;
+    
     for ii = 1:emesh.pt.n
+        % Calculate distance to all grid points
         dist = sqrt((x_flat - emesh.pt.pos(ii,1)).^2 + ...
                    (y_flat - emesh.pt.pos(ii,2)).^2 + ...
                    (z_flat - emesh.pt.pos(ii,3)).^2);
-        [~, emesh_ind(ii)] = min(dist);
+        
+        % Find closest match
+        [min_dist, idx] = min(dist);
+        
+        % Store index
+        emesh_ind(ii) = idx;
+        
+        % Verify match quality
+        if min_dist < 0.01  % Tolerance: 0.01 nm
+            n_matched = n_matched + 1;
+        else
+            % Warning for poor matches
+            if min_dist > 0.1
+                fprintf('    Warning: Point %d has poor match (dist=%.4f nm)\\n', ii, min_dist);
+            end
+        end
     end
+    
+    % Store indices
     emesh.ind = emesh_ind;
-    fprintf('  ✓ Index mapping created: %d points mapped\\n', length(emesh.ind));
+    
+    fprintf('  ✓ Index mapping created: %d/%d points matched exactly\\n', ...
+            n_matched, emesh.pt.n);
 end
 """
             else:
@@ -2201,7 +2229,7 @@ fprintf('  ✓ Meshfield created: %d points\\n', numel(x_grid));
 """
             
             # ================================================================
-            # ✅ CRITICAL FIX 2: Each polarization calculated separately
+            # ✅ Each polarization calculated separately
             # ================================================================
             code += """
 % Initialize field data storage
@@ -2238,9 +2266,7 @@ for ipol = 1:n_polarizations
     exc_single = eelsret(p, impact, beam_energy, 'width', beam_width, op);
 """
             
-            # ================================================================
-            # ✅ CRITICAL FIX 3: Improved coordinate matching
-            # ================================================================
+            # ✅ KEY FIX: Calculate each component separately
             code += """    
     % ✅ STEP 2: Compute BEM solution for THIS polarization ONLY
     fprintf('    Computing BEM solution...\\n');
@@ -2269,7 +2295,7 @@ for ipol = 1:n_polarizations
     e0_intensity = dot(e_incoming, e_incoming, 2);
     enhancement = sqrt(e_intensity ./ e0_intensity);
     
-    % ✅ STEP 7: Handle meshfield point filtering (use emesh.ind)
+    % ✅ STEP 7: Handle meshfield point filtering using emesh.ind
     n_field_points = length(enhancement);
     
     if n_field_points < n_grid_points
