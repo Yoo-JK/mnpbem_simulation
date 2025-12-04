@@ -22,12 +22,22 @@ from postprocess.post_utils.field_exporter import FieldExporter
 
 class PostprocessManager:
     """Manages the entire postprocessing workflow."""
-    
+
     def __init__(self, config, verbose=False):
         self.config = config
         self.verbose = verbose
-        self.output_dir = os.path.join(config.get('output_dir'), config.get('simulation_name'))
-        
+
+        # Validate required config keys
+        output_dir = config.get('output_dir')
+        simulation_name = config.get('simulation_name')
+
+        if output_dir is None:
+            raise ValueError("Config missing required key: 'output_dir'")
+        if simulation_name is None:
+            raise ValueError("Config missing required key: 'simulation_name'")
+
+        self.output_dir = os.path.join(output_dir, simulation_name)
+
         # Initialize components
         self.data_loader = DataLoader(config, verbose)
         self.analyzer = SpectrumAnalyzer(config, verbose)
