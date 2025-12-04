@@ -1841,13 +1841,20 @@ exit;
         Wavelength loop with memory-efficient chunking AND field calculation support.
         
         ✅ CRITICAL FIX (2024-12-04):
-        Field calculation now uses SEPARATE BEM solutions for each polarization.
-        This fixes the bug where polarization 2 field was all zeros.
+        1. Field calculation now uses SEPARATE BEM solutions for each polarization
+        2. pt_field is reused to ensure consistent point filtering
+        3. emesh.ind is explicitly created for accurate grid reconstruction
+        
+        This fixes:
+        - Polarization 2 being all zeros
+        - Field concentration in bottom-left corner
+        - Coordinate matching errors
         
         Strategy: 
         1. Calculate ALL cross sections first (no field in loop)
         2. Find peak AFTER all chunks complete
         3. Calculate field separately for peak wavelength - EACH polarization independently
+        4. Use pt_field from greentab for consistent filtering
         """
         
         wavelength_range = self.config['wavelength_range']
@@ -2123,23 +2130,42 @@ fprintf('Using middle wavelength: λ = %.1f nm (index %d)\\n', ...
         enei(field_wavelength_idx), field_wavelength_idx);
 """
             
-            # Create field mesh
+            # ================================================================
+            # ✅ CRITICAL FIX 1: Reuse pt_field from greentab
+            # ================================================================
             use_substrate = self.config.get('use_substrate', False)
             
             if use_substrate:
-                mindist = self.config.get('field_mindist', 0.5)
-                nmax = self.config.get('field_nmax', 2000)
-                code += f"""
+                code += """
 % Create meshfield (substrate mode with greentab)
 fprintf('\\nCreating meshfield for substrate...\\n');
 x_grid = reshape(x_grid, grid_shape);
 y_grid = reshape(y_grid, grid_shape);
 z_grid = reshape(z_grid, grid_shape);
 
-field_mindist = {mindist};  % Store mindist for later use
-emesh = meshfield(p, x_grid, y_grid, z_grid, op, ...
-                  'mindist', field_mindist, 'nmax', {nmax});
+% ✅ CRITICAL FIX: Reuse pt_field from greentab to ensure consistent filtering
+% This ensures the same points used in Green function tabulation are used here
+fprintf('  Using pt_field from greentab (ensures consistent point filtering)\\n');
+emesh = meshfield(p, pt_field, op);
 fprintf('  ✓ Meshfield ready: %d points\\n', emesh.pt.n);
+
+% Create index mapping for later grid reconstruction
+if ~isfield(emesh, 'ind') || isempty(emesh.ind)
+    fprintf('  Creating index mapping for grid reconstruction...\\n');
+    x_flat = x_grid(:);
+    y_flat = y_grid(:);
+    z_flat = z_grid(:);
+    
+    emesh_ind = zeros(emesh.pt.n, 1);
+    for ii = 1:emesh.pt.n
+        dist = sqrt((x_flat - emesh.pt.pos(ii,1)).^2 + ...
+                   (y_flat - emesh.pt.pos(ii,2)).^2 + ...
+                   (z_flat - emesh.pt.pos(ii,3)).^2);
+        [~, emesh_ind(ii)] = min(dist);
+    end
+    emesh.ind = emesh_ind;
+    fprintf('  ✓ Index mapping created: %d points mapped\\n', length(emesh.ind));
+end
 """
             else:
                 field_region = self.config.get('field_region', {})
@@ -2175,7 +2201,7 @@ fprintf('  ✓ Meshfield created: %d points\\n', numel(x_grid));
 """
             
             # ================================================================
-            # ✅✅✅ KEY FIX: Each polarization separately ✅✅✅
+            # ✅ CRITICAL FIX 2: Each polarization calculated separately
             # ================================================================
             code += """
 % Initialize field data storage
@@ -2212,7 +2238,9 @@ for ipol = 1:n_polarizations
     exc_single = eelsret(p, impact, beam_energy, 'width', beam_width, op);
 """
             
-            # ✅ KEY FIX: Calculate each component separately
+            # ================================================================
+            # ✅ CRITICAL FIX 3: Improved coordinate matching
+            # ================================================================
             code += """    
     % ✅ STEP 2: Compute BEM solution for THIS polarization ONLY
     fprintf('    Computing BEM solution...\\n');
@@ -2241,32 +2269,25 @@ for ipol = 1:n_polarizations
     e0_intensity = dot(e_incoming, e_incoming, 2);
     enhancement = sqrt(e_intensity ./ e0_intensity);
     
-    % ✅ STEP 7: Handle meshfield point filtering (mindist option)
+    % ✅ STEP 7: Handle meshfield point filtering (use emesh.ind)
     n_field_points = length(enhancement);
     
     if n_field_points < n_grid_points
-        fprintf('    → Grid filtering: %d/%d points used (mindist=%.2f nm)\\n', ...
-                n_field_points, n_grid_points, field_mindist);
+        fprintf('    → Grid filtering: %d/%d points used\\n', ...
+                n_field_points, n_grid_points);
         
         enhancement_full = nan(n_grid_points, 1);
         e_intensity_full = nan(n_grid_points, 1);
         
+        % Use emesh.ind (should exist from meshfield creation above)
         if isfield(emesh, 'ind') && ~isempty(emesh.ind)
+            fprintf('    Using emesh.ind for accurate mapping\\n');
             enhancement_full(emesh.ind) = enhancement;
             e_intensity_full(emesh.ind) = e_intensity;
         else
-            fprintf('    ⚠ Warning: emesh.ind not found, using coordinate matching\\n');
-            x_flat = x_grid(:);
-            y_flat = y_grid(:);
-            z_flat = z_grid(:);
-            for ii = 1:n_field_points
-                dx = abs(x_flat - emesh.pt.pos(ii,1));
-                dy = abs(y_flat - emesh.pt.pos(ii,2));
-                dz = abs(z_flat - emesh.pt.pos(ii,3));
-                [~, idx] = min(dx + dy + dz);
-                enhancement_full(idx) = enhancement(ii);
-                e_intensity_full(idx) = e_intensity(ii);
-            end
+            % This should NOT happen if meshfield was created correctly above
+            fprintf('    ⚠ ERROR: emesh.ind not found!\\n');
+            fprintf('    Field visualization will be incorrect!\\n');
         end
         
         enhancement = enhancement_full;
