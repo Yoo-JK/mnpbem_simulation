@@ -28,7 +28,7 @@ class GeometryCrossSection:
         """
         self.config = config
         self.verbose = verbose
-        self.structure_type = config.get('structure_type', 'sphere')
+        self.structure_type = config.get('structure', 'sphere')
         
         if self.verbose:
             print(f"[GeometryCrossSection] Structure type: {self.structure_type}")
@@ -61,12 +61,21 @@ class GeometryCrossSection:
         structure_handlers = {
             'sphere': self._sphere_cross_section,
             'core_shell': self._core_shell_cross_section,
+            'core_shell_sphere': self._core_shell_cross_section,  # Alias
+            'core_shell_cube': self._cube_cross_section,  # Simplified
+            'core_shell_rod': self._rod_cross_section,  # Simplified
             'cube': self._cube_cross_section,
             'dimer': self._dimer_cross_section,
+            'dimer_sphere': self._dimer_cross_section,  # Alias
             'dimer_cube': self._dimer_cube_cross_section,
+            'dimer_core_shell_cube': self._dimer_cube_cross_section,  # Simplified
+            'advanced_dimer_cube': self._dimer_cube_cross_section,  # Simplified
             'rod': self._rod_cross_section,
             'ellipsoid': self._ellipsoid_cross_section,
             'sphere_cluster': self._sphere_cluster_cross_section,
+            'sphere_cluster_aggregate': self._sphere_cluster_cross_section,  # ✅ ADD THIS
+            'triangle': self._triangle_cross_section,
+            'from_shape': self._from_shape_cross_section,
         }
         
         handler = structure_handlers.get(self.structure_type)
@@ -74,6 +83,7 @@ class GeometryCrossSection:
         if handler is None:
             if self.verbose:
                 print(f"  Warning: Unknown structure type '{self.structure_type}'")
+                print(f"  Supported structures: {list(structure_handlers.keys())}")
             return []
         
         return handler(z_plane)
@@ -548,3 +558,45 @@ class GeometryCrossSection:
         
         # Convert to list of [x, y, z]
         return [[x, y, z] for x, y, z in positions]
+
+    def _triangle_cross_section(self, z_plane):
+        """Calculate cross-section for triangular prism."""
+        side_length = self.config.get('side_length', 50.0)
+        thickness = self.config.get('thickness', 10.0)
+        center = self.config.get('center', [0, 0, 0])
+        
+        half_thick = thickness / 2
+        z_min = center[2] - half_thick
+        z_max = center[2] + half_thick
+        
+        # Check if plane intersects triangle
+        if z_plane < z_min or z_plane > z_max:
+            if self.verbose:
+                print(f"  No intersection: z_plane outside triangle thickness")
+            return []
+        
+        # For simplicity, approximate as circle with equivalent area
+        # Triangle area = (sqrt(3)/4) * side^2
+        # Circle area = pi * r^2
+        # r = sqrt(area / pi) = sqrt((sqrt(3)/4) * side^2 / pi)
+        area = (np.sqrt(3) / 4) * side_length**2
+        r_equiv = np.sqrt(area / np.pi)
+        
+        if self.verbose:
+            print(f"  Triangle: approximated as circle with r = {r_equiv:.2f} nm")
+        
+        return [{
+            'type': 'circle',
+            'center': [center[0], center[1]],
+            'radius': r_equiv,
+            'layer': 0,
+            'label': 'Triangle'
+        }]
+    
+    def _from_shape_cross_section(self, z_plane):
+        """Calculate cross-section for DDA shape file import."""
+        # For DDA shapes, we don't know the geometry in advance
+        # Return empty list (no visualization overlay)
+        if self.verbose:
+            print(f"  DDA shape file: no cross-section visualization available")
+        return []        
