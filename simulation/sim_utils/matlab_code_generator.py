@@ -1381,60 +1381,96 @@ fprintf('\\nSetting up field calculation mesh...\\n');
         field_wl_idx = self.config.get('field_wavelength_idx', 'middle')
         
         if field_wl_idx == 'middle':
-            code += """% Use middle wavelength
+            code += """% Use middle wavelength (single wavelength for all polarizations)
 field_wavelength_idx = round(n_wavelengths / 2);
+unique_field_wavelength_indices = field_wavelength_idx;
+n_field_wavelengths = 1;
+field_wavelength_indices = repmat(field_wavelength_idx, 1, n_polarizations);
 """
         elif field_wl_idx == 'peak':
-            code += """% Find absorption peak wavelength
-fprintf('  Finding absorption peak...\\n');
+            code += """% Find absorption peak wavelength for EACH polarization
+fprintf('  Finding absorption peak for each polarization...\\n');
 
-% Average absorption over polarizations
-abs_avg = mean(abs_cross, 2);
+% Find max absorption wavelength index for each polarization
+field_wavelength_indices = zeros(1, n_polarizations);
+for ipol = 1:n_polarizations
+    [max_abs_pol, idx] = max(abs_cross(:, ipol));
+    field_wavelength_indices(ipol) = idx;
+    fprintf('    Pol %d: Peak absorption %.2e nm^2 at lambda = %.1f nm (index %d)\\n', ...
+            ipol, max_abs_pol, enei(idx), idx);
+end
 
-% Find maximum
-[max_abs, field_wavelength_idx] = max(abs_avg);
+% Get unique wavelength indices (remove duplicates)
+unique_field_wavelength_indices = unique(field_wavelength_indices);
+n_field_wavelengths = length(unique_field_wavelength_indices);
 
-fprintf('  -> Peak absorption: %.2e nm^2 at lambda = %.1f nm (index %d)\\n', ...
-        max_abs, enei(field_wavelength_idx), field_wavelength_idx);
+fprintf('  -> Total %d unique wavelength(s) for field calculation\\n', n_field_wavelengths);
+for iw = 1:n_field_wavelengths
+    idx = unique_field_wavelength_indices(iw);
+    pols_at_this_wl = find(field_wavelength_indices == idx);
+    fprintf('     lambda = %.1f nm (index %d): polarizations [%s]\\n', ...
+            enei(idx), idx, num2str(pols_at_this_wl));
+end
 """
         elif field_wl_idx == 'peak_ext':
-            code += """% Find extinction peak wavelength
-fprintf('  Finding extinction peak...\\n');
+            code += """% Find extinction peak wavelength for EACH polarization
+fprintf('  Finding extinction peak for each polarization...\\n');
 
-% Average extinction over polarizations
-ext_avg = mean(ext, 2);
+% Find max extinction wavelength index for each polarization
+field_wavelength_indices = zeros(1, n_polarizations);
+for ipol = 1:n_polarizations
+    [max_ext_pol, idx] = max(ext(:, ipol));
+    field_wavelength_indices(ipol) = idx;
+    fprintf('    Pol %d: Peak extinction %.2e nm^2 at lambda = %.1f nm (index %d)\\n', ...
+            ipol, max_ext_pol, enei(idx), idx);
+end
 
-% Find maximum
-[max_ext, field_wavelength_idx] = max(ext_avg);
+% Get unique wavelength indices (remove duplicates)
+unique_field_wavelength_indices = unique(field_wavelength_indices);
+n_field_wavelengths = length(unique_field_wavelength_indices);
 
-fprintf('  -> Peak extinction: %.2e nm^2 at lambda = %.1f nm (index %d)\\n', ...
-        max_ext, enei(field_wavelength_idx), field_wavelength_idx);
+fprintf('  -> Total %d unique wavelength(s) for field calculation\\n', n_field_wavelengths);
 """
         elif field_wl_idx == 'peak_sca':
-            code += """% Find scattering peak wavelength
-fprintf('  Finding scattering peak...\\n');
+            code += """% Find scattering peak wavelength for EACH polarization
+fprintf('  Finding scattering peak for each polarization...\\n');
 
-% Average scattering over polarizations
-sca_avg = mean(sca, 2);
+% Find max scattering wavelength index for each polarization
+field_wavelength_indices = zeros(1, n_polarizations);
+for ipol = 1:n_polarizations
+    [max_sca_pol, idx] = max(sca(:, ipol));
+    field_wavelength_indices(ipol) = idx;
+    fprintf('    Pol %d: Peak scattering %.2e nm^2 at lambda = %.1f nm (index %d)\\n', ...
+            ipol, max_sca_pol, enei(idx), idx);
+end
 
-% Find maximum
-[max_sca, field_wavelength_idx] = max(sca_avg);
+% Get unique wavelength indices (remove duplicates)
+unique_field_wavelength_indices = unique(field_wavelength_indices);
+n_field_wavelengths = length(unique_field_wavelength_indices);
 
-fprintf('  -> Peak scattering: %.2e nm^2 at lambda = %.1f nm (index %d)\\n', ...
-        max_sca, enei(field_wavelength_idx), field_wavelength_idx);
+fprintf('  -> Total %d unique wavelength(s) for field calculation\\n', n_field_wavelengths);
 """
         elif isinstance(field_wl_idx, int):
-            code += f"""% Use specified wavelength index
+            code += f"""% Use specified wavelength index (single wavelength for all polarizations)
 field_wavelength_idx = {field_wl_idx};
+unique_field_wavelength_indices = field_wavelength_idx;
+n_field_wavelengths = 1;
+field_wavelength_indices = repmat(field_wavelength_idx, 1, n_polarizations);
 """
         else:
-            code += """% Default: use middle wavelength
+            code += """% Default: use middle wavelength (single wavelength for all polarizations)
 field_wavelength_idx = round(n_wavelengths / 2);
+unique_field_wavelength_indices = field_wavelength_idx;
+n_field_wavelengths = 1;
+field_wavelength_indices = repmat(field_wavelength_idx, 1, n_polarizations);
 """
         
         code += """
-fprintf('Field calculation at wavelength: lambda = %.1f nm (index %d)\\n', ...
-        enei(field_wavelength_idx), field_wavelength_idx);
+fprintf('Field calculation at %d wavelength(s):\\n', n_field_wavelengths);
+for iw = 1:n_field_wavelengths
+    fprintf('  [%d] lambda = %.1f nm (index %d)\\n', ...
+            iw, enei(unique_field_wavelength_indices(iw)), unique_field_wavelength_indices(iw));
+end
 
 """
     
@@ -1491,8 +1527,11 @@ fprintf('  [OK] Meshfield created: %d points\\n', numel(x_grid));
 % CRITICAL: Store grid shape for reshape operations
 grid_shape = size(x_grid);
 
-% Initialize field data storage
-field_data = struct();
+% Initialize field data storage - will store data for each (wavelength, polarization) pair
+field_data = struct('wavelength', {}, 'wavelength_idx', {}, 'polarization', {}, ...
+                    'polarization_idx', {}, 'e_total', {}, 'enhancement', {}, ...
+                    'intensity', {}, 'x_grid', {}, 'y_grid', {}, 'z_grid', {});
+field_data_idx = 0;  % Counter for field_data entries
 """
     
         return code
@@ -1502,10 +1541,14 @@ field_data = struct();
         excitation_type = self.config['excitation_type']
         
         code = """
-        % Calculate fields at selected wavelength
-        if ien == field_wavelength_idx
-            fprintf('\\n  -> Calculating fields at lambda = %.1f nm...\\n', enei(ien));
+        % Calculate fields at selected wavelength(s) - check if current wavelength is one of the targets
+        if ismember(ien, unique_field_wavelength_indices)
+            fprintf('\\n  -> Calculating fields at lambda = %.1f nm (index %d)...\\n', enei(ien), ien);
             field_calc_start = tic;
+
+            % Find which polarizations have their peak at this wavelength
+            pols_at_this_wl = find(field_wavelength_indices == ien);
+            fprintf('    Polarizations with peak at this wavelength: [%s]\\n', num2str(pols_at_this_wl));
 
             fprintf('  Computing induced fields...\\n');
             e_induced_obj = emesh(sig);
@@ -1525,9 +1568,11 @@ field_data = struct();
 
             grid_shape = size(x_grid);
 
-            for ipol = 1:n_polarizations
-                fprintf('    Processing polarization %d/%d...\\n', ipol, n_polarizations);
-                
+            % Only process polarizations that have their peak at this wavelength
+            for ipol_loop = 1:length(pols_at_this_wl)
+                ipol = pols_at_this_wl(ipol_loop);
+                fprintf('    Processing polarization %d (peak at this wavelength)...\\n', ipol);
+
 """
         
         if excitation_type == 'planewave':
@@ -1650,19 +1695,27 @@ field_data = struct();
                 % Now safely reshape
                 enhancement = reshape(enhancement, grid_shape);
                 e_intensity = reshape(e_intensity, grid_shape);
-                
-                field_data(ipol).polarization = pol(ipol, :);
-                field_data(ipol).wavelength = enei(ien);
-                field_data(ipol).e_total = e_total;
-                field_data(ipol).enhancement = enhancement;
-                field_data(ipol).intensity = e_intensity;
-                field_data(ipol).x_grid = x_grid;
-                field_data(ipol).y_grid = y_grid;
-                field_data(ipol).z_grid = z_grid;
+
+                % Store with wavelength and polarization indices
+                field_data_idx = field_data_idx + 1;
+                field_data(field_data_idx).wavelength = enei(ien);
+                field_data(field_data_idx).wavelength_idx = ien;
+                field_data(field_data_idx).polarization = pol(ipol, :);
+                field_data(field_data_idx).polarization_idx = ipol;
+                field_data(field_data_idx).e_total = e_total;
+                field_data(field_data_idx).enhancement = enhancement;
+                field_data(field_data_idx).intensity = e_intensity;
+                field_data(field_data_idx).x_grid = x_grid;
+                field_data(field_data_idx).y_grid = y_grid;
+                field_data(field_data_idx).z_grid = z_grid;
+
+                fprintf('      -> Stored as field_data(%d): lambda=%.1f nm, pol=%d\\n', ...
+                        field_data_idx, enei(ien), ipol);
             end
-            
+
             field_calc_time = toc(field_calc_start);
-            fprintf('\\n[OK] Field calculation completed in %.2f seconds\\n', field_calc_time);
+            fprintf('\\n[OK] Field calculation at lambda=%.1f nm completed in %.2f seconds\\n', ...
+                    enei(ien), field_calc_time);
             fprintf('================================================================\\n');
 
             % Update total calculation time
