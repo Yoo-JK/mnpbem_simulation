@@ -62,26 +62,34 @@ class FieldAnalyzer:
         
         if enhancement is None:
             return None
-        
+
         # Handle complex data
         if np.iscomplexobj(enhancement):
             if self.verbose:
                 print("  Converting complex enhancement to magnitude...")
             enhancement = np.abs(enhancement)
-        
-        if np.iscomplexobj(intensity):
+
+        if intensity is not None and np.iscomplexobj(intensity):
             intensity = np.abs(intensity)
-        
+
+        # Extract polarization once to avoid multiple .get() calls
+        polarization = pol_data.get('polarization')
+        if hasattr(polarization, 'tolist'):
+            polarization = polarization.tolist()
+
         analysis = {
             'wavelength': pol_data.get('wavelength'),
-            'polarization': pol_data.get('polarization').tolist() if hasattr(pol_data.get('polarization'), 'tolist') else pol_data.get('polarization'),
+            'polarization': polarization,
         }
-        
+
         # Enhancement statistics
         analysis['enhancement_stats'] = self._calculate_statistics(enhancement)
-        
-        # Intensity statistics
-        analysis['intensity_stats'] = self._calculate_statistics(intensity)
+
+        # Intensity statistics (only if intensity data exists)
+        if intensity is not None:
+            analysis['intensity_stats'] = self._calculate_statistics(intensity)
+        else:
+            analysis['intensity_stats'] = None
         
         # Find hotspots
         hotspots = self._find_hotspots(enhancement, x_grid, y_grid, z_grid)
@@ -280,3 +288,4 @@ class FieldAnalyzer:
                 pos = hotspot['position']
                 print(f"    #{hotspot['rank']}: ({pos[0]:.1f}, {pos[1]:.1f}, {pos[2]:.1f}) nm "
                       f"| E/E₀ = {hotspot['enhancement']:.2f}")
+

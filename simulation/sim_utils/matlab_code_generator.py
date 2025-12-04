@@ -1540,7 +1540,7 @@ field_data = struct();
                 end
                 
                 % Calculate incoming field for this polarization
-                e_incoming = emesh(exc_single.field(emesh.pt, enei(ien)));
+                e_incoming = exc_single.field(emesh.pt, enei(ien));
                 
                 % Ensure 2D arrays for addition
                 if ndims(e_incoming) == 3
@@ -1941,8 +1941,9 @@ for ichunk = 1:n_chunks
     % CRITICAL: Clear BEM solver between chunks!
     if ichunk > 1
         fprintf('  -> Clearing BEM memory from previous chunk...\\n');
-        bem = clear(bem);
-        fprintf('  [OK] Memory cleared\\n');
+        clear bem;
+        bem = bemsolver(p, op);  % Re-initialize BEM solver
+        fprintf('  [OK] Memory cleared and BEM re-initialized\\n');
     end
     
 """
@@ -2278,7 +2279,7 @@ for ipol = 1:n_polarizations
 
     % STEP 4: Compute incoming field for THIS polarization
     fprintf('    Computing incoming field...\\n');
-    e_incoming = emesh(exc_single.field(emesh.pt, enei(field_wavelength_idx)));
+    e_incoming = exc_single.field(emesh.pt, enei(field_wavelength_idx));
 
     % STEP 5: Ensure proper dimensions for addition
     if ndims(e_induced) == 3
