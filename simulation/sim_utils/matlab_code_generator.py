@@ -2281,6 +2281,47 @@ field_mindist = {mindist};  % Store mindist for later use
 emesh = meshfield(p, x_grid, y_grid, z_grid, op, ...
                   'mindist', field_mindist, 'nmax', {nmax});
 fprintf('  [OK] Meshfield created: %d points\\n', numel(x_grid));
+
+% CRITICAL FIX: Create accurate index mapping for grid reconstruction
+% This maps meshfield output points back to original grid positions
+if ~exist('emesh_ind', 'var') || isempty(emesh_ind)
+    fprintf('  Creating index mapping for grid reconstruction...\\n');
+
+    % Flatten original grids
+    x_flat = x_grid(:);
+    y_flat = y_grid(:);
+    z_flat = z_grid(:);
+
+    % Find indices for each calculated point
+    emesh_ind = zeros(emesh.pt.n, 1);
+    n_matched = 0;
+
+    for ii = 1:emesh.pt.n
+        % Calculate distance to all grid points
+        dist = sqrt((x_flat - emesh.pt.pos(ii,1)).^2 + ...
+                   (y_flat - emesh.pt.pos(ii,2)).^2 + ...
+                   (z_flat - emesh.pt.pos(ii,3)).^2);
+
+        % Find closest match
+        [min_dist, idx] = min(dist);
+
+        % Store index
+        emesh_ind(ii) = idx;
+
+        % Verify match quality
+        if min_dist < 0.01  % Tolerance: 0.01 nm
+            n_matched = n_matched + 1;
+        else
+            % Warning for poor matches
+            if min_dist > 0.1
+                fprintf('    Warning: Point %d has poor match (dist=%.4f nm)\\n', ii, min_dist);
+            end
+        end
+    end
+
+    fprintf('  [OK] Index mapping created: %d/%d points matched exactly\\n', ...
+            n_matched, emesh.pt.n);
+end
 """
 
             # ================================================================
