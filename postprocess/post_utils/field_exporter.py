@@ -42,10 +42,15 @@ class FieldExporter:
         }
         
         for i, (field_data, analysis) in enumerate(zip(field_data_list, field_analysis_list)):
+            # FIX: Handle complex wavelength value
+            wl = field_data['wavelength']
+            if np.iscomplexobj(wl):
+                wl = np.abs(wl)
+
             field_dict = {
                 'polarization_index': i + 1,
                 'polarization': field_data['polarization'].tolist() if hasattr(field_data['polarization'], 'tolist') else field_data['polarization'],
-                'wavelength_nm': float(field_data['wavelength']),
+                'wavelength_nm': float(wl),
                 
                 # Grid information
                 'grid': self._extract_grid_info(field_data),
@@ -105,7 +110,11 @@ class FieldExporter:
                 enhancement = np.array([[enhancement.item()]])
             elif enhancement.ndim == 1:
                 enhancement = enhancement.reshape(1, -1)
-            
+
+            # FIX: Convert complex to real magnitude for JSON serialization
+            if np.iscomplexobj(enhancement):
+                enhancement = np.abs(enhancement)
+
             if not isinstance(x_grid, np.ndarray):
                 x_grid = np.array([[x_grid]])
                 y_grid = np.array([[y_grid]])
@@ -143,9 +152,14 @@ class FieldExporter:
                     y_ds = y_grid
                     z_ds = z_grid
             
+            # FIX: Handle complex wavelength value
+            wl = field_data['wavelength']
+            if np.iscomplexobj(wl):
+                wl = np.abs(wl)
+
             field_dict = {
                 'polarization_index': i + 1,
-                'wavelength_nm': float(field_data['wavelength']),
+                'wavelength_nm': float(wl),
                 'x_coordinates': x_ds.tolist(),
                 'y_coordinates': y_ds.tolist(),
                 'z_coordinates': z_ds.tolist(),
