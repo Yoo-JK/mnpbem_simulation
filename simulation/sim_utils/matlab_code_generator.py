@@ -1569,12 +1569,12 @@ field_data = struct();
                     e_intensity_full = nan(n_grid_points, 1);
                     
                     % Fill valid points using meshfield indices
-                    if isfield(emesh, 'ind') && ~isempty(emesh.ind)
-                        enhancement_full(emesh.ind) = enhancement;
-                        e_intensity_full(emesh.ind) = e_intensity;
+                    if exist('emesh_ind', 'var') && ~isempty(emesh_ind)
+                        enhancement_full(emesh_ind) = enhancement;
+                        e_intensity_full(emesh_ind) = e_intensity;
                     else
                         % Fallback: match by coordinates (slower but works)
-                        fprintf('    [!] Warning: emesh.ind not found, using coordinate matching\\n');
+                        fprintf('    [!] Warning: emesh_ind not found, using coordinate matching\\n');
                         x_flat = x_grid(:);
                         y_flat = y_grid(:);
                         z_flat = z_grid(:);
@@ -1843,7 +1843,7 @@ exit;
         ✅ CRITICAL FIX (2024-12-05 - FINAL):
         1. Field calculation uses SEPARATE BEM solutions for each polarization
         2. meshfield uses standard x_grid, y_grid, z_grid (NOT pt_field directly!)
-        3. emesh.ind is created through accurate coordinate matching
+        3. emesh_ind variable stores accurate coordinate mapping (separate from meshfield)
         
         This fixes:
         - Polarization 2 being all zeros
@@ -2153,7 +2153,7 @@ emesh = meshfield(p, x_grid, y_grid, z_grid, op, ...
 fprintf('  [OK] Meshfield ready: %d points\\n', emesh.pt.n);
 
 % CRITICAL FIX: Create accurate index mapping
-if ~isfield(emesh, 'ind') || isempty(emesh.ind)
+if ~exist('emesh_ind', 'var') || isempty(emesh_ind)
     fprintf('  Creating index mapping for grid reconstruction...\\n');
     
     % Flatten original grids
@@ -2188,8 +2188,8 @@ if ~isfield(emesh, 'ind') || isempty(emesh.ind)
         end
     end
     
-    % Store indices in emesh structure
-    emesh.ind = emesh_ind;
+    % emesh_ind variable now holds the mapping indices
+    % (Cannot add custom properties to meshfield class)
 
     fprintf('  [OK] Index mapping created: %d/%d points matched exactly\\n', ...
             n_matched, emesh.pt.n);
@@ -2295,7 +2295,7 @@ for ipol = 1:n_polarizations
     e0_intensity = dot(e_incoming, e_incoming, 2);
     enhancement = sqrt(e_intensity ./ e0_intensity);
 
-    % STEP 7: Handle meshfield point filtering using emesh.ind
+    % STEP 7: Handle meshfield point filtering using emesh_ind
     n_field_points = length(enhancement);
 
     if n_field_points < n_grid_points
@@ -2305,14 +2305,14 @@ for ipol = 1:n_polarizations
         enhancement_full = nan(n_grid_points, 1);
         e_intensity_full = nan(n_grid_points, 1);
 
-        % Use emesh.ind (should exist from meshfield creation above)
-        if isfield(emesh, 'ind') && ~isempty(emesh.ind)
-            fprintf('    Using emesh.ind for accurate mapping\\n');
-            enhancement_full(emesh.ind) = enhancement;
-            e_intensity_full(emesh.ind) = e_intensity;
+        % Use emesh_ind (should exist from meshfield creation above)
+        if exist('emesh_ind', 'var') && ~isempty(emesh_ind)
+            fprintf('    Using emesh_ind for accurate mapping\\n');
+            enhancement_full(emesh_ind) = enhancement;
+            e_intensity_full(emesh_ind) = e_intensity;
         else
             % This should NOT happen if meshfield was created correctly above
-            fprintf('    [!] ERROR: emesh.ind not found!\\n');
+            fprintf('    [!] ERROR: emesh_ind not found!\\n');
             fprintf('    Field visualization will be incorrect!\\n');
         end
 
