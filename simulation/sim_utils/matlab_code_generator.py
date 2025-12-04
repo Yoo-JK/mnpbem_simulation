@@ -2059,33 +2059,43 @@ for ichunk = 1:n_chunks
             code += """    % Parallel/Serial processing within chunk
     if exist('parallel_enabled', 'var') && parallel_enabled
         fprintf('  Using parallel execution for this chunk\\n\\n');
-        
+
+        % Pre-allocate chunk-local arrays for parfor slicing
+        sca_chunk = zeros(n_chunk, n_polarizations);
+        ext_chunk = zeros(n_chunk, n_polarizations);
+        abs_chunk = zeros(n_chunk, n_polarizations);
+
         parfor i_local = 1:n_chunk
             ien = chunk_indices(i_local);
-            
+
             try
                 % Progress
                 if mod(i_local-1, max(1, floor(n_chunk/5))) == 0
                     fprintf('    [Worker] lambda %d/%d (%.1f nm)\\n', ...
                             i_local, n_chunk, enei(ien));
                 end
-                
+
                 % BEM calculation (cross sections only)
                 sig = bem \\ exc(p, enei(ien));
-                
-                % Store results
-                sca(ien, :) = exc.sca(sig);
-                ext(ien, :) = exc.ext(sig);
-                abs_cross(ien, :) = ext(ien, :) - sca(ien, :);
-                
+
+                % Store results using loop variable (parfor-compatible)
+                sca_chunk(i_local, :) = exc.sca(sig);
+                ext_chunk(i_local, :) = exc.ext(sig);
+                abs_chunk(i_local, :) = ext_chunk(i_local, :) - sca_chunk(i_local, :);
+
             catch ME
                 fprintf('    ERROR at lambda %d (%.1f nm): %s\\n', ...
                         ien, enei(ien), ME.message);
-                sca(ien, :) = zeros(1, n_polarizations);
-                ext(ien, :) = zeros(1, n_polarizations);
-                abs_cross(ien, :) = zeros(1, n_polarizations);
+                sca_chunk(i_local, :) = zeros(1, n_polarizations);
+                ext_chunk(i_local, :) = zeros(1, n_polarizations);
+                abs_chunk(i_local, :) = zeros(1, n_polarizations);
             end
         end
+
+        % Copy chunk results to main arrays
+        sca(chunk_indices, :) = sca_chunk;
+        ext(chunk_indices, :) = ext_chunk;
+        abs_cross(chunk_indices, :) = abs_chunk;
 
     else
         fprintf('  Using serial execution for this chunk\\n\\n');
