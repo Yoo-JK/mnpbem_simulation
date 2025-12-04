@@ -108,7 +108,7 @@ eps_{material_name}_drude = epsfun( @( w ) eps_infinity - omega_p^2 ./ ( w .* ( 
 eps_{material_name}_nonlocal = epsfun( @( enei ) eps_{material_name}_drude( enei ) .* eps_mat1( enei ) ./  ...
             ( eps_{material_name}_drude( enei ) - eps_mat1( enei ) ) .* ql( eV2nm ./ enei ) * d_nonlocal );
 
-fprintf('  ✓ Nonlocal corrections: {material_name} with d=%.3f nm\\n', d_nonlocal);
+fprintf('  [OK] Nonlocal corrections: {material_name} with d=%.3f nm\\n', d_nonlocal);
 """
         return code
     
@@ -205,7 +205,7 @@ fprintf('  ✓ Nonlocal corrections: {material_name} with d=%.3f nm\\n', d_nonlo
 %% Enhanced BEM Options for Nonlocal Simulations
 % High-precision integration for close boundary elements
 op = bemoptions( op, 'npol', {npol}, 'refine', {refine} );
-fprintf('  ✓ Nonlocal BEM options: npol=%d, refine=%d\\n', {npol}, {refine});
+fprintf('  [OK] Nonlocal BEM options: npol=%d, refine=%d\\n', {npol}, {refine});
 """
         return code
     
@@ -240,7 +240,7 @@ fprintf('  ✓ Nonlocal BEM options: npol=%d, refine=%d\\n', {npol}, {refine});
         code = f"""
 % Refined integration for cover layer boundaries
 refun = coverlayer.refine( {particle_var}, [ {pairs_str} ] );
-fprintf('  ✓ Cover layer refinement: %d boundary pairs\\n', {len(cover_pairs)});
+fprintf('  [OK] Cover layer refinement: %d boundary pairs\\n', {len(cover_pairs)});
 """
         return code
     
