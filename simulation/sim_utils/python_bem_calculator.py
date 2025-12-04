@@ -149,6 +149,10 @@ class PythonBEMCalculator:
         elif structure == 'sphere_cluster_aggregate':
             return self._create_sphere_cluster_aggregate()
 
+        # DDA shape file
+        elif structure == 'from_shape':
+            return self._create_from_shape()
+
         else:
             raise ValueError(f"Unsupported structure type: {structure}")
 
@@ -218,19 +222,58 @@ class PythonBEMCalculator:
         """Create a triangular prism."""
         side_length = self.config['side_length']
         thickness = self.config['thickness']
-        mesh_density = self.config.get('mesh_density', 12)
-
-        # Create triangular prism using vertices and faces
-        # This is a simplified implementation
-        # Full implementation would use proper triangulation
 
         if self.verbose:
-            print(f"  Triangle: side={side_length}nm, thickness={thickness}nm")
-            print(f"  ⚠ Triangle geometry: using cube approximation for now")
+            print(f"  Triangle prism: side={side_length}nm, thickness={thickness}nm")
 
-        # Fallback to cube for now
-        cube = self.tricube(mesh_density, side_length, rounding=0.1)
-        return [cube]
+        # Create triangular prism manually
+        # Triangle base in xy-plane, extruded along z
+        h = side_length * np.sqrt(3) / 2  # Height of equilateral triangle
+
+        # Vertices for triangular prism
+        # Bottom triangle (z = -thickness/2)
+        v1_b = np.array([-side_length/2, -h/3, -thickness/2])
+        v2_b = np.array([side_length/2, -h/3, -thickness/2])
+        v3_b = np.array([0, 2*h/3, -thickness/2])
+
+        # Top triangle (z = thickness/2)
+        v1_t = np.array([-side_length/2, -h/3, thickness/2])
+        v2_t = np.array([side_length/2, -h/3, thickness/2])
+        v3_t = np.array([0, 2*h/3, thickness/2])
+
+        # Create triangulation
+        # Use pyMNPBEM's Particle class directly
+        from mnpbem.particles.particle import Particle
+
+        # Simple triangulation: 8 faces (2 triangles + 6 rectangles as 12 triangles)
+        # Bottom face: 1 triangle
+        # Top face: 1 triangle
+        # Side faces: 3 rectangles = 6 triangles
+
+        verts = np.array([v1_b, v2_b, v3_b, v1_t, v2_t, v3_t])
+
+        # Faces (vertex indices, 0-based)
+        # Bottom: [0, 1, 2]
+        # Top: [3, 4, 5]
+        # Side 1: [0, 1, 4, 3] → [0,1,4], [0,4,3]
+        # Side 2: [1, 2, 5, 4] → [1,2,5], [1,5,4]
+        # Side 3: [2, 0, 3, 5] → [2,0,3], [2,3,5]
+
+        faces = np.array([
+            [0, 2, 1],      # Bottom (reversed for outward normal)
+            [3, 4, 5],      # Top
+            [0, 1, 4],      # Side 1a
+            [0, 4, 3],      # Side 1b
+            [1, 2, 5],      # Side 2a
+            [1, 5, 4],      # Side 2b
+            [2, 0, 3],      # Side 3a
+            [2, 3, 5],      # Side 3b
+        ])
+
+        # Create Particle
+        particle = Particle(verts, faces)
+
+        return [particle]
 
     def _create_core_shell_sphere(self):
         """Create a core-shell sphere."""
@@ -526,6 +569,293 @@ class PythonBEMCalculator:
 
         return shapes
 
+    def _create_from_shape(self):
+        """Create particle from DDA .shape file."""
+        shape_file = self.config['shape_file']
+        voxel_size = self.config['voxel_size']
+        voxel_method = self.config.get('voxel_method', 'surface')
+
+        if self.verbose:
+            print(f"  DDA shape file: {shape_file}")
+            print(f"  Voxel size: {voxel_size}nm, method: {voxel_method}")
+
+        # Parse .shape file
+        voxels, mat_types = self._parse_shape_file(shape_file)
+
+        if self.verbose:
+            print(f"  Loaded {len(voxels)} voxels")
+
+        # Convert voxels to mesh
+        shapes = []
+
+        if voxel_method == 'surface':
+            # Extract surface voxels and create surface mesh
+            shapes = self._voxels_to_surface_mesh(voxels, mat_types, voxel_size)
+        elif voxel_method == 'cube':
+            # Each voxel becomes a small cube
+            shapes = self._voxels_to_cubes(voxels, mat_types, voxel_size)
+        else:
+            raise ValueError(f"Unknown voxel_method: {voxel_method}")
+
+        if self.verbose:
+            print(f"  Created {len(shapes)} particle shapes")
+
+        return shapes
+
+    def _parse_shape_file(self, filename):
+        """
+        Parse DDA .shape file.
+
+        Format:
+        Each line: x y z mat_type
+        where (x,y,z) are integer voxel coordinates
+        and mat_type is the material type (1, 2, 3, ...)
+
+        Returns:
+            voxels: ndarray of shape (N, 3) with integer coordinates
+            mat_types: ndarray of shape (N,) with material type indices
+        """
+        voxels = []
+        mat_types = []
+
+        with open(filename, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+
+                parts = line.split()
+                if len(parts) >= 4:
+                    x, y, z, mat = int(parts[0]), int(parts[1]), int(parts[2]), int(parts[3])
+                    voxels.append([x, y, z])
+                    mat_types.append(mat)
+
+        return np.array(voxels), np.array(mat_types)
+
+    def _voxels_to_surface_mesh(self, voxels, mat_types, voxel_size):
+        """
+        Convert voxels to surface mesh by extracting boundary.
+
+        This creates a surface representation of the voxel structure.
+        """
+        from mnpbem.particles.particle import Particle
+
+        # Group voxels by material type
+        unique_mats = np.unique(mat_types)
+
+        shapes = []
+
+        for mat in unique_mats:
+            # Get voxels for this material
+            mask = mat_types == mat
+            mat_voxels = voxels[mask]
+
+            if len(mat_voxels) == 0:
+                continue
+
+            # Extract surface voxels (voxels with at least one empty neighbor)
+            surface_voxels = self._extract_surface_voxels(mat_voxels, voxels)
+
+            # Convert surface voxels to mesh
+            # For simplicity, use marching cubes approach or direct cube faces
+            verts, faces = self._surface_voxels_to_mesh(surface_voxels, voxel_size)
+
+            # Create Particle
+            particle = Particle(verts, faces)
+            shapes.append(particle)
+
+        return shapes
+
+    def _voxels_to_cubes(self, voxels, mat_types, voxel_size):
+        """
+        Convert each voxel to a small cube.
+
+        This is less efficient but more accurate.
+        """
+        # Group by material
+        unique_mats = np.unique(mat_types)
+
+        shapes = []
+
+        for mat in unique_mats:
+            mask = mat_types == mat
+            mat_voxels = voxels[mask]
+
+            if len(mat_voxels) == 0:
+                continue
+
+            # Create a compound of small cubes
+            # For large structures, this can be slow
+            all_verts = []
+            all_faces = []
+
+            for voxel in mat_voxels:
+                # Create cube at this voxel position
+                center = voxel * voxel_size
+                verts, faces = self._create_cube_mesh(center, voxel_size)
+
+                # Add to collection (adjust face indices)
+                offset = len(all_verts)
+                all_verts.extend(verts)
+                all_faces.extend(faces + offset)
+
+            if len(all_verts) > 0:
+                from mnpbem.particles.particle import Particle
+                particle = Particle(np.array(all_verts), np.array(all_faces))
+                shapes.append(particle)
+
+        return shapes
+
+    def _extract_surface_voxels(self, mat_voxels, all_voxels):
+        """Extract voxels that are on the surface (have empty neighbors)."""
+        # Convert to set for fast lookup
+        voxel_set = set(map(tuple, all_voxels))
+
+        surface = []
+
+        for voxel in mat_voxels:
+            x, y, z = voxel
+            # Check 6 neighbors
+            neighbors = [
+                (x+1, y, z), (x-1, y, z),
+                (x, y+1, z), (x, y-1, z),
+                (x, y, z+1), (x, y, z-1)
+            ]
+
+            # If any neighbor is empty, this is a surface voxel
+            for n in neighbors:
+                if n not in voxel_set:
+                    surface.append(voxel)
+                    break
+
+        return np.array(surface)
+
+    def _surface_voxels_to_mesh(self, voxels, voxel_size):
+        """
+        Convert surface voxels to triangulated mesh.
+
+        For each voxel, add faces that are exposed (not adjacent to another voxel).
+        """
+        voxel_set = set(map(tuple, voxels))
+
+        all_verts = []
+        all_faces = []
+        vert_dict = {}  # Map (x,y,z) -> vertex index
+
+        def get_vert_index(pos):
+            """Get or create vertex index."""
+            key = tuple(pos)
+            if key not in vert_dict:
+                vert_dict[key] = len(all_verts)
+                all_verts.append(pos)
+            return vert_dict[key]
+
+        # For each voxel, add exposed faces
+        for voxel in voxels:
+            x, y, z = voxel
+            center = np.array([x, y, z]) * voxel_size
+            half = voxel_size / 2
+
+            # 6 faces of the cube
+            # Each face: check if neighbor exists
+            # If no neighbor, add face triangles
+
+            # +X face
+            if (x+1, y, z) not in voxel_set:
+                v1 = center + [half, -half, -half]
+                v2 = center + [half, half, -half]
+                v3 = center + [half, half, half]
+                v4 = center + [half, -half, half]
+                i1, i2, i3, i4 = get_vert_index(v1), get_vert_index(v2), get_vert_index(v3), get_vert_index(v4)
+                all_faces.append([i1, i2, i3])
+                all_faces.append([i1, i3, i4])
+
+            # -X face
+            if (x-1, y, z) not in voxel_set:
+                v1 = center + [-half, -half, -half]
+                v2 = center + [-half, half, -half]
+                v3 = center + [-half, half, half]
+                v4 = center + [-half, -half, half]
+                i1, i2, i3, i4 = get_vert_index(v1), get_vert_index(v2), get_vert_index(v3), get_vert_index(v4)
+                all_faces.append([i1, i3, i2])
+                all_faces.append([i1, i4, i3])
+
+            # +Y face
+            if (x, y+1, z) not in voxel_set:
+                v1 = center + [-half, half, -half]
+                v2 = center + [half, half, -half]
+                v3 = center + [half, half, half]
+                v4 = center + [-half, half, half]
+                i1, i2, i3, i4 = get_vert_index(v1), get_vert_index(v2), get_vert_index(v3), get_vert_index(v4)
+                all_faces.append([i1, i2, i3])
+                all_faces.append([i1, i3, i4])
+
+            # -Y face
+            if (x, y-1, z) not in voxel_set:
+                v1 = center + [-half, -half, -half]
+                v2 = center + [half, -half, -half]
+                v3 = center + [half, -half, half]
+                v4 = center + [-half, -half, half]
+                i1, i2, i3, i4 = get_vert_index(v1), get_vert_index(v2), get_vert_index(v3), get_vert_index(v4)
+                all_faces.append([i1, i3, i2])
+                all_faces.append([i1, i4, i3])
+
+            # +Z face
+            if (x, y, z+1) not in voxel_set:
+                v1 = center + [-half, -half, half]
+                v2 = center + [half, -half, half]
+                v3 = center + [half, half, half]
+                v4 = center + [-half, half, half]
+                i1, i2, i3, i4 = get_vert_index(v1), get_vert_index(v2), get_vert_index(v3), get_vert_index(v4)
+                all_faces.append([i1, i2, i3])
+                all_faces.append([i1, i3, i4])
+
+            # -Z face
+            if (x, y, z-1) not in voxel_set:
+                v1 = center + [-half, -half, -half]
+                v2 = center + [half, -half, -half]
+                v3 = center + [half, half, -half]
+                v4 = center + [-half, half, -half]
+                i1, i2, i3, i4 = get_vert_index(v1), get_vert_index(v2), get_vert_index(v3), get_vert_index(v4)
+                all_faces.append([i1, i3, i2])
+                all_faces.append([i1, i4, i3])
+
+        return np.array(all_verts), np.array(all_faces)
+
+    def _create_cube_mesh(self, center, size):
+        """Create vertices and faces for a cube."""
+        half = size / 2
+
+        # 8 vertices
+        verts = [
+            center + [-half, -half, -half],
+            center + [half, -half, -half],
+            center + [half, half, -half],
+            center + [-half, half, -half],
+            center + [-half, -half, half],
+            center + [half, -half, half],
+            center + [half, half, half],
+            center + [-half, half, half],
+        ]
+
+        # 12 triangular faces (2 per cube face)
+        faces = [
+            # Bottom (-Z)
+            [0, 2, 1], [0, 3, 2],
+            # Top (+Z)
+            [4, 5, 6], [4, 6, 7],
+            # -X
+            [0, 4, 7], [0, 7, 3],
+            # +X
+            [1, 2, 6], [1, 6, 5],
+            # -Y
+            [0, 1, 5], [0, 5, 4],
+            # +Y
+            [3, 7, 6], [3, 6, 2],
+        ]
+
+        return verts, faces
+
     def create_materials(self):
         """
         Create material epsilon objects.
@@ -741,6 +1071,13 @@ class PythonBEMCalculator:
             n_spheres = self.config.get('n_spheres', 2)
             return [[2, 1]] * n_spheres
 
+        # DDA shape file: each shape corresponds to a material
+        elif structure == 'from_shape':
+            # Shapes are created in order of unique material types
+            # Shape i uses materials[i] → epstab[i+1] → inout index i+2
+            n_shapes = len(shapes)
+            return [[i+2, 1] for i in range(n_shapes)]
+
         else:
             # Default: single material
             return [[2, 1]]
@@ -754,7 +1091,8 @@ class PythonBEMCalculator:
             'sphere', 'cube', 'rod', 'ellipsoid', 'triangle',
             'core_shell_sphere', 'core_shell_cube', 'core_shell_rod',
             'dimer_sphere', 'dimer_cube', 'dimer_core_shell_cube',
-            'advanced_dimer_cube', 'sphere_cluster_aggregate'
+            'advanced_dimer_cube', 'sphere_cluster_aggregate',
+            'from_shape'
         ]
 
         return 1 if structure in closed_structures else 0
@@ -828,6 +1166,11 @@ class PythonBEMCalculator:
             moment = self.config.get('dipole_moment', [0, 0, 1])
 
             return self.dipole(pos, moment, options)
+
+        elif exc_type == 'eels':
+            print(f"\n⚠  EELS excitation not yet supported in pyMNPBEM")
+            print(f"   Use MATLAB backend for EELS simulations")
+            raise ValueError(f"EELS excitation requires MATLAB backend")
 
         else:
             raise ValueError(f"Unsupported excitation type: {exc_type}")

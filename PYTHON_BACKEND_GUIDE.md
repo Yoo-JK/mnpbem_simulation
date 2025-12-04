@@ -90,21 +90,18 @@ python run_simulation.py \
 Python backend는 다음 구조들을 지원합니다:
 
 ### ✅ 완전 지원
-- **Single particles**: sphere, cube, rod, ellipsoid
+- **Single particles**: sphere, cube, rod, ellipsoid, triangle
 - **Core-shell**: core_shell_sphere, core_shell_cube, core_shell_rod
 - **Dimers**: dimer_sphere, dimer_cube, dimer_core_shell_cube
 - **Advanced dimer**: advanced_dimer_cube (full transformation: tilt, rotation, offset)
 - **Clusters**: sphere_cluster_aggregate (1-7 spheres)
-
-### 🚧 부분 지원
-- **triangle**: 현재 cube approximation 사용
+- **DDA shape files**: from_shape (surface mesh and cube voxel methods)
 
 ### ⚠️ 현재 미지원
-- **Field calculation**: pyMNPBEM에서 아직 미지원 (MATLAB backend 사용 필요)
-- **from_shape** (DDA 파일)
-- **substrate** 지원
-- **nonlocal** 효과
-- **EELS** excitation
+- **Field calculation**: pyMNPBEM ComPoint API 미완성 (MATLAB backend 사용 필요)
+- **substrate**: pyMNPBEM Green function에 substrate 미통합
+- **nonlocal** 효과: pyMNPBEM에 미구현
+- **EELS** excitation: pyMNPBEM에 미구현
 
 ## 출력 파일
 
@@ -277,17 +274,23 @@ pip install tqdm
 
 ## 향후 개발 계획
 
-- [x] Advanced dimer 전체 기능 구현 ✅
-- [x] Sphere cluster aggregate 지원 ✅
-- [x] Core-shell rod 추가 ✅
-- [ ] Field 계산 추가 (pyMNPBEM의 field 메서드 구현 대기)
-- [ ] Substrate 지원
+### ✅ 완료된 기능
+- [x] Advanced dimer 전체 기능 구현 (tilt, rotation, offset)
+- [x] Sphere cluster aggregate 지원 (1-7 spheres)
+- [x] Core-shell rod 추가
+- [x] Triangle geometry 완전 구현 (triangular prism)
+- [x] DDA shape 파일 import (surface mesh & cube methods)
+
+### 🔄 pyMNPBEM 구현 대기 중
+- [ ] Field 계산 추가 (ComPoint API 완성 필요)
+- [ ] Substrate 지원 (LayerStructure의 Green function 통합 필요)
 - [ ] Nonlocal 효과 구현
 - [ ] EELS excitation 지원
-- [ ] DDA shape 파일 import
-- [ ] Triangle geometry 완전 구현
+
+### 🚀 향후 개선 계획
 - [ ] 병렬 계산 최적화
 - [ ] 진행 상황 표시 개선
+- [ ] 결과 시각화 도구 추가
 
 ## 기여
 
@@ -299,4 +302,4 @@ pip install tqdm
 
 ---
 
-**주의**: Python backend는 현재 기본 기능만 지원합니다. 복잡한 시뮬레이션이나 고급 기능이 필요한 경우 MATLAB backend를 사용하세요.
+**주의**: Python backend는 대부분의 구조와 기본 스펙트럼 계산을 지원합니다. Field 계산이나 substrate가 필요한 경우 MATLAB backend를 사용하세요.
