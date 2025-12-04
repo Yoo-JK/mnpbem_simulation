@@ -16,6 +16,17 @@ class MatlabCodeGenerator:
     def __init__(self, config, verbose=False):
         self.config = config
         self.verbose = verbose
+
+        # Auto-disable H2 compression when substrate is used (known MNPBEM MEX bug)
+        use_substrate = config.get('use_substrate', False)
+        use_h2 = config.get('use_h2_compression', False)
+
+        if use_substrate and use_h2:
+            print("[!] WARNING: H2 compression is incompatible with substrate mode")
+            print("    (MNPBEM MEX file 'hmatgreentab1' causes segmentation fault)")
+            print("    -> Automatically disabling H2 compression")
+            self.config['use_h2_compression'] = False
+
         self.nonlocal_gen = NonlocalGenerator(config, verbose)
     
     def generate_complete_script(self, geometry_code, material_code):
