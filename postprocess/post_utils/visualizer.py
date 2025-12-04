@@ -229,31 +229,37 @@ class Visualizer:
         """Plot electromagnetic field distributions."""
         if 'fields' not in data or not data['fields']:
             return []
-        
+
         fields = data['fields']
         saved_files = []
-        
-        # Plot for each polarization
-        for ipol, field_data in enumerate(fields):
+
+        # Plot for each field entry (may have multiple wavelengths and polarizations)
+        for idx, field_data in enumerate(fields):
+            # Get polarization and wavelength indices from field_data
+            # Fall back to enumerate index for backwards compatibility
+            pol_idx = field_data.get('polarization_idx', idx)
+            wl_idx = field_data.get('wavelength_idx')
+            wavelength = field_data.get('wavelength')
+
             # Enhancement plot
-            enhancement_file = self._plot_field_enhancement(field_data, ipol)
+            enhancement_file = self._plot_field_enhancement(field_data, pol_idx, wl_idx)
             if enhancement_file:
                 saved_files.extend(enhancement_file)
-            
+
             # Intensity plot
-            intensity_file = self._plot_field_intensity(field_data, ipol)
+            intensity_file = self._plot_field_intensity(field_data, pol_idx, wl_idx)
             if intensity_file:
                 saved_files.extend(intensity_file)
-            
+
             # Vector field plot (optional, for 2D slices)
             if self._is_2d_slice(field_data):
-                vector_file = self._plot_field_vectors(field_data, ipol)
+                vector_file = self._plot_field_vectors(field_data, pol_idx, wl_idx)
                 if vector_file:
                     saved_files.extend(vector_file)
-        
+
         return saved_files
     
-    def _plot_field_enhancement(self, field_data, polarization_idx):
+    def _plot_field_enhancement(self, field_data, polarization_idx, wavelength_idx=None):
         """Plot field enhancement |E|/|E0|."""
         enhancement = field_data['enhancement']
         x_grid = field_data['x_grid']
@@ -342,15 +348,18 @@ class Visualizer:
             cbar2.set_label('|E|/|E₀|', fontsize=11)
 
         plt.tight_layout()
-        
-        # Save
-        base_filename = f'field_enhancement_pol{polarization_idx+1}_{plane_type}'
+
+        # Save - include wavelength info if multiple wavelengths
+        if wavelength_idx is not None:
+            base_filename = f'field_enhancement_wl{wavelength_idx}_pol{polarization_idx+1}_{plane_type}'
+        else:
+            base_filename = f'field_enhancement_pol{polarization_idx+1}_{plane_type}'
         saved_files = self._save_figure(fig, base_filename)
         plt.close(fig)
-        
+
         return saved_files
 
-    def _plot_field_intensity(self, field_data, polarization_idx):
+    def _plot_field_intensity(self, field_data, polarization_idx, wavelength_idx=None):
         """Plot field intensity |E|²."""
         intensity = field_data['intensity']
         x_grid = field_data['x_grid']
@@ -418,15 +427,18 @@ class Visualizer:
             self._draw_material_boundary(ax, section, plane_type)
         
         plt.tight_layout()
-        
-        # Save
-        base_filename = f'field_intensity_pol{polarization_idx+1}_{plane_type}'
+
+        # Save - include wavelength info if multiple wavelengths
+        if wavelength_idx is not None:
+            base_filename = f'field_intensity_wl{wavelength_idx}_pol{polarization_idx+1}_{plane_type}'
+        else:
+            base_filename = f'field_intensity_pol{polarization_idx+1}_{plane_type}'
         saved_files = self._save_figure(fig, base_filename)
         plt.close(fig)
-        
+
         return saved_files
-    
-    def _plot_field_vectors(self, field_data, polarization_idx):
+
+    def _plot_field_vectors(self, field_data, polarization_idx, wavelength_idx=None):
         """Plot electric field vector arrows (for 2D slices)."""
         e_total = field_data['e_total']
         x_grid = field_data['x_grid']
@@ -522,14 +534,17 @@ class Visualizer:
         
         cbar1 = plt.colorbar(im, ax=ax, pad=0.12, label='|E|/|E₀|')
         cbar2 = plt.colorbar(q, ax=ax, label='Field Magnitude')
-        
+
         plt.tight_layout()
-        
-        # Save
-        base_filename = f'field_vectors_pol{polarization_idx+1}_{plane_type}'
+
+        # Save - include wavelength info if multiple wavelengths
+        if wavelength_idx is not None:
+            base_filename = f'field_vectors_wl{wavelength_idx}_pol{polarization_idx+1}_{plane_type}'
+        else:
+            base_filename = f'field_vectors_pol{polarization_idx+1}_{plane_type}'
         saved_files = self._save_figure(fig, base_filename)
         plt.close(fig)
-        
+
         return saved_files
     
     def _determine_plane(self, x_grid, y_grid, z_grid):

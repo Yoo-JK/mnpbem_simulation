@@ -79,7 +79,9 @@ class FieldAnalyzer:
 
         analysis = {
             'wavelength': pol_data.get('wavelength'),
+            'wavelength_idx': pol_data.get('wavelength_idx'),
             'polarization': polarization,
+            'polarization_idx': pol_data.get('polarization_idx'),
         }
 
         # Enhancement statistics
@@ -270,7 +272,9 @@ class FieldAnalyzer:
     
     def _print_analysis(self, analysis):
         """Print field analysis summary."""
-        print(f"\n  Field Analysis (λ = {analysis['wavelength']:.1f} nm):")
+        pol_idx = analysis.get('polarization_idx', '?')
+        wl_idx = analysis.get('wavelength_idx', '?')
+        print(f"\n  Field Analysis (λ = {analysis['wavelength']:.1f} nm, wl_idx={wl_idx}, pol_idx={pol_idx}):")
         print("  " + "-"*50)
         
         # Enhancement statistics
