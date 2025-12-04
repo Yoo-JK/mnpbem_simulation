@@ -2189,7 +2189,7 @@ if ~isfield(emesh, 'ind') || isempty(emesh.ind)
     end
     
     % Store indices
-    emesh_indices = emesh_ind;  # ✓ Separate variable!
+    emesh_indices = emesh_ind;
     
     fprintf('  ✓ Index mapping created: %d/%d points matched exactly\\n', ...
             n_matched, emesh.pt.n);
