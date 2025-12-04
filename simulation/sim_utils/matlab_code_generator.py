@@ -2363,89 +2363,76 @@ for ipol = 1:n_polarizations
     end
     fprintf('      e_incoming size: [%s]\\n', num2str(size(e_incoming)));
 
-    % STEP 5: Ensure proper dimensions for addition
-    if ndims(e_induced) == 3
-        e_induced = squeeze(e_induced);
-        fprintf('      e_induced squeezed to: [%s]\\n', num2str(size(e_induced)));
-    end
-    if ndims(e_incoming) == 3
-        e_incoming = squeeze(e_incoming);
-        fprintf('      e_incoming squeezed to: [%s]\\n', num2str(size(e_incoming)));
-    end
-
-    % STEP 5b: Handle size mismatch
+    % STEP 5: Handle dimension mismatch - EXPAND e_incoming to grid form
+    % emesh(sig) returns grid shape [nx, ny, 3] with NaN for invalid points (for visualization)
+    % exc.field(emesh.pt) returns [n_meshfield_pts, 3] (only valid points)
+    % We want to KEEP the grid form and expand e_incoming to match
     sz_induced = size(e_induced);
     sz_incoming = size(e_incoming);
+    n_emesh_pts = emesh.pt.n;
+    grid_shape = size(x_grid);
 
-    if ~isequal(sz_induced, sz_incoming)
-        fprintf('    [!] Size mismatch detected!\\n');
-        fprintf('        e_induced: [%s], e_incoming: [%s]\\n', ...
-                num2str(sz_induced), num2str(sz_incoming));
+    fprintf('      meshfield has %d points (grid has %d total)\\n', n_emesh_pts, n_grid_points);
 
-        % Try to fix common dimension issues
-        % Case 1: One is transposed
-        if isequal(sz_induced, fliplr(sz_incoming))
-            fprintf('        -> Transposing e_incoming to match\\n');
-            e_incoming = e_incoming.';
-        % Case 2: e_incoming has extra dimension (e.g., 1xNx3 vs Nx3)
-        elseif numel(e_induced) == numel(e_incoming)
-            fprintf('        -> Reshaping e_incoming to match e_induced\\n');
-            e_incoming = reshape(e_incoming, size(e_induced));
+    % KEEP GRID FORM: If e_induced is grid-shaped, expand e_incoming to grid
+    if ndims(e_induced) == 3 && sz_induced(3) == 3 && numel(sz_incoming) == 2 && sz_incoming(1) == n_emesh_pts
+        fprintf('      -> e_induced is grid [%dx%dx3], e_incoming is points [%dx3]\\n', ...
+                sz_induced(1), sz_induced(2), sz_incoming(1));
+        fprintf('      -> Expanding e_incoming to grid form (NaN for invalid points)...\\n');
+
+        % Create full grid array filled with NaN
+        e_incoming_grid = nan(n_grid_points, 3);
+
+        % Place valid meshfield points into grid using emesh_ind
+        if exist('emesh_ind', 'var') && ~isempty(emesh_ind) && length(emesh_ind) == n_emesh_pts
+            e_incoming_grid(emesh_ind, :) = e_incoming;
+            fprintf('      -> Placed %d valid points into grid using emesh_ind\\n', n_emesh_pts);
         else
-            fprintf('        -> Cannot auto-fix, attempting element count match...\\n');
-            % Last resort: if row counts match, use that
-            if sz_induced(1) == sz_incoming(1)
-                % Take only first 3 columns if e_incoming has more
-                if sz_incoming(2) > sz_induced(2)
-                    e_incoming = e_incoming(:, 1:sz_induced(2));
-                    fprintf('        -> Trimmed e_incoming columns\\n');
-                elseif sz_induced(2) > sz_incoming(2)
-                    e_induced = e_induced(:, 1:sz_incoming(2));
-                    fprintf('        -> Trimmed e_induced columns\\n');
-                end
-            end
+            fprintf('      [!] emesh_ind not available, cannot expand to grid!\\n');
+            error('emesh_ind required for grid expansion');
         end
 
-        fprintf('        Final sizes - e_induced: [%s], e_incoming: [%s]\\n', ...
-                num2str(size(e_induced)), num2str(size(e_incoming)));
+        % Reshape e_incoming to match e_induced grid shape [nx, ny, 3]
+        e_incoming = reshape(e_incoming_grid, [grid_shape, 3]);
+        fprintf('      -> e_incoming now: [%s]\\n', num2str(size(e_incoming)));
+        fprintf('      -> e_induced kept: [%s]\\n', num2str(size(e_induced)));
+    else
+        % Both are already in compatible form, just squeeze if needed
+        if ndims(e_induced) == 3
+            e_induced = squeeze(e_induced);
+            fprintf('      e_induced squeezed to: [%s]\\n', num2str(size(e_induced)));
+        end
+        if ndims(e_incoming) == 3
+            e_incoming = squeeze(e_incoming);
+            fprintf('      e_incoming squeezed to: [%s]\\n', num2str(size(e_incoming)));
+        end
     end
 
-    % STEP 6: Calculate total field and enhancement
+    % Verify sizes match now
+    if ~isequal(size(e_induced), size(e_incoming))
+        fprintf('    [!] Size mismatch after expansion!\\n');
+        fprintf('        e_induced: [%s], e_incoming: [%s]\\n', ...
+                num2str(size(e_induced)), num2str(size(e_incoming)));
+        error('Field array size mismatch - check emesh_ind mapping');
+    end
+
+    % STEP 6: Calculate total field and enhancement (in grid form)
+    % NaN + anything = NaN, so invalid points stay NaN (good for visualization)
     e_total = e_induced + e_incoming;
 
-    e_intensity = dot(e_total, e_total, 2);
-    e0_intensity = dot(e_incoming, e_incoming, 2);
+    % For 3D grid arrays, compute intensity along 3rd dimension
+    if ndims(e_total) == 3
+        e_intensity = sum(e_total .* e_total, 3);
+        e0_intensity = sum(e_incoming .* e_incoming, 3);
+    else
+        e_intensity = dot(e_total, e_total, 2);
+        e0_intensity = dot(e_incoming, e_incoming, 2);
+    end
     enhancement = sqrt(e_intensity ./ e0_intensity);
 
-    % STEP 7: Handle meshfield point filtering using emesh_ind
-    n_field_points = length(enhancement);
-
-    if n_field_points < n_grid_points
-        fprintf('    -> Grid filtering: %d/%d points used\\n', ...
-                n_field_points, n_grid_points);
-
-        enhancement_full = nan(n_grid_points, 1);
-        e_intensity_full = nan(n_grid_points, 1);
-
-        % Use emesh_ind (should exist from meshfield creation above)
-        if exist('emesh_ind', 'var') && ~isempty(emesh_ind)
-            fprintf('    Using emesh_ind for accurate mapping\\n');
-            enhancement_full(emesh_ind) = enhancement;
-            e_intensity_full(emesh_ind) = e_intensity;
-        else
-            % This should NOT happen if meshfield was created correctly above
-            fprintf('    [!] ERROR: emesh_ind not found!\\n');
-            fprintf('    Field visualization will be incorrect!\\n');
-        end
-
-        enhancement = enhancement_full;
-        e_intensity = e_intensity_full;
-    end
-
-    % STEP 8: Reshape to grid
-    grid_shape = size(x_grid);
-    enhancement = reshape(enhancement, grid_shape);
-    e_intensity = reshape(e_intensity, grid_shape);
+    % Enhancement is already in grid shape [nx, ny] - no need to reshape
+    fprintf('      enhancement shape: [%s]\\n', num2str(size(enhancement)));
+    fprintf('      e_intensity shape: [%s]\\n', num2str(size(e_intensity)));
 
     % STEP 9: Store results
     field_data(ipol).polarization = pol(ipol, :);
