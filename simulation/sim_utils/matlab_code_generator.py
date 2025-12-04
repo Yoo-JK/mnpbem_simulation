@@ -1506,12 +1506,25 @@ field_data = struct();
         if ien == field_wavelength_idx
             fprintf('\\n  -> Calculating fields at lambda = %.1f nm...\\n', enei(ien));
             field_calc_start = tic;
-            
+
             fprintf('  Computing induced fields...\\n');
-            e_induced_all = emesh(sig);
+            e_induced_obj = emesh(sig);
+
+            % Extract numeric array from field object
+            if isobject(e_induced_obj) || isstruct(e_induced_obj)
+                if isfield(e_induced_obj, 'e') || isprop(e_induced_obj, 'e')
+                    e_induced_all = e_induced_obj.e;
+                elseif isfield(e_induced_obj, 'val') || isprop(e_induced_obj, 'val')
+                    e_induced_all = e_induced_obj.val;
+                else
+                    e_induced_all = double(e_induced_obj);
+                end
+            else
+                e_induced_all = e_induced_obj;
+            end
 
             grid_shape = size(x_grid);
-            
+
             for ipol = 1:n_polarizations
                 fprintf('    Processing polarization %d/%d...\\n', ipol, n_polarizations);
                 
@@ -1531,22 +1544,35 @@ field_data = struct();
                 exc_single = eelsret(p, impact, beam_energy, 'width', beam_width, op);
 """
         
-        code += """                
+        code += """
                 % Extract induced field for this polarization
                 if n_polarizations > 1
                     e_induced = e_induced_all(:, :, ipol);
                 else
                     e_induced = e_induced_all;
                 end
-                
+
                 % Calculate incoming field for this polarization
-                e_incoming = exc_single.field(emesh.pt, enei(ien));
-                
+                e_incoming_obj = exc_single.field(emesh.pt, enei(ien));
+
+                % Extract numeric array from field object
+                if isobject(e_incoming_obj) || isstruct(e_incoming_obj)
+                    if isfield(e_incoming_obj, 'e') || isprop(e_incoming_obj, 'e')
+                        e_incoming = e_incoming_obj.e;
+                    elseif isfield(e_incoming_obj, 'val') || isprop(e_incoming_obj, 'val')
+                        e_incoming = e_incoming_obj.val;
+                    else
+                        e_incoming = double(e_incoming_obj);
+                    end
+                else
+                    e_incoming = e_incoming_obj;
+                end
+
                 % Ensure 2D arrays for addition
                 if ndims(e_incoming) == 3
                     e_incoming = squeeze(e_incoming);
                 end
-                
+
                 % Total field
                 e_total = e_induced + e_incoming;
                 
@@ -2275,11 +2301,37 @@ for ipol = 1:n_polarizations
 
     % STEP 3: Compute induced field for THIS polarization
     fprintf('    Computing induced field...\\n');
-    e_induced = emesh(sig_single);
+    e_induced_obj = emesh(sig_single);
+
+    % Extract numeric array from field object
+    if isobject(e_induced_obj) || isstruct(e_induced_obj)
+        if isfield(e_induced_obj, 'e') || isprop(e_induced_obj, 'e')
+            e_induced = e_induced_obj.e;
+        elseif isfield(e_induced_obj, 'val') || isprop(e_induced_obj, 'val')
+            e_induced = e_induced_obj.val;
+        else
+            e_induced = double(e_induced_obj);
+        end
+    else
+        e_induced = e_induced_obj;
+    end
 
     % STEP 4: Compute incoming field for THIS polarization
     fprintf('    Computing incoming field...\\n');
-    e_incoming = exc_single.field(emesh.pt, enei(field_wavelength_idx));
+    e_incoming_obj = exc_single.field(emesh.pt, enei(field_wavelength_idx));
+
+    % Extract numeric array from field object
+    if isobject(e_incoming_obj) || isstruct(e_incoming_obj)
+        if isfield(e_incoming_obj, 'e') || isprop(e_incoming_obj, 'e')
+            e_incoming = e_incoming_obj.e;
+        elseif isfield(e_incoming_obj, 'val') || isprop(e_incoming_obj, 'val')
+            e_incoming = e_incoming_obj.val;
+        else
+            e_incoming = double(e_incoming_obj);
+        end
+    else
+        e_incoming = e_incoming_obj;
+    end
 
     % STEP 5: Ensure proper dimensions for addition
     if ndims(e_induced) == 3
