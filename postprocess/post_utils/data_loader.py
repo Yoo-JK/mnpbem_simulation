@@ -74,7 +74,11 @@ class DataLoader:
         if hasattr(results, 'fields'):
             data['fields'] = self._load_field_data(results.fields)
             if self.verbose and data['fields']:
-                print(f"  Field data loaded: {len(data['fields'])} polarization(s)")
+                # Count unique wavelengths and polarizations
+                unique_wls = set(f.get('wavelength_idx', f.get('wavelength')) for f in data['fields'])
+                unique_pols = set(f.get('polarization_idx', 0) for f in data['fields'])
+                print(f"  Field data loaded: {len(data['fields'])} entries "
+                      f"({len(unique_wls)} wavelength(s), {len(unique_pols)} polarization(s))")
         
         return data
     
@@ -103,6 +107,13 @@ class DataLoader:
                 'y_grid': self._extract_array(field_item.y_grid),
                 'z_grid': self._extract_array(field_item.z_grid),
             }
+
+            # New fields for per-polarization peak wavelength support
+            if hasattr(field_item, 'wavelength_idx'):
+                field_dict['wavelength_idx'] = int(field_item.wavelength_idx)
+
+            if hasattr(field_item, 'polarization_idx'):
+                field_dict['polarization_idx'] = int(field_item.polarization_idx)
             
             # Electric field components
             if hasattr(field_item, 'e_total'):
