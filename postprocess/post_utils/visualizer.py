@@ -268,7 +268,11 @@ class Visualizer:
             enhancement = np.array([[enhancement.item()]])
         elif enhancement.ndim == 1:
             enhancement = enhancement.reshape(1, -1)
-        
+
+        # FIX: Convert complex to real magnitude for plotting
+        if np.iscomplexobj(enhancement):
+            enhancement = np.abs(enhancement)
+
         # Determine plane type
         plane_type, extent, x_label, y_label = self._determine_plane(x_grid, y_grid, z_grid)
         
@@ -355,7 +359,11 @@ class Visualizer:
             intensity = np.array([[intensity.item()]])
         elif intensity.ndim == 1:
             intensity = intensity.reshape(1, -1)
-        
+
+        # FIX: Convert complex to real magnitude for plotting
+        if np.iscomplexobj(intensity):
+            intensity = np.abs(intensity)
+
         # Determine plane type
         plane_type, extent, x_label, y_label = self._determine_plane(x_grid, y_grid, z_grid)
         
@@ -416,10 +424,14 @@ class Visualizer:
         
         # Determine plane and extract relevant components
         plane_type, extent, x_label, y_label = self._determine_plane(x_grid, y_grid, z_grid)
-        
+
         # FIX: Use polarization label
         pol_label = self._get_polarization_label(polarization_idx)
-        
+
+        # FIX: Convert complex enhancement to real magnitude for plotting
+        if np.iscomplexobj(enhancement):
+            enhancement = np.abs(enhancement)
+
         # Properly extract coordinates and field components
         if plane_type == 'xz':
             x_coord = x_grid[0, :]
