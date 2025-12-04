@@ -275,19 +275,30 @@ class Visualizer:
 
         # Determine plane type
         plane_type, extent, x_label, y_label = self._determine_plane(x_grid, y_grid, z_grid)
-        
+
         # FIX: Use polarization label
         pol_label = self._get_polarization_label(polarization_idx)
-        
+
+        # FIX: Use masked array to make NaN transparent (instead of black)
+        enhancement_masked = np.ma.masked_invalid(enhancement)
+
         # Create figure
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
-        
-        # Linear scale
-        im1 = ax1.imshow(enhancement, extent=extent, origin='lower', 
-                        cmap='hot', aspect='auto')
+
+        # Calculate percentile-based limits for better visualization
+        valid_data = enhancement_masked.compressed()  # Get non-masked values
+        if len(valid_data) > 0:
+            vmin_linear = np.percentile(valid_data, 1)
+            vmax_linear = np.percentile(valid_data, 99)
+        else:
+            vmin_linear, vmax_linear = 0, 1
+
+        # Linear scale with percentile clipping
+        im1 = ax1.imshow(enhancement_masked, extent=extent, origin='lower',
+                        cmap='hot', aspect='auto', vmin=vmin_linear, vmax=vmax_linear)
         ax1.set_xlabel(x_label, fontsize=11)
         ax1.set_ylabel(y_label, fontsize=11)
-        ax1.set_title(f'Field Enhancement (Linear)\nλ = {wavelength:.1f} nm, {pol_label}', 
+        ax1.set_title(f'Field Enhancement (Linear)\nλ = {wavelength:.1f} nm, {pol_label}',
                      fontsize=11, fontweight='bold')
         cbar1 = plt.colorbar(im1, ax=ax1)
         cbar1.set_label('|E|/|E₀|', fontsize=11)
@@ -296,45 +307,40 @@ class Visualizer:
         sections = self.geometry.get_cross_section(z_plane)
         for section in sections:
             self._draw_material_boundary(ax1, section, plane_type)
-        
+
         # Log scale
-        enhancement_log = np.maximum(enhancement, 1e-10)
-        enh_max = enhancement.max()
-        enh_min = enhancement_log[enhancement_log > 0].min() if np.any(enhancement_log > 0) else 1e-10
-        
-        if enh_max > enh_min:
-            vmin_log = max(enh_min, 1e-2)
-            vmax_log = enh_max
-            
+        if len(valid_data) > 0 and np.any(valid_data > 0):
+            # Use percentile for log scale limits
+            positive_data = valid_data[valid_data > 0]
+            vmin_log = max(np.percentile(positive_data, 5), 0.1)  # At least 0.1
+            vmax_log = np.percentile(positive_data, 99.5)
+
             if vmin_log >= vmax_log:
-                vmin_log = vmax_log / 10
-            
-            im2 = ax2.imshow(enhancement_log, extent=extent, origin='lower', 
-                            cmap='hot', aspect='auto', 
+                vmin_log = vmax_log / 100
+
+            im2 = ax2.imshow(enhancement_masked, extent=extent, origin='lower',
+                            cmap='hot', aspect='auto',
                             norm=LogNorm(vmin=vmin_log, vmax=vmax_log))
             ax2.set_xlabel(x_label, fontsize=11)
             ax2.set_ylabel(y_label, fontsize=11)
-            ax2.set_title(f'Field Enhancement (Log Scale)\nλ = {wavelength:.1f} nm, {pol_label}', 
+            ax2.set_title(f'Field Enhancement (Log Scale)\nλ = {wavelength:.1f} nm, {pol_label}',
                          fontsize=11, fontweight='bold')
             cbar2 = plt.colorbar(im2, ax=ax2)
             for section in sections:
                 self._draw_material_boundary(ax2, section, plane_type)
-
             cbar2.set_label('|E|/|E₀|', fontsize=11)
-
         else:
-            im2 = ax2.imshow(enhancement, extent=extent, origin='lower', 
+            im2 = ax2.imshow(enhancement_masked, extent=extent, origin='lower',
                             cmap='hot', aspect='auto')
             ax2.set_xlabel(x_label, fontsize=11)
             ax2.set_ylabel(y_label, fontsize=11)
-            ax2.set_title(f'Field Enhancement\nλ = {wavelength:.1f} nm, {pol_label}', 
+            ax2.set_title(f'Field Enhancement\nλ = {wavelength:.1f} nm, {pol_label}',
                          fontsize=11, fontweight='bold')
-            cbar2 = plt.colorbar(im2, ax=ax2)            
+            cbar2 = plt.colorbar(im2, ax=ax2)
             for section in sections:
-                self._draw_material_boundary(ax2, section, plane_type)    
+                self._draw_material_boundary(ax2, section, plane_type)
+            cbar2.set_label('|E|/|E₀|', fontsize=11)
 
-            cbar2.set_label('|E|/|E₀|', fontsize=11)        
-        
         plt.tight_layout()
         
         # Save
@@ -366,36 +372,43 @@ class Visualizer:
 
         # Determine plane type
         plane_type, extent, x_label, y_label = self._determine_plane(x_grid, y_grid, z_grid)
-        
+
         # FIX: Use polarization label
         pol_label = self._get_polarization_label(polarization_idx)
-        
+
+        # FIX: Use masked array to make NaN transparent
+        intensity_masked = np.ma.masked_invalid(intensity)
+
         # Create figure
         fig, ax = plt.subplots(figsize=(9, 7))
-        
-        intensity_log = np.maximum(intensity, 1e-10)
-        int_max = intensity.max()
-        int_min = intensity_log[intensity_log > 0].min() if np.any(intensity_log > 0) else 1e-10
-        
-        if int_max > int_min and int_max > 0:
-            vmin_log = max(int_min, int_max / 1e6)
-            vmax_log = int_max
-            
-            if vmin_log >= vmax_log:
-                vmin_log = vmax_log / 10
-            
-            im = ax.imshow(intensity_log, extent=extent, origin='lower', 
-                          cmap='viridis', aspect='auto', 
-                          norm=LogNorm(vmin=vmin_log, vmax=vmax_log))
+
+        # Use percentile-based scaling for better visualization of hotspots
+        valid_data = intensity_masked.compressed()
+        if len(valid_data) > 0 and np.any(valid_data > 0):
+            positive_data = valid_data[valid_data > 0]
+            if len(positive_data) > 0:
+                # Use percentile to avoid extreme outliers dominating colorscale
+                vmin_log = max(np.percentile(positive_data, 2), 1e-10)
+                vmax_log = np.percentile(positive_data, 99.5)
+
+                if vmin_log >= vmax_log:
+                    vmin_log = vmax_log / 1000
+
+                im = ax.imshow(intensity_masked, extent=extent, origin='lower',
+                              cmap='inferno', aspect='auto',
+                              norm=LogNorm(vmin=vmin_log, vmax=vmax_log))
+            else:
+                im = ax.imshow(intensity_masked, extent=extent, origin='lower',
+                              cmap='inferno', aspect='auto')
         else:
-            im = ax.imshow(intensity, extent=extent, origin='lower', 
-                          cmap='viridis', aspect='auto')
-        
+            im = ax.imshow(intensity_masked, extent=extent, origin='lower',
+                          cmap='inferno', aspect='auto')
+
         ax.set_xlabel(x_label, fontsize=11)
         ax.set_ylabel(y_label, fontsize=11)
-        ax.set_title(f'Field Intensity |E|² (Log Scale)\nλ = {wavelength:.1f} nm, {pol_label}', 
+        ax.set_title(f'Field Intensity |E|² (Log Scale)\nλ = {wavelength:.1f} nm, {pol_label}',
                     fontsize=12, fontweight='bold')
-        
+
         cbar = plt.colorbar(im, ax=ax)
         cbar.set_label('|E|² (a.u.)', fontsize=11)
 
@@ -491,8 +504,11 @@ class Visualizer:
         
         # Create figure
         fig, ax = plt.subplots(figsize=(10, 8))
-        
-        im = ax.imshow(enhancement, extent=extent, origin='lower', 
+
+        # FIX: Use masked array for NaN transparency
+        enhancement_masked = np.ma.masked_invalid(enhancement)
+
+        im = ax.imshow(enhancement_masked, extent=extent, origin='lower',
                       cmap='hot', aspect='auto', alpha=0.7)
         
         q = ax.quiver(X, Y, U_norm, V_norm, magnitude,
