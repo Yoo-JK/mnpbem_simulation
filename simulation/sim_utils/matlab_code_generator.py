@@ -1840,10 +1840,14 @@ exit;
         """
         Wavelength loop with memory-efficient chunking AND field calculation support.
         
+        ✅ CRITICAL FIX (2024-12-04):
+        Field calculation now uses SEPARATE BEM solutions for each polarization.
+        This fixes the bug where polarization 2 field was all zeros.
+        
         Strategy: 
         1. Calculate ALL cross sections first (no field in loop)
         2. Find peak AFTER all chunks complete
-        3. Calculate field separately for peak wavelength
+        3. Calculate field separately for peak wavelength - EACH polarization independently
         """
         
         wavelength_range = self.config['wavelength_range']
@@ -2053,7 +2057,9 @@ fprintf('Average: %.2f seconds/wavelength\\n', total_time/n_wavelengths);
 fprintf('================================================================\\n');
 """
 
-        # ✅ CRITICAL: Field calculation AFTER all chunks complete
+        # ================================================================
+        # ✅✅✅ CRITICAL FIX STARTS HERE ✅✅✅
+        # ================================================================
         if calculate_fields:
             code += """
 %% ========================================
@@ -2168,7 +2174,9 @@ emesh = meshfield(p, x_grid, y_grid, z_grid, op, ...
 fprintf('  ✓ Meshfield created: %d points\\n', numel(x_grid));
 """
             
-            # ✅ CRITICAL FIX: Calculate fields at peak wavelength with correct excitation type
+            # ================================================================
+            # ✅✅✅ KEY FIX: Each polarization separately ✅✅✅
+            # ================================================================
             code += """
 % Initialize field data storage
 field_data = struct();
@@ -2177,84 +2185,81 @@ field_data = struct();
 fprintf('\\nCalculating fields at λ = %.1f nm...\\n', enei(field_wavelength_idx));
 field_calc_start = tic;
 
-% Recalculate sig at peak wavelength
-fprintf('  Computing BEM solution at peak wavelength...\\n');
-sig_peak = bem \\ exc(p, enei(field_wavelength_idx));
+% Store grid info for later use
+n_grid_points = numel(x_grid);
 
-% ✅ FIX: Calculate induced field ONCE (for all polarizations)
-fprintf('  Computing induced fields...\\n');
-e_induced_all = emesh(sig_peak);
-
-% ✅ FIX: Calculate fields for each polarization separately
+% ================================================================
+% ✅ CRITICAL FIX: Calculate BEM solution SEPARATELY for each polarization
+% This is the correct approach used in all MNPBEM demo files
+% ================================================================
 for ipol = 1:n_polarizations
     fprintf('  Processing polarization %d/%d...\\n', ipol, n_polarizations);
     
 """
             
-            # ✅ FIX: Create correct excitation type for field calculation (simplified - no continue)
+            # Create single-polarization excitation
             if excitation_type == 'planewave':
-                code += """    % Create single-polarization plane wave excitation
+                code += """    % ✅ STEP 1: Create single-polarization plane wave excitation
     exc_single = planewave(pol(ipol, :), dir(ipol, :), op);
 """
             elif excitation_type == 'dipole':
-                code += """    % Dipole excitation
+                code += """    % ✅ STEP 1: Create single-polarization dipole excitation
     pt_single = compoint(p, dip_pos, op);
     exc_single = dipole(pt_single, dip_mom, op);
 """
             elif excitation_type == 'eels':
-                code += """    % EELS excitation
+                code += """    % ✅ STEP 1: Create EELS excitation
     exc_single = eelsret(p, impact, beam_energy, 'width', beam_width, op);
 """
             
+            # ✅ KEY FIX: Calculate each component separately
             code += """    
-    % Extract induced field for this polarization
-    if n_polarizations > 1
-        e_induced = e_induced_all(:, :, ipol);
-    else
-        e_induced = e_induced_all;
-    end
+    % ✅ STEP 2: Compute BEM solution for THIS polarization ONLY
+    fprintf('    Computing BEM solution...\\n');
+    sig_single = bem \\ exc_single(p, enei(field_wavelength_idx));
     
-    % Calculate incoming field for this polarization
+    % ✅ STEP 3: Compute induced field for THIS polarization
+    fprintf('    Computing induced field...\\n');
+    e_induced = emesh(sig_single);
+    
+    % ✅ STEP 4: Compute incoming field for THIS polarization
+    fprintf('    Computing incoming field...\\n');
     e_incoming = emesh(exc_single.field(emesh.pt, enei(field_wavelength_idx)));
     
-    % Ensure 2D arrays for addition
+    % ✅ STEP 5: Ensure proper dimensions for addition
+    if ndims(e_induced) == 3
+        e_induced = squeeze(e_induced);
+    end
     if ndims(e_incoming) == 3
         e_incoming = squeeze(e_incoming);
     end
     
-    % Total field
+    % ✅ STEP 6: Calculate total field and enhancement
     e_total = e_induced + e_incoming;
     
     e_intensity = dot(e_total, e_total, 2);
     e0_intensity = dot(e_incoming, e_incoming, 2);
     enhancement = sqrt(e_intensity ./ e0_intensity);
     
-    % ✅ FIX: Handle meshfield point filtering (mindist option)
-    % meshfield removes points too close to particle surface
-    n_grid_points = numel(x_grid);
+    % ✅ STEP 7: Handle meshfield point filtering (mindist option)
     n_field_points = length(enhancement);
     
     if n_field_points < n_grid_points
-        % Points were filtered - create full grid with NaN
         fprintf('    → Grid filtering: %d/%d points used (mindist=%.2f nm)\\n', ...
                 n_field_points, n_grid_points, field_mindist);
         
-        % Create NaN-filled arrays
         enhancement_full = nan(n_grid_points, 1);
         e_intensity_full = nan(n_grid_points, 1);
         
-        % Fill valid points using meshfield indices
         if isfield(emesh, 'ind') && ~isempty(emesh.ind)
             enhancement_full(emesh.ind) = enhancement;
             e_intensity_full(emesh.ind) = e_intensity;
         else
-            % Fallback: match by coordinates (slower but works)
             fprintf('    ⚠ Warning: emesh.ind not found, using coordinate matching\\n');
             x_flat = x_grid(:);
             y_flat = y_grid(:);
             z_flat = z_grid(:);
             for ii = 1:n_field_points
-                % Find matching coordinates
                 dx = abs(x_flat - emesh.pt.pos(ii,1));
                 dy = abs(y_flat - emesh.pt.pos(ii,2));
                 dz = abs(z_flat - emesh.pt.pos(ii,3));
@@ -2268,10 +2273,12 @@ for ipol = 1:n_polarizations
         e_intensity = e_intensity_full;
     end
 
+    % ✅ STEP 8: Reshape to grid
     grid_shape = size(x_grid);
     enhancement = reshape(enhancement, grid_shape);
     e_intensity = reshape(e_intensity, grid_shape);
     
+    % ✅ STEP 9: Store results
     field_data(ipol).polarization = pol(ipol, :);
     field_data(ipol).wavelength = enei(field_wavelength_idx);
     field_data(ipol).e_total = e_total;
