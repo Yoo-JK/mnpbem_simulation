@@ -752,17 +752,21 @@ particles = {{p1, p2}};
 
     def _sphere_cluster_aggregate(self):
         """Generate compact sphere cluster (close-packed aggregate structure).
-        
+
         Structures:
             N=1: Single sphere
             N=2: Dimer (horizontal)
             N=3: Triangle (2 bottom, 1 top)
-            N=4: Square 2x2
-            N=5: Pentagon (3 bottom, 2 top)
-            N=6: Hexagon (3 bottom, 3 top)
-            N=7: Hexagon (4 bottom, 3 top)
-        
-        All spheres are in contact (gap = -0.1nm, 0.1nm overlap).
+            N=4: Center + 3 surrounding (hexagonal positions)
+            N=5: Center + 4 surrounding
+            N=6: Center + 5 surrounding
+            N=7: Center + 6 surrounding (complete hexagon, close-packed)
+
+        For N=4~7, spheres are arranged with one center sphere and surrounding
+        spheres placed at 60° intervals (hexagonal pattern). At N=7, all 6
+        surrounding positions are filled, creating a perfect close-packed structure.
+
+        Gap parameter controls spacing between all contacting sphere pairs.
         """
         n_spheres = self.config.get('n_spheres', 1)
         diameter = self.config.get('diameter', 50)
@@ -771,47 +775,41 @@ particles = {{p1, p2}};
         
         # Center-to-center spacing for contact
         spacing = diameter + gap
-        
+
         # 60-degree triangle height
         dy_60deg = spacing * 0.866025404  # sin(60°) = sqrt(3)/2
-        
+
+        # Hexagonal surrounding positions (60° intervals, starting from +x direction)
+        # Used for N=4~7: center + surrounding spheres
+        hex_positions = []
+        for i in range(6):
+            angle = i * 60 * np.pi / 180  # 0°, 60°, 120°, 180°, 240°, 300°
+            x = spacing * np.cos(angle)
+            y = spacing * np.sin(angle)
+            hex_positions.append((x, y))
+
         # Define xy positions for each cluster (z=0 for all, substrate contact handled separately)
         # Format: [(x, y), ...]
+        # N=1,2,3: Original configurations
+        # N=4~7: Center sphere + surrounding spheres in hexagonal positions
         cluster_positions = {
             1: [(0, 0)],
-            
-            2: [(-spacing/2, 0), 
+
+            2: [(-spacing/2, 0),
                 (spacing/2, 0)],
-            
+
             3: [(-spacing/2, 0),         # bottom-left
                 (spacing/2, 0),          # bottom-right
                 (0, dy_60deg)],          # top
-            
-            4: [(-spacing/2, -spacing/2), # bottom-left
-                (spacing/2, -spacing/2),  # bottom-right
-                (-spacing/2, spacing/2),  # top-left
-                (spacing/2, spacing/2)],  # top-right
-            
-            5: [(-spacing, 0),            # bottom-left
-                (0, 0),                   # bottom-center
-                (spacing, 0),             # bottom-right
-                (-spacing/2, dy_60deg),   # top-left
-                (spacing/2, dy_60deg)],   # top-right
-            
-            6: [(-spacing, 0),            # bottom-left
-                (0, 0),                   # bottom-center
-                (spacing, 0),             # bottom-right
-                (-spacing/2, dy_60deg),   # middle-left
-                (spacing/2, dy_60deg),    # middle-right
-                (0, 2*dy_60deg)],         # top-center
-            
-            7: [(-1.5*spacing, 0),        # bottom row (4)
-                (-0.5*spacing, 0),
-                (0.5*spacing, 0),
-                (1.5*spacing, 0),
-                (-spacing, dy_60deg),     # top row (3)
-                (0, dy_60deg),
-                (spacing, dy_60deg)]
+
+            # N=4~7: Center (0,0) + hexagonal surrounding positions
+            4: [(0, 0)] + hex_positions[0:3],  # center + 3 surrounding
+
+            5: [(0, 0)] + hex_positions[0:4],  # center + 4 surrounding
+
+            6: [(0, 0)] + hex_positions[0:5],  # center + 5 surrounding
+
+            7: [(0, 0)] + hex_positions[0:6],  # center + 6 surrounding (complete hexagon)
         }
         
         if n_spheres not in cluster_positions:
@@ -856,13 +854,13 @@ switch n_spheres
     case 3
         fprintf('Triangle\\n');
     case 4
-        fprintf('Square (2x2)\\n');
+        fprintf('Center + 3 surrounding\\n');
     case 5
-        fprintf('Pentagon (3+2)\\n');
+        fprintf('Center + 4 surrounding\\n');
     case 6
-        fprintf('Hexagon (3+3)\\n');
+        fprintf('Center + 5 surrounding\\n');
     case 7
-        fprintf('Hexagon (4+3)\\n');
+        fprintf('Center + 6 surrounding (complete hexagon)\\n');
 end
 
 % Create particles
