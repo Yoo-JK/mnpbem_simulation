@@ -77,6 +77,28 @@ args['excitation_type'] = 'planewave'
 
 # Polarization direction(s) - can specify multiple
 # Each polarization is a 3D vector [x, y, z]
+#
+# ============================================================================
+# UNPOLARIZED LIGHT CALCULATION (FDTD-style, automatic detection)
+# ============================================================================
+# To calculate unpolarized light response, specify TWO ORTHOGONAL polarizations.
+# The system will automatically detect orthogonal polarizations and calculate:
+#   - Unpolarized spectrum: σ_unpol = (σ_pol1 + σ_pol2) / 2
+#   - Unpolarized field: I_unpol = (I_pol1 + I_pol2) / 2
+#                        enh_unpol = sqrt((enh1² + enh2²) / 2)
+#
+# This follows the FDTD (Lumerical) convention for incoherent averaging.
+# Reference: https://optics.ansys.com/hc/en-us/articles/1500006149562
+#
+# Example for unpolarized calculation (x and y polarizations are orthogonal):
+#   args['polarizations'] = [[1, 0, 0], [0, 1, 0]]
+#   args['propagation_dirs'] = [[0, 0, 1], [0, 0, 1]]
+#
+# For dipole excitation, use THREE ORTHOGONAL directions for unpolarized:
+#   args['polarizations'] = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]  # x, y, z
+#   → σ_unpol = (σ_x + σ_y + σ_z) / 3
+# ============================================================================
+
 args['polarizations'] = [
     [1, 0, 0],  # x-polarization
     [0, 1, 0],  # y-polarization
