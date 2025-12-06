@@ -29,12 +29,10 @@ args['waitbar'] = 0
 # ============================================================================
 args['excitation_type'] = 'planewave'
 args['polarizations'] = [
-    [1, 0, 0],  # x-pol (longitudinal)
-    [0, 1, 0],  # y-pol (transverse)
-    [1, 1, 0]
+    [1, 0, 0],
+    [0, 1, 0]
 ]
 args['propagation_dirs'] = [
-    [0, 0, 1],
     [0, 0, 1],
     [0, 0, 1]
 ]
