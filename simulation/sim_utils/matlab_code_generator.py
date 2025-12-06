@@ -311,6 +311,13 @@ try
             fprintf('Creating parallel pool with %d workers...\\n', requested_workers);
             pool = parpool('local', requested_workers);
             fprintf('[OK] Parallel pool created successfully: %d workers\\n', pool.NumWorkers);
+
+            % CRITICAL: Propagate maxNumCompThreads to ALL workers!
+            % Without this, workers use default threads (usually 1)
+            fprintf('Setting maxNumCompThreads(%d) on all workers...\\n', comp_threads);
+            pctRunOnAll(@() maxNumCompThreads(comp_threads));
+            fprintf('[OK] All workers configured with %d computational threads\\n', comp_threads);
+
             parallel_enabled = true;
         else
             fprintf('Serial execution mode (1 worker)\\n');
@@ -321,6 +328,11 @@ try
         % Pool exists, use it
         pool = existing_pool;
         fprintf('[OK] Using existing parallel pool: %d workers\\n', pool.NumWorkers);
+
+        % Also set threads on existing pool workers
+        fprintf('Setting maxNumCompThreads(%d) on existing workers...\\n', comp_threads);
+        pctRunOnAll(@() maxNumCompThreads(comp_threads));
+
         parallel_enabled = true;
     end
     
