@@ -2,6 +2,7 @@
 Postprocessing Manager
 
 Coordinates all postprocessing tasks.
+Includes unpolarized light calculation (FDTD-style incoherent averaging).
 """
 
 import os
@@ -18,6 +19,7 @@ from postprocess.post_utils.spectrum_analyzer import SpectrumAnalyzer
 from postprocess.post_utils.visualizer import Visualizer
 from postprocess.post_utils.field_analyzer import FieldAnalyzer
 from postprocess.post_utils.field_exporter import FieldExporter
+from postprocess.post_utils.data_exporter import DataExporter
 
 
 class PostprocessManager:
@@ -44,6 +46,7 @@ class PostprocessManager:
         self.visualizer = Visualizer(config, verbose)
         self.field_analyzer = FieldAnalyzer(verbose)
         self.field_exporter = FieldExporter(self.output_dir, verbose)
+        self.data_exporter = DataExporter(config, verbose)
     
     def run(self):
         """Execute complete postprocessing workflow."""
@@ -54,7 +57,7 @@ class PostprocessManager:
         
         # Step 1: Load data
         if self.verbose:
-            print("\n[1/5] Loading simulation results...")
+            print("\n[1/6] Loading simulation results...")
         
         try:
             data = self.data_loader.load_simulation_results()
@@ -64,47 +67,56 @@ class PostprocessManager:
         
         # Step 2: Analyze spectra
         if self.verbose:
-            print("\n[2/5] Analyzing spectra...")
-        
+            print("\n[2/6] Analyzing spectra...")
+
         analysis = self.analyzer.analyze(data)
-        
+
         if self.verbose:
             self._print_analysis_summary(analysis)
-        
+
         # Step 2.5: Analyze fields
         field_analysis = []
         if 'fields' in data and data['fields']:
             if self.verbose:
-                print("\n[2.5/5] Analyzing electromagnetic fields...")
-            
+                print("\n[2.5/6] Analyzing electromagnetic fields...")
+
             for field_data in data['fields']:
                 field_result = self.field_analyzer.analyze_field(field_data)
                 field_analysis.append(field_result)
-        
-        # Step 3: Create visualizations
+
+        # Step 3: Create visualizations (with unpolarized plots if applicable)
         if self.verbose:
-            print("\n[3/5] Creating visualizations...")
-        
-        plots = self.visualizer.create_all_plots(data)
-        
+            print("\n[3/6] Creating visualizations...")
+
+        plots = self.visualizer.create_all_plots(data, analysis)
+
         if self.verbose and plots:
             print(f"  Created {len(plots)} plot(s)")
+
+        # Step 3.5: Export data to TXT files
+        if self.verbose:
+            print("\n[3.5/6] Exporting data to TXT files...")
+
+        txt_files = self.data_exporter.export_all(data, analysis)
+
+        if self.verbose and txt_files:
+            print(f"  Exported {len(txt_files)} TXT file(s)")
         
         # Step 4: Export field data
         if 'fields' in data and data['fields'] and field_analysis:
             if self.verbose:
-                print("\n[4/5] Exporting field data...")
-            
+                print("\n[4/6] Exporting field data...")
+
             # Export field analysis to JSON
             self.field_exporter.export_to_json(data['fields'], field_analysis)
-            
+
             # Optionally export downsampled field arrays
             if self.config.get('export_field_arrays', False):
                 self.field_exporter.export_field_data_arrays(data['fields'])
-        
+
         # Step 5: Save processed data
         if self.verbose:
-            print(f"\n[5/5] Saving processed data...")
+            print(f"\n[5/6] Saving processed data...")
         
         self._save_processed_data(data, analysis, field_analysis)
         
@@ -120,16 +132,28 @@ class PostprocessManager:
         """Print summary of spectral analysis."""
         print("\n  Spectral Analysis Summary:")
         print("  " + "-"*50)
-        
-        # ✅ FIX: analysis is a single dict, not a list
+
         # Extract per-polarization info from arrays
         n_pol = len(analysis['peak_wavelengths'])
-        
+
         for ipol in range(n_pol):
             print(f"\n  Polarization {ipol + 1}:")
             print(f"    Peak Wavelength: {analysis['peak_wavelengths'][ipol]:.2f} nm")
             print(f"    Peak Value: {analysis['peak_values'][ipol]:.2e} nm²")
             print(f"    FWHM: {analysis['fwhm'][ipol]:.2f} nm")
+
+        # Print unpolarized analysis if available
+        unpol_info = analysis.get('unpolarized', {})
+        if unpol_info.get('can_calculate', False):
+            unpol_spec = analysis.get('unpolarized_spectrum', {})
+            print(f"\n  Unpolarized (FDTD-style incoherent average):")
+            print(f"    Method: {unpol_info.get('method', 'N/A')}")
+            print(f"    Peak Wavelength: {unpol_spec.get('peak_wavelength', 0):.2f} nm")
+            print(f"    Peak Absorption: {unpol_spec.get('peak_absorption', 0):.2e} nm²")
+            print(f"    Peak Extinction: {unpol_spec.get('peak_extinction', 0):.2e} nm²")
+        else:
+            print(f"\n  Unpolarized: Not calculated")
+            print(f"    Reason: {unpol_info.get('reason', 'Unknown')}")
     
     def _save_processed_data(self, data, analysis, field_analysis):
         """Save processed data in various formats."""
