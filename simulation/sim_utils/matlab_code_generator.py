@@ -1411,16 +1411,74 @@ for ipol = 1:n_polarizations
             ipol, max_abs_pol, enei(idx), idx);
 end
 
+% ============================================================
+% UNPOLARIZED PEAK WAVELENGTH CALCULATION
+% ============================================================
+% Check if polarizations are orthogonal for unpolarized calculation
+unpolarized_peak_idx = -1;  % -1 means no unpolarized calculation
+
+if n_polarizations == 2
+    % Check orthogonality for plane wave (2 polarizations)
+    pol1 = pol(1, :) / norm(pol(1, :));
+    pol2 = pol(2, :) / norm(pol(2, :));
+    dot_prod = abs(dot(pol1, pol2));
+
+    if dot_prod < 1e-6
+        fprintf('  [Unpolarized] Two orthogonal polarizations detected\\n');
+
+        % Calculate unpolarized spectrum (average)
+        unpol_abs = mean(abs_cross, 2);
+        [unpol_max_abs, unpolarized_peak_idx] = max(unpol_abs);
+
+        fprintf('  [Unpolarized] Peak absorption: %.2e nm^2 at lambda = %.1f nm (index %d)\\n', ...
+                unpol_max_abs, enei(unpolarized_peak_idx), unpolarized_peak_idx);
+    end
+elseif n_polarizations == 3
+    % Check orthogonality for dipole (3 directions)
+    pol1 = pol(1, :) / norm(pol(1, :));
+    pol2 = pol(2, :) / norm(pol(2, :));
+    pol3 = pol(3, :) / norm(pol(3, :));
+
+    dot12 = abs(dot(pol1, pol2));
+    dot23 = abs(dot(pol2, pol3));
+    dot13 = abs(dot(pol1, pol3));
+
+    if dot12 < 1e-6 && dot23 < 1e-6 && dot13 < 1e-6
+        fprintf('  [Unpolarized] Three orthogonal directions detected\\n');
+
+        % Calculate unpolarized spectrum (average)
+        unpol_abs = mean(abs_cross, 2);
+        [unpol_max_abs, unpolarized_peak_idx] = max(unpol_abs);
+
+        fprintf('  [Unpolarized] Peak absorption: %.2e nm^2 at lambda = %.1f nm (index %d)\\n', ...
+                unpol_max_abs, enei(unpolarized_peak_idx), unpolarized_peak_idx);
+    end
+end
+
 % Get unique wavelength indices (remove duplicates)
 unique_field_wavelength_indices = unique(field_wavelength_indices);
+
+% Add unpolarized peak if different from existing peaks
+if unpolarized_peak_idx > 0 && ~ismember(unpolarized_peak_idx, unique_field_wavelength_indices)
+    unique_field_wavelength_indices = sort([unique_field_wavelength_indices, unpolarized_peak_idx]);
+    fprintf('  [Unpolarized] Added unpolarized peak wavelength to field calculation list\\n');
+end
+
 n_field_wavelengths = length(unique_field_wavelength_indices);
 
 fprintf('  -> Total %d unique wavelength(s) for field calculation\\n', n_field_wavelengths);
 for iw = 1:n_field_wavelengths
     idx = unique_field_wavelength_indices(iw);
     pols_at_this_wl = find(field_wavelength_indices == idx);
-    fprintf('     lambda = %.1f nm (index %d): polarizations [%s]\\n', ...
-            enei(idx), idx, num2str(pols_at_this_wl));
+
+    % Check if this is the unpolarized peak
+    if idx == unpolarized_peak_idx
+        fprintf('     lambda = %.1f nm (index %d): UNPOLARIZED PEAK -> all polarizations\\n', ...
+                enei(idx), idx);
+    else
+        fprintf('     lambda = %.1f nm (index %d): polarizations [%s]\\n', ...
+                enei(idx), idx, num2str(pols_at_this_wl));
+    end
 end
 """
         elif field_wl_idx == 'peak_ext':
@@ -1558,8 +1616,14 @@ field_data_idx = 0;  % Counter for field_data entries
             field_calc_start = tic;
 
             % Find which polarizations have their peak at this wavelength
-            pols_at_this_wl = find(field_wavelength_indices == ien);
-            fprintf('    Polarizations with peak at this wavelength: [%s]\\n', num2str(pols_at_this_wl));
+            % For unpolarized peak wavelength, calculate ALL polarizations
+            if exist('unpolarized_peak_idx', 'var') && ien == unpolarized_peak_idx
+                pols_at_this_wl = 1:n_polarizations;
+                fprintf('    [UNPOLARIZED PEAK] Calculating ALL polarizations: [%s]\\n', num2str(pols_at_this_wl));
+            else
+                pols_at_this_wl = find(field_wavelength_indices == ien);
+                fprintf('    Polarizations with peak at this wavelength: [%s]\\n', num2str(pols_at_this_wl));
+            end
 
             fprintf('  Computing induced fields...\\n');
             e_induced_obj = emesh(sig);
@@ -1579,10 +1643,10 @@ field_data_idx = 0;  % Counter for field_data entries
 
             grid_shape = size(x_grid);
 
-            % Only process polarizations that have their peak at this wavelength
+            % Process polarizations for this wavelength
             for ipol_loop = 1:length(pols_at_this_wl)
                 ipol = pols_at_this_wl(ipol_loop);
-                fprintf('    Processing polarization %d (peak at this wavelength)...\\n', ipol);
+                fprintf('    Processing polarization %d...\\n', ipol);
 
 """
         

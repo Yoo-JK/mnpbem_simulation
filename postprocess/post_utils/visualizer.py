@@ -37,25 +37,35 @@ class Visualizer:
         else:
             return f"Polarization {ipol+1}"
     
-    def create_all_plots(self, data):
+    def create_all_plots(self, data, analysis_results=None):
         """Create all visualization plots."""
         plots_created = []
-        
+
         # Spectrum plots
         if 'wavelength' in data and 'extinction' in data:
             spectrum_file = self.plot_spectrum(data)
             plots_created.append(spectrum_file)
-        
+
         # Polarization comparison
         if 'wavelength' in data and data['extinction'].shape[1] > 1:
             pol_file = self.plot_polarization_comparison(data)
             plots_created.append(pol_file)
-        
-        # Field plots (NEW)
+
+        # Unpolarized spectrum plots (if available)
+        if analysis_results and 'unpolarized_spectrum' in analysis_results:
+            unpol_files = self.plot_unpolarized_spectrum(data, analysis_results)
+            plots_created.extend(unpol_files)
+
+        # Field plots
         if 'fields' in data:
             field_files = self.plot_fields(data)
             plots_created.extend(field_files)
-        
+
+            # Unpolarized field plots (if conditions met)
+            if analysis_results and analysis_results.get('unpolarized', {}).get('can_calculate', False):
+                unpol_field_files = self.plot_unpolarized_fields(data, analysis_results)
+                plots_created.extend(unpol_field_files)
+
         return plots_created
     
     def plot_spectrum(self, data):
@@ -708,3 +718,497 @@ class Visualizer:
                 label=section.get('label', 'Material boundary')
             )
             ax.add_patch(rectangle)
+
+    # ========================================================================
+    # UNPOLARIZED PLOTS
+    # ========================================================================
+
+    def plot_unpolarized_spectrum(self, data, analysis_results):
+        """
+        Plot unpolarized spectrum (FDTD-style incoherent average).
+
+        Creates:
+        1. Standalone unpolarized spectrum plot
+        2. Comparison plot: all polarizations + unpolarized
+        """
+        saved_files = []
+        unpol = analysis_results['unpolarized_spectrum']
+
+        wavelength = unpol['wavelength']
+        unpol_ext = unpol['extinction']
+        unpol_sca = unpol['scattering']
+        unpol_abs = unpol['absorption']
+
+        # Check x-axis unit preference
+        xaxis_unit = self.config.get('spectrum_xaxis', 'wavelength')
+
+        if xaxis_unit == 'energy':
+            xdata = 1239.84 / wavelength
+            xlabel_text = 'Energy (eV)'
+            # Reverse for energy
+            xdata = xdata[::-1]
+            unpol_ext = unpol_ext[::-1]
+            unpol_sca = unpol_sca[::-1]
+            unpol_abs = unpol_abs[::-1]
+        else:
+            xdata = wavelength
+            xlabel_text = 'Wavelength (nm)'
+
+        # ========== 1. Standalone Unpolarized Spectrum ==========
+        fig, ax = plt.subplots(figsize=(10, 6))
+
+        ax.plot(xdata, unpol_ext, 'b-', linewidth=2, label='Extinction')
+        ax.plot(xdata, unpol_sca, 'r--', linewidth=2, label='Scattering')
+        ax.plot(xdata, unpol_abs, 'g:', linewidth=2, label='Absorption')
+
+        ax.set_xlabel(xlabel_text, fontsize=12)
+        ax.set_ylabel('Cross Section (nm²)', fontsize=12)
+        ax.set_title(f'Unpolarized Spectrum\n(FDTD-style incoherent average, {unpol["n_averaged"]} polarizations)',
+                    fontsize=14, fontweight='bold')
+        ax.legend(fontsize=11)
+        ax.grid(True, alpha=0.3)
+
+        if xaxis_unit == 'energy':
+            ax.invert_xaxis()
+
+        plt.tight_layout()
+
+        base_filename = 'simulation_spectrum_unpolarized'
+        files = self._save_figure(fig, base_filename)
+        if files:
+            saved_files.extend(files)
+        plt.close(fig)
+
+        # ========== 2. Comparison: All polarizations + Unpolarized ==========
+        comparison_files = self._plot_spectrum_comparison_with_unpolarized(data, analysis_results)
+        saved_files.extend(comparison_files)
+
+        return saved_files
+
+    def _plot_spectrum_comparison_with_unpolarized(self, data, analysis_results):
+        """Plot comparison of all polarizations including unpolarized."""
+        saved_files = []
+
+        wavelength = data['wavelength']
+        extinction = data['extinction']
+        scattering = data['scattering']
+        absorption = data['absorption']
+        n_pol = extinction.shape[1]
+
+        unpol = analysis_results['unpolarized_spectrum']
+
+        # X-axis
+        xaxis_unit = self.config.get('spectrum_xaxis', 'wavelength')
+        if xaxis_unit == 'energy':
+            xdata = 1239.84 / wavelength
+            xlabel_text = 'Energy (eV)'
+            xdata = xdata[::-1]
+            extinction = extinction[::-1, :]
+            scattering = scattering[::-1, :]
+            absorption = absorption[::-1, :]
+            unpol_ext = unpol['extinction'][::-1]
+            unpol_sca = unpol['scattering'][::-1]
+            unpol_abs = unpol['absorption'][::-1]
+        else:
+            xdata = wavelength
+            xlabel_text = 'Wavelength (nm)'
+            unpol_ext = unpol['extinction']
+            unpol_sca = unpol['scattering']
+            unpol_abs = unpol['absorption']
+
+        # Colors for polarizations + black for unpolarized
+        colors = plt.cm.tab10(np.linspace(0, 0.7, n_pol))
+
+        # ========== Extinction Comparison ==========
+        fig, ax = plt.subplots(figsize=(10, 6))
+
+        for i in range(n_pol):
+            pol_label = self._get_polarization_label(i)
+            ax.plot(xdata, extinction[:, i], color=colors[i], linewidth=1.5,
+                   linestyle='--', alpha=0.7, label=pol_label)
+
+        ax.plot(xdata, unpol_ext, 'k-', linewidth=2.5, label='Unpolarized')
+
+        ax.set_xlabel(xlabel_text, fontsize=12)
+        ax.set_ylabel('Extinction Cross Section (nm²)', fontsize=12)
+        ax.set_title('Extinction: Polarizations vs Unpolarized', fontsize=14, fontweight='bold')
+        ax.legend(fontsize=9)
+        ax.grid(True, alpha=0.3)
+
+        if xaxis_unit == 'energy':
+            ax.invert_xaxis()
+
+        plt.tight_layout()
+        files = self._save_figure(fig, 'simulation_comparison_extinction_unpolarized')
+        if files:
+            saved_files.extend(files)
+        plt.close(fig)
+
+        # ========== Scattering Comparison ==========
+        fig, ax = plt.subplots(figsize=(10, 6))
+
+        for i in range(n_pol):
+            pol_label = self._get_polarization_label(i)
+            ax.plot(xdata, scattering[:, i], color=colors[i], linewidth=1.5,
+                   linestyle='--', alpha=0.7, label=pol_label)
+
+        ax.plot(xdata, unpol_sca, 'k-', linewidth=2.5, label='Unpolarized')
+
+        ax.set_xlabel(xlabel_text, fontsize=12)
+        ax.set_ylabel('Scattering Cross Section (nm²)', fontsize=12)
+        ax.set_title('Scattering: Polarizations vs Unpolarized', fontsize=14, fontweight='bold')
+        ax.legend(fontsize=9)
+        ax.grid(True, alpha=0.3)
+
+        if xaxis_unit == 'energy':
+            ax.invert_xaxis()
+
+        plt.tight_layout()
+        files = self._save_figure(fig, 'simulation_comparison_scattering_unpolarized')
+        if files:
+            saved_files.extend(files)
+        plt.close(fig)
+
+        # ========== Absorption Comparison ==========
+        fig, ax = plt.subplots(figsize=(10, 6))
+
+        for i in range(n_pol):
+            pol_label = self._get_polarization_label(i)
+            ax.plot(xdata, absorption[:, i], color=colors[i], linewidth=1.5,
+                   linestyle='--', alpha=0.7, label=pol_label)
+
+        ax.plot(xdata, unpol_abs, 'k-', linewidth=2.5, label='Unpolarized')
+
+        ax.set_xlabel(xlabel_text, fontsize=12)
+        ax.set_ylabel('Absorption Cross Section (nm²)', fontsize=12)
+        ax.set_title('Absorption: Polarizations vs Unpolarized', fontsize=14, fontweight='bold')
+        ax.legend(fontsize=9)
+        ax.grid(True, alpha=0.3)
+
+        if xaxis_unit == 'energy':
+            ax.invert_xaxis()
+
+        plt.tight_layout()
+        files = self._save_figure(fig, 'simulation_comparison_absorption_unpolarized')
+        if files:
+            saved_files.extend(files)
+        plt.close(fig)
+
+        # ========== All-in-one Comparison (3 subplots) ==========
+        fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+
+        for i in range(n_pol):
+            pol_label = self._get_polarization_label(i)
+            axes[0].plot(xdata, extinction[:, i], color=colors[i], linewidth=1.5,
+                        linestyle='--', alpha=0.7, label=pol_label)
+            axes[1].plot(xdata, scattering[:, i], color=colors[i], linewidth=1.5,
+                        linestyle='--', alpha=0.7, label=pol_label)
+            axes[2].plot(xdata, absorption[:, i], color=colors[i], linewidth=1.5,
+                        linestyle='--', alpha=0.7, label=pol_label)
+
+        axes[0].plot(xdata, unpol_ext, 'k-', linewidth=2.5, label='Unpolarized')
+        axes[1].plot(xdata, unpol_sca, 'k-', linewidth=2.5, label='Unpolarized')
+        axes[2].plot(xdata, unpol_abs, 'k-', linewidth=2.5, label='Unpolarized')
+
+        titles = ['Extinction', 'Scattering', 'Absorption']
+        for idx, ax in enumerate(axes):
+            ax.set_xlabel(xlabel_text, fontsize=11)
+            ax.set_ylabel('Cross Section (nm²)', fontsize=11)
+            ax.set_title(titles[idx], fontsize=12, fontweight='bold')
+            ax.legend(fontsize=8)
+            ax.grid(True, alpha=0.3)
+            if xaxis_unit == 'energy':
+                ax.invert_xaxis()
+
+        plt.suptitle('Polarizations vs Unpolarized Comparison', fontsize=14, fontweight='bold')
+        plt.tight_layout()
+
+        files = self._save_figure(fig, 'simulation_comparison_all_unpolarized')
+        if files:
+            saved_files.extend(files)
+        plt.close(fig)
+
+        return saved_files
+
+    def plot_unpolarized_fields(self, data, analysis_results):
+        """
+        Plot unpolarized field distributions.
+
+        Uses FDTD-style incoherent averaging:
+        - Intensity: I_unpol = mean(I_pol1, I_pol2, ...)
+        - Enhancement: enh_unpol = sqrt(mean(enh1^2, enh2^2, ...))
+        """
+        saved_files = []
+        fields = data.get('fields', [])
+
+        if not fields:
+            return saved_files
+
+        unpol_info = analysis_results.get('unpolarized', {})
+        method = unpol_info.get('method', '')
+
+        # Determine expected number of polarizations
+        if method == 'orthogonal_2pol_average':
+            expected_n_pol = 2
+        elif method == 'orthogonal_3dir_average':
+            expected_n_pol = 3
+        else:
+            return saved_files
+
+        # Group fields by wavelength
+        fields_by_wavelength = {}
+        for field in fields:
+            wl = field.get('wavelength', 0)
+            wl_key = f"{wl:.1f}"
+            if wl_key not in fields_by_wavelength:
+                fields_by_wavelength[wl_key] = []
+            fields_by_wavelength[wl_key].append(field)
+
+        for wl_key, wl_fields in fields_by_wavelength.items():
+            # Check if we have all required polarizations
+            if len(wl_fields) != expected_n_pol:
+                continue
+
+            # Sort by polarization index
+            wl_fields_sorted = sorted(wl_fields, key=lambda f: f.get('polarization_idx', 0))
+
+            # Get reference field for grid info
+            ref_field = wl_fields_sorted[0]
+            x_grid = ref_field.get('x_grid')
+            y_grid = ref_field.get('y_grid')
+            z_grid = ref_field.get('z_grid')
+            wavelength = ref_field.get('wavelength', 0)
+
+            # Calculate unpolarized (incoherent average)
+            enhancements_sq = []
+            intensities = []
+
+            for field in wl_fields_sorted:
+                enh = field.get('enhancement')
+                inten = field.get('intensity')
+
+                if enh is None:
+                    continue
+
+                if np.iscomplexobj(enh):
+                    enh = np.abs(enh)
+                if inten is not None and np.iscomplexobj(inten):
+                    inten = np.abs(inten)
+
+                enhancements_sq.append(enh ** 2)
+                if inten is not None:
+                    intensities.append(inten)
+
+            if len(enhancements_sq) != expected_n_pol:
+                continue
+
+            # Incoherent average
+            unpol_enh = np.sqrt(np.mean(enhancements_sq, axis=0))
+            unpol_intensity = np.mean(intensities, axis=0) if len(intensities) == expected_n_pol else unpol_enh ** 2
+
+            # Create unpolarized field dict
+            unpol_field = {
+                'x_grid': x_grid,
+                'y_grid': y_grid,
+                'z_grid': z_grid,
+                'enhancement': unpol_enh,
+                'intensity': unpol_intensity,
+                'wavelength': wavelength
+            }
+
+            # Plot unpolarized enhancement
+            unpol_files = self._plot_unpolarized_field_enhancement(
+                unpol_field, wavelength, expected_n_pol
+            )
+            saved_files.extend(unpol_files)
+
+            # Plot field comparison (all polarizations + unpolarized)
+            comparison_files = self._plot_field_comparison_with_unpolarized(
+                wl_fields_sorted, unpol_field, wavelength
+            )
+            saved_files.extend(comparison_files)
+
+        return saved_files
+
+    def _plot_unpolarized_field_enhancement(self, unpol_field, wavelength, n_pol):
+        """Plot unpolarized field enhancement."""
+        saved_files = []
+
+        enhancement = unpol_field['enhancement']
+        x_grid = unpol_field['x_grid']
+        y_grid = unpol_field['y_grid']
+        z_grid = unpol_field['z_grid']
+
+        # Handle scalar/1D arrays
+        if not isinstance(enhancement, np.ndarray):
+            enhancement = np.array([[enhancement]])
+        elif enhancement.ndim == 0:
+            enhancement = np.array([[enhancement.item()]])
+        elif enhancement.ndim == 1:
+            enhancement = enhancement.reshape(1, -1)
+
+        if np.iscomplexobj(enhancement):
+            enhancement = np.abs(enhancement)
+
+        plane_type, extent, x_label, y_label = self._determine_plane(x_grid, y_grid, z_grid)
+        enhancement_masked = np.ma.masked_invalid(enhancement)
+
+        # Create figure
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+
+        valid_data = enhancement_masked.compressed()
+        if len(valid_data) > 0:
+            vmin_linear = np.percentile(valid_data, 1)
+            vmax_linear = np.percentile(valid_data, 99)
+        else:
+            vmin_linear, vmax_linear = 0, 1
+
+        # Linear scale
+        im1 = ax1.imshow(enhancement_masked, extent=extent, origin='lower',
+                        cmap='hot', aspect='auto', vmin=vmin_linear, vmax=vmax_linear)
+        ax1.set_xlabel(x_label, fontsize=11)
+        ax1.set_ylabel(y_label, fontsize=11)
+        ax1.set_title(f'Unpolarized Field Enhancement (Linear)\n'
+                     f'λ = {wavelength:.1f} nm, avg of {n_pol} pols',
+                     fontsize=11, fontweight='bold')
+        cbar1 = plt.colorbar(im1, ax=ax1)
+        cbar1.set_label('|E|/|E₀|', fontsize=11)
+
+        z_plane = float(z_grid.flat[0]) if isinstance(z_grid, np.ndarray) else float(z_grid)
+        sections = self.geometry.get_cross_section(z_plane)
+        for section in sections:
+            self._draw_material_boundary(ax1, section, plane_type)
+
+        # Log scale
+        if len(valid_data) > 0 and np.any(valid_data > 0):
+            positive_data = valid_data[valid_data > 0]
+            vmin_log = max(np.percentile(positive_data, 5), 0.1)
+            vmax_log = np.percentile(positive_data, 99.5)
+            if vmin_log >= vmax_log:
+                vmin_log = vmax_log / 100
+
+            im2 = ax2.imshow(enhancement_masked, extent=extent, origin='lower',
+                            cmap='hot', aspect='auto',
+                            norm=LogNorm(vmin=vmin_log, vmax=vmax_log))
+        else:
+            im2 = ax2.imshow(enhancement_masked, extent=extent, origin='lower',
+                            cmap='hot', aspect='auto')
+
+        ax2.set_xlabel(x_label, fontsize=11)
+        ax2.set_ylabel(y_label, fontsize=11)
+        ax2.set_title(f'Unpolarized Field Enhancement (Log)\n'
+                     f'λ = {wavelength:.1f} nm, avg of {n_pol} pols',
+                     fontsize=11, fontweight='bold')
+        cbar2 = plt.colorbar(im2, ax=ax2)
+        cbar2.set_label('|E|/|E₀|', fontsize=11)
+
+        for section in sections:
+            self._draw_material_boundary(ax2, section, plane_type)
+
+        plt.tight_layout()
+
+        base_filename = f'field_enhancement_unpolarized_{plane_type}'
+        files = self._save_figure(fig, base_filename)
+        if files:
+            saved_files.extend(files)
+        plt.close(fig)
+
+        return saved_files
+
+    def _plot_field_comparison_with_unpolarized(self, pol_fields, unpol_field, wavelength):
+        """Plot comparison of field enhancement: all polarizations + unpolarized."""
+        saved_files = []
+        n_pol = len(pol_fields)
+
+        # Get grid info
+        ref_field = pol_fields[0]
+        x_grid = ref_field['x_grid']
+        y_grid = ref_field['y_grid']
+        z_grid = ref_field['z_grid']
+
+        plane_type, extent, x_label, y_label = self._determine_plane(x_grid, y_grid, z_grid)
+
+        # Create figure with n_pol + 1 subplots
+        n_cols = n_pol + 1
+        fig, axes = plt.subplots(1, n_cols, figsize=(5 * n_cols, 5))
+
+        if n_cols == 1:
+            axes = [axes]
+
+        # Find global vmin/vmax for consistent colorbar
+        all_data = []
+        for field in pol_fields:
+            enh = field.get('enhancement')
+            if enh is not None:
+                if np.iscomplexobj(enh):
+                    enh = np.abs(enh)
+                all_data.append(enh.flatten())
+
+        unpol_enh = unpol_field['enhancement']
+        if np.iscomplexobj(unpol_enh):
+            unpol_enh = np.abs(unpol_enh)
+        all_data.append(unpol_enh.flatten())
+
+        all_data_flat = np.concatenate(all_data)
+        valid_data = all_data_flat[~np.isnan(all_data_flat)]
+
+        if len(valid_data) > 0:
+            vmin = np.percentile(valid_data, 1)
+            vmax = np.percentile(valid_data, 99)
+        else:
+            vmin, vmax = 0, 1
+
+        # Plot each polarization
+        for idx, field in enumerate(pol_fields):
+            ax = axes[idx]
+            enh = field.get('enhancement')
+            pol_idx = field.get('polarization_idx', idx)
+
+            if np.iscomplexobj(enh):
+                enh = np.abs(enh)
+
+            enh_masked = np.ma.masked_invalid(enh)
+
+            im = ax.imshow(enh_masked, extent=extent, origin='lower',
+                          cmap='hot', aspect='auto', vmin=vmin, vmax=vmax)
+
+            pol_label = self._get_polarization_label(pol_idx)
+            ax.set_title(f'{pol_label}', fontsize=10, fontweight='bold')
+            ax.set_xlabel(x_label, fontsize=9)
+            ax.set_ylabel(y_label, fontsize=9)
+
+            z_plane = float(z_grid.flat[0]) if isinstance(z_grid, np.ndarray) else float(z_grid)
+            sections = self.geometry.get_cross_section(z_plane)
+            for section in sections:
+                self._draw_material_boundary(ax, section, plane_type)
+
+        # Plot unpolarized
+        ax = axes[-1]
+        unpol_enh_masked = np.ma.masked_invalid(unpol_enh)
+
+        im = ax.imshow(unpol_enh_masked, extent=extent, origin='lower',
+                      cmap='hot', aspect='auto', vmin=vmin, vmax=vmax)
+
+        ax.set_title(f'Unpolarized', fontsize=10, fontweight='bold')
+        ax.set_xlabel(x_label, fontsize=9)
+        ax.set_ylabel(y_label, fontsize=9)
+
+        for section in sections:
+            self._draw_material_boundary(ax, section, plane_type)
+
+        # Add colorbar
+        fig.subplots_adjust(right=0.9)
+        cbar_ax = fig.add_axes([0.92, 0.15, 0.02, 0.7])
+        cbar = fig.colorbar(im, cax=cbar_ax)
+        cbar.set_label('|E|/|E₀|', fontsize=11)
+
+        plt.suptitle(f'Field Enhancement Comparison (λ = {wavelength:.1f} nm)',
+                    fontsize=12, fontweight='bold')
+
+        base_filename = f'field_comparison_unpolarized_{plane_type}'
+        files = self._save_figure(fig, base_filename)
+        if files:
+            saved_files.extend(files)
+        plt.close(fig)
+
+        return saved_files
