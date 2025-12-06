@@ -1,12 +1,13 @@
 #!/bin/bash
-#SBATCH --job-name=au00
+#SBATCH --job-name=auag02_16
 #SBATCH --account=yoojk20-ic
 #SBATCH --partition=IllinoisComputes
 #SBATCH --time=72:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=2
-#SBATCH --cpus-per-task=64
+#SBATCH --cpus-per-task=16
 #SBATCH --export=NONE
+#SBATCH --exclusive
 
 module purge
 module load matlab/24.1
@@ -17,9 +18,9 @@ conda activate mnpbem
 
 echo "Job started on $(date)"
 
-echo "---------- Start simulation: Au dimer 0.0 nm gap ----------"
+echo "---------- Start simulation: AuAg dimer 0.2 nm gap ----------"
 cd /u/yoojk20/workspace/mnpbem_simulation
-./master.sh --str-conf ./config/dimer/au/str/r0.2/config_str_au_r0.2_g0.0.py --sim-conf ./config/dimer/au/sim/r0.2/config_sim_au_r0.2_g0.0.py --verbose
+./master.sh --str-conf ./config/dimer/auag/str/r0.2/config_str_auag_r0.2_g0.2.py --sim-conf ./config/dimer/auag/sim/r0.2/config_sim_auag_r0.2_g0.2.py --verbose
 
 echo "Job finished on $(date)"
 
