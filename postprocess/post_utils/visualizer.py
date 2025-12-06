@@ -1153,8 +1153,14 @@ class Visualizer:
         valid_data = all_data_flat[~np.isnan(all_data_flat)]
 
         if len(valid_data) > 0:
-            vmin = np.percentile(valid_data, 1)
+            # Enhancement is |E|/|E₀|, must be non-negative
+            vmin = max(0, np.percentile(valid_data, 1))
             vmax = np.percentile(valid_data, 99)
+
+            # If vmax is very small or zero, use reasonable defaults
+            if vmax <= vmin or vmax < 0.1:
+                vmin = 0
+                vmax = max(np.max(valid_data), 1.0)
         else:
             vmin, vmax = 0, 1
 
