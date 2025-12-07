@@ -315,7 +315,7 @@ try
             % CRITICAL: Propagate maxNumCompThreads to ALL workers!
             % Without this, workers use default threads (usually 1)
             fprintf('Setting maxNumCompThreads(%d) on all workers...\\n', comp_threads);
-            pctRunOnAll(@() maxNumCompThreads(comp_threads));
+            pctRunOnAll(sprintf('maxNumCompThreads(%d)', comp_threads));
             fprintf('[OK] All workers configured with %d computational threads\\n', comp_threads);
 
             parallel_enabled = true;
@@ -331,7 +331,7 @@ try
 
         % Also set threads on existing pool workers
         fprintf('Setting maxNumCompThreads(%d) on existing workers...\\n', comp_threads);
-        pctRunOnAll(@() maxNumCompThreads(comp_threads));
+        pctRunOnAll(sprintf('maxNumCompThreads(%d)', comp_threads));
 
         parallel_enabled = true;
     end
