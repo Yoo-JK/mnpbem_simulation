@@ -315,8 +315,20 @@ try
             % CRITICAL: Propagate maxNumCompThreads to ALL workers!
             % Without this, workers use default threads (usually 1)
             fprintf('Setting maxNumCompThreads(%d) on all workers...\\n', comp_threads);
-            pctRunOnAll(sprintf('maxNumCompThreads(%d)', comp_threads));
-            fprintf('[OK] All workers configured with %d computational threads\\n', comp_threads);
+            pctRunOnAll(sprintf('maxNumCompThreads(%d);', comp_threads));
+
+            % Verify the setting was applied
+            fprintf('Verifying worker thread settings...\\n');
+            worker_threads = zeros(1, pool.NumWorkers);
+            parfor i = 1:pool.NumWorkers
+                worker_threads(i) = maxNumCompThreads();
+            end
+            fprintf('  Worker thread counts: [%s]\\n', num2str(worker_threads));
+            if all(worker_threads == comp_threads)
+                fprintf('[OK] All %d workers confirmed with %d threads each\\n', pool.NumWorkers, comp_threads);
+            else
+                fprintf('[WARNING] Thread mismatch! Expected %d, got: [%s]\\n', comp_threads, num2str(worker_threads));
+            end
 
             parallel_enabled = true;
         else
@@ -331,7 +343,20 @@ try
 
         % Also set threads on existing pool workers
         fprintf('Setting maxNumCompThreads(%d) on existing workers...\\n', comp_threads);
-        pctRunOnAll(sprintf('maxNumCompThreads(%d)', comp_threads));
+        pctRunOnAll(sprintf('maxNumCompThreads(%d);', comp_threads));
+
+        % Verify the setting was applied
+        fprintf('Verifying worker thread settings...\\n');
+        worker_threads = zeros(1, pool.NumWorkers);
+        parfor i = 1:pool.NumWorkers
+            worker_threads(i) = maxNumCompThreads();
+        end
+        fprintf('  Worker thread counts: [%s]\\n', num2str(worker_threads));
+        if all(worker_threads == comp_threads)
+            fprintf('[OK] All %d workers confirmed with %d threads each\\n', pool.NumWorkers, comp_threads);
+        else
+            fprintf('[WARNING] Thread mismatch! Expected %d, got: [%s]\\n', comp_threads, num2str(worker_threads));
+        end
 
         parallel_enabled = true;
     end
