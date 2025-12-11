@@ -7,7 +7,7 @@ args = {}
 # PARALLEL COMPUTING
 # ============================================================================
 args['use_parallel'] = False
-args['num_workers'] = 2  # Adjust: N=1-3: 8-16, N=4-5: 16-32, N=6-7: 32-64
+args['num_workers'] = 2 # Adjust: N=1-3: 8-16, N=4-5: 16-32, N=6-7: 32-64
 args['wavelength_chunk_size'] = 10
 
 # ============================================================================
@@ -19,7 +19,7 @@ args['output_dir'] = os.path.join(Path.home(), 'research/mnpbem/sphere_cluster')
 # ============================================================================
 # SIMULATION SETTINGS
 # ============================================================================
-args['simulation_name'] = 'wo_sub/3_agg'
+args['simulation_name'] = 'wo_sub/7_agg'
 args['simulation_type'] = 'ret'  # 'ret' for 50nm spheres
 args['interp'] = 'curv'
 args['waitbar'] = 0
@@ -85,8 +85,8 @@ args['spectrum_xaxis'] = 'eV'
 # ADVANCED
 # ============================================================================
 args['use_mirror_symmetry'] = False
-args['use_iterative_solver'] = False
-args['use_h2_compression'] = False
+args['use_iterative_solver'] = True
+args['use_h2_compression'] = True
 args['use_nonlocality'] = False
 
 # ============================================================================
