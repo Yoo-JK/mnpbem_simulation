@@ -493,67 +493,67 @@ class GeometryCrossSection:
     def _calculate_cluster_positions(self, num_spheres, spacing):
         """
         Calculate positions of spheres in a cluster.
-        
-        FIXED: Now matches MATLAB's position calculation exactly.
-        
+
+        FIXED: Now matches MATLAB's _sphere_cluster_aggregate exactly.
+
+        Structures:
+            N=1: Single sphere at origin
+            N=2: Dimer (horizontal)
+            N=3: Triangle (2 bottom, 1 top)
+            N=4~7: Center sphere + hexagonal surrounding positions
+
         Parameters
         ----------
         num_spheres : int
             Number of spheres (1-7)
         spacing : float
             Center-to-center spacing (diameter + gap)
-        
+
         Returns
         -------
         list of [x, y, z]
             Positions of sphere centers (matching MATLAB)
         """
-        # 60-degree triangle height (for triangular arrangements)
+        import numpy as np
+
+        # 60-degree triangle height (for N=3)
         dy_60deg = spacing * 0.866025404  # sin(60°) = sqrt(3)/2
-        
-        # FIX: These positions now EXACTLY match MATLAB's geometry_generator.py
+
+        # Hexagonal surrounding positions (60° intervals, starting from +x)
+        # Used for N=4~7: center + surrounding spheres
+        hex_positions = []
+        for i in range(6):
+            angle = i * 60 * np.pi / 180  # 0°, 60°, 120°, 180°, 240°, 300°
+            x = spacing * np.cos(angle)
+            y = spacing * np.sin(angle)
+            hex_positions.append((x, y, 0))
+
+        # Positions matching MATLAB's geometry_generator.py _sphere_cluster_aggregate
         cluster_positions = {
             1: [(0, 0, 0)],
-            
-            2: [(-spacing/2, 0, 0), 
+
+            2: [(-spacing/2, 0, 0),
                 (spacing/2, 0, 0)],
-            
+
             3: [(-spacing/2, 0, 0),         # bottom-left
                 (spacing/2, 0, 0),          # bottom-right
                 (0, dy_60deg, 0)],          # top
-            
-            4: [(-spacing/2, -spacing/2, 0),  # bottom-left
-                (spacing/2, -spacing/2, 0),   # bottom-right
-                (-spacing/2, spacing/2, 0),   # top-left
-                (spacing/2, spacing/2, 0)],   # top-right
-            
-            5: [(-spacing, 0, 0),            # bottom-left
-                (0, 0, 0),                   # bottom-center
-                (spacing, 0, 0),             # bottom-right
-                (-spacing/2, dy_60deg, 0),   # top-left
-                (spacing/2, dy_60deg, 0)],   # top-right
-            
-            6: [(-spacing, 0, 0),            # bottom-left
-                (0, 0, 0),                   # bottom-center
-                (spacing, 0, 0),             # bottom-right
-                (-spacing/2, dy_60deg, 0),   # middle-left
-                (spacing/2, dy_60deg, 0),    # middle-right
-                (0, 2*dy_60deg, 0)],         # top-center
-            
-            7: [(-1.5*spacing, 0, 0),        # bottom row (4)
-                (-0.5*spacing, 0, 0),
-                (0.5*spacing, 0, 0),
-                (1.5*spacing, 0, 0),
-                (-spacing, dy_60deg, 0),     # top row (3)
-                (0, dy_60deg, 0),
-                (spacing, dy_60deg, 0)]
+
+            # N=4~7: Center (0,0,0) + hexagonal surrounding positions
+            4: [(0, 0, 0)] + hex_positions[0:3],  # center + 3 surrounding
+
+            5: [(0, 0, 0)] + hex_positions[0:4],  # center + 4 surrounding
+
+            6: [(0, 0, 0)] + hex_positions[0:5],  # center + 5 surrounding
+
+            7: [(0, 0, 0)] + hex_positions[0:6],  # center + 6 (complete hexagon)
         }
-        
+
         if num_spheres not in cluster_positions:
             raise ValueError(f"n_spheres must be 1-7, got {num_spheres}")
-        
+
         positions = cluster_positions[num_spheres]
-        
+
         # Convert to list of [x, y, z]
         return [[x, y, z] for x, y, z in positions]
 
