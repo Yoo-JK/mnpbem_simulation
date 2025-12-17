@@ -2059,22 +2059,27 @@ exit;
         """
         Wavelength loop with memory-efficient chunking AND field calculation support.
         
-        ✅ FINAL VERSION - Supports:
-        1. Direct solver + parfor
-        2. Iterative solver + parfor (H-matrix compression ~14% memory)
-        3. Serial execution with thread parallelism
-        4. Proper memory management with bem = clear(bem)
+        ✅ CRITICAL FIX (2024-12-05 - FINAL):
+        1. Field calculation uses SEPARATE BEM solutions for each polarization
+        2. meshfield uses standard x_grid, y_grid, z_grid (NOT pt_field directly!)
+        3. emesh_ind variable stores accurate coordinate mapping (separate from meshfield)
+        
+        This fixes:
+        - Polarization 2 being all zeros
+        - Field concentration in bottom-left corner
+        - Coordinate matching errors
+        - meshfield creation error with pt_field
         
         Strategy: 
         1. Calculate ALL cross sections first (no field in loop)
         2. Find peak AFTER all chunks complete
-        3. Calculate field separately for peak wavelength
+        3. Calculate field separately for peak wavelength - EACH polarization independently
+        4. Use standard meshfield creation with accurate index mapping
         """
         
         wavelength_range = self.config['wavelength_range']
         chunk_size = self.config.get('wavelength_chunk_size', 20)
         use_parallel = self.config.get('use_parallel', False)
-        use_iterative = self.config.get('use_iterative_solver', False)
         excitation_type = self.config['excitation_type']
         calculate_fields = self.config.get('calculate_fields', False)
         
@@ -2098,16 +2103,7 @@ fprintf('================================================================\\n');
 fprintf('Total wavelengths: %d\\n', n_wavelengths);
 fprintf('Chunk size: %d wavelengths\\n', chunk_size);
 fprintf('Number of chunks: %d\\n', n_chunks);
-"""
-
-        if use_iterative:
-            code += """fprintf('Solver mode: ITERATIVE (H-matrix compression, ~14%% memory)\\n');
-"""
-        else:
-            code += """fprintf('Solver mode: DIRECT (full matrix)\\n');
-"""
-        
-        code += """fprintf('----------------------------------------------------------------\\n');
+fprintf('----------------------------------------------------------------\\n');
 
 % Initialize result arrays
 sca = zeros(n_wavelengths, n_polarizations);
@@ -2115,11 +2111,9 @@ ext = zeros(n_wavelengths, n_polarizations);
 abs_cross = zeros(n_wavelengths, n_polarizations);
 """
 
-        # Parallel setup
         if use_parallel:
             code += self._generate_parallel_setup()
         
-        # Excitation initialization
         code += """
 %% Initialize Excitation (once, outside all loops!)
 fprintf('\\nInitializing excitation object...\\n');
@@ -2163,56 +2157,47 @@ for ichunk = 1:n_chunks
     
     chunk_start = tic;
     
-    % CRITICAL: Clear BEM solver between chunks for memory efficiency
-    % Use MNPBEM's clear method to release H-matrices while keeping structure
+    % CRITICAL: Clear BEM solver between chunks!
     if ichunk > 1
-        fprintf('  -> Clearing BEM auxiliary matrices...\\n');
-        bem = clear(bem);
-        fprintf('  [OK] Memory released\\n');
+        fprintf('  -> Clearing BEM memory from previous chunk...\\n');
+        clear bem;
+        bem = bemsolver(p, op);  % Re-initialize BEM solver
+        fprintf('  [OK] Memory cleared and BEM re-initialized\\n');
     end
     
 """
 
         if use_parallel:
-            # Parallel execution (works with both Direct and Iterative)
-            code += """    % ========================================
-    % PARALLEL EXECUTION (parfor)
-    % ========================================
+            code += """    % Parallel/Serial processing within chunk
     if exist('parallel_enabled', 'var') && parallel_enabled
-        fprintf('  Using parallel execution (parfor)\\n\\n');
+        fprintf('  Using parallel execution for this chunk\\n\\n');
 
         % Pre-allocate chunk-local arrays for parfor slicing
         sca_chunk = zeros(n_chunk, n_polarizations);
         ext_chunk = zeros(n_chunk, n_polarizations);
         abs_chunk = zeros(n_chunk, n_polarizations);
-        
-        % Local copies for parfor
-        enei_local = enei;
-        chunk_idx_local = chunk_indices;
 
         parfor i_local = 1:n_chunk
-            ien = chunk_idx_local(i_local);
+            ien = chunk_indices(i_local);
 
             try
-                % Progress (sparse output in parfor)
+                % Progress
                 if mod(i_local-1, max(1, floor(n_chunk/5))) == 0
                     fprintf('    [Worker] lambda %d/%d (%.1f nm)\\n', ...
-                            i_local, n_chunk, enei_local(ien));
+                            i_local, n_chunk, enei(ien));
                 end
 
-                % BEM calculation
-                % Note: bem \\ exc internally calls bem = bem(enei) if needed
-                % For iterative solver, H-matrix is computed per wavelength
-                sig = bem \\ exc(p, enei_local(ien));
+                % BEM calculation (cross sections only)
+                sig = bem \\ exc(p, enei(ien));
 
-                % Store results
+                % Store results using loop variable (parfor-compatible)
                 sca_chunk(i_local, :) = exc.sca(sig);
                 ext_chunk(i_local, :) = exc.ext(sig);
                 abs_chunk(i_local, :) = ext_chunk(i_local, :) - sca_chunk(i_local, :);
 
             catch ME
-                fprintf('    [ERROR] lambda %d (%.1f nm): %s\\n', ...
-                        ien, enei_local(ien), ME.message);
+                fprintf('    ERROR at lambda %d (%.1f nm): %s\\n', ...
+                        ien, enei(ien), ME.message);
                 sca_chunk(i_local, :) = zeros(1, n_polarizations);
                 ext_chunk(i_local, :) = zeros(1, n_polarizations);
                 abs_chunk(i_local, :) = zeros(1, n_polarizations);
@@ -2225,24 +2210,28 @@ for ichunk = 1:n_chunks
         abs_cross(chunk_indices, :) = abs_chunk;
 
     else
-        % Fallback to serial
-        fprintf('  Using serial execution\\n\\n');
-        
+        fprintf('  Using serial execution for this chunk\\n\\n');
+
         for i_local = 1:n_chunk
             ien = chunk_indices(i_local);
-            
+
+            % Progress
             if mod(i_local-1, max(1, floor(n_chunk/10))) == 0
                 fprintf('    Progress: %d/%d (lambda = %.1f nm)\\n', ...
                         i_local, n_chunk, enei(ien));
             end
-            
+
             try
+                % BEM calculation (cross sections only)
                 sig = bem \\ exc(p, enei(ien));
+
+                % Store results
                 sca(ien, :) = exc.sca(sig);
                 ext(ien, :) = exc.ext(sig);
                 abs_cross(ien, :) = ext(ien, :) - sca(ien, :);
+
             catch ME
-                fprintf('    [ERROR] lambda %d (%.1f nm): %s\\n', ...
+                fprintf('    ERROR at lambda %d (%.1f nm): %s\\n', ...
                         ien, enei(ien), ME.message);
                 sca(ien, :) = zeros(1, n_polarizations);
                 ext(ien, :) = zeros(1, n_polarizations);
@@ -2253,31 +2242,29 @@ for ichunk = 1:n_chunks
 """
         else:
             # Serial only
-            code += """    % ========================================
-    % SERIAL EXECUTION
-    % ========================================
-    fprintf('  Using serial execution\\n\\n');
-    
+            code += """    % Serial processing within chunk
+    fprintf('  Using serial execution for this chunk\\n\\n');
+
     for i_local = 1:n_chunk
         ien = chunk_indices(i_local);
-        
+
         % Progress
         if mod(i_local-1, max(1, floor(n_chunk/10))) == 0
             fprintf('    Progress: %d/%d (lambda = %.1f nm)\\n', ...
                     i_local, n_chunk, enei(ien));
         end
-        
+
         try
-            % BEM calculation
+            % BEM calculation (cross sections only)
             sig = bem \\ exc(p, enei(ien));
-            
+
             % Store results
             sca(ien, :) = exc.sca(sig);
             ext(ien, :) = exc.ext(sig);
             abs_cross(ien, :) = ext(ien, :) - sca(ien, :);
-            
+
         catch ME
-            fprintf('    [ERROR] lambda %d (%.1f nm): %s\\n', ...
+            fprintf('    ERROR at lambda %d (%.1f nm): %s\\n', ...
                     ien, enei(ien), ME.message);
             sca(ien, :) = zeros(1, n_polarizations);
             ext(ien, :) = zeros(1, n_polarizations);
@@ -2293,8 +2280,8 @@ for ichunk = 1:n_chunks
             ichunk, chunk_time, chunk_time/60);
     fprintf('  Average: %.2f sec/wavelength\\n', chunk_time/n_chunk);
     
-    % Brief pause for garbage collection
-    pause(0.5);
+    % Force garbage collection between chunks
+    pause(1);
 end
 
 % Total timing for cross sections
@@ -2309,7 +2296,7 @@ fprintf('================================================================\\n');
 """
 
         # ================================================================
-        # FIELD CALCULATION (After all chunks complete)
+        # ✅✅✅ CORRECTED FIELD CALCULATION ✅✅✅
         # ================================================================
         if calculate_fields:
             code += """
@@ -2374,7 +2361,9 @@ fprintf('Using middle wavelength: lambda = %.1f nm (index %d)\\n', ...
         enei(field_wavelength_idx), field_wavelength_idx);
 """
             
-            # Create field mesh
+            # ================================================================
+            # ✅ CORRECTED: Standard meshfield creation (NOT using pt_field)
+            # ================================================================
             use_substrate = self.config.get('use_substrate', False)
             
             if use_substrate:
@@ -2387,10 +2376,54 @@ x_grid = reshape(x_grid, grid_shape);
 y_grid = reshape(y_grid, grid_shape);
 z_grid = reshape(z_grid, grid_shape);
 
-field_mindist = {mindist};
+% Use standard meshfield creation
+field_mindist = {mindist};  % Store mindist for later use
 emesh = meshfield(p, x_grid, y_grid, z_grid, op, ...
                   'mindist', field_mindist, 'nmax', {nmax});
 fprintf('  [OK] Meshfield ready: %d points\\n', emesh.pt.n);
+
+% CRITICAL FIX: Create accurate index mapping
+if ~exist('emesh_ind', 'var') || isempty(emesh_ind)
+    fprintf('  Creating index mapping for grid reconstruction...\\n');
+    
+    % Flatten original grids
+    x_flat = x_grid(:);
+    y_flat = y_grid(:);
+    z_flat = z_grid(:);
+    
+    % Find indices for each calculated point
+    emesh_ind = zeros(emesh.pt.n, 1);
+    n_matched = 0;
+    
+    for ii = 1:emesh.pt.n
+        % Calculate distance to all grid points
+        dist = sqrt((x_flat - emesh.pt.pos(ii,1)).^2 + ...
+                   (y_flat - emesh.pt.pos(ii,2)).^2 + ...
+                   (z_flat - emesh.pt.pos(ii,3)).^2);
+        
+        % Find closest match
+        [min_dist, idx] = min(dist);
+        
+        % Store index
+        emesh_ind(ii) = idx;
+        
+        % Verify match quality
+        if min_dist < 0.01  % Tolerance: 0.01 nm
+            n_matched = n_matched + 1;
+        else
+            % Warning for poor matches
+            if min_dist > 0.1
+                fprintf('    Warning: Point %d has poor match (dist=%.4f nm)\\n', ii, min_dist);
+            end
+        end
+    end
+    
+    % emesh_ind variable now holds the mapping indices
+    % (Cannot add custom properties to meshfield class)
+
+    fprintf('  [OK] Index mapping created: %d/%d points matched exactly\\n', ...
+            n_matched, emesh.pt.n);
+end
 """
             else:
                 field_region = self.config.get('field_region', {})
@@ -2419,16 +2452,56 @@ z_grid = {z_range[0]} * ones(size(x_grid));
 """
                 
                 code += f"""
-field_mindist = {mindist};
+field_mindist = {mindist};  % Store mindist for later use
 emesh = meshfield(p, x_grid, y_grid, z_grid, op, ...
                   'mindist', field_mindist, 'nmax', {nmax});
 fprintf('  [OK] Meshfield created: %d points\\n', numel(x_grid));
 
-% Store grid shape for reshape operations
-grid_shape = size(x_grid);
+% CRITICAL FIX: Create accurate index mapping for grid reconstruction
+% This maps meshfield output points back to original grid positions
+if ~exist('emesh_ind', 'var') || isempty(emesh_ind)
+    fprintf('  Creating index mapping for grid reconstruction...\\n');
+
+    % Flatten original grids
+    x_flat = x_grid(:);
+    y_flat = y_grid(:);
+    z_flat = z_grid(:);
+
+    % Find indices for each calculated point
+    emesh_ind = zeros(emesh.pt.n, 1);
+    n_matched = 0;
+
+    for ii = 1:emesh.pt.n
+        % Calculate distance to all grid points
+        dist = sqrt((x_flat - emesh.pt.pos(ii,1)).^2 + ...
+                   (y_flat - emesh.pt.pos(ii,2)).^2 + ...
+                   (z_flat - emesh.pt.pos(ii,3)).^2);
+
+        % Find closest match
+        [min_dist, idx] = min(dist);
+
+        % Store index
+        emesh_ind(ii) = idx;
+
+        % Verify match quality
+        if min_dist < 0.01  % Tolerance: 0.01 nm
+            n_matched = n_matched + 1;
+        else
+            % Warning for poor matches
+            if min_dist > 0.1
+                fprintf('    Warning: Point %d has poor match (dist=%.4f nm)\\n', ii, min_dist);
+            end
+        end
+    end
+
+    fprintf('  [OK] Index mapping created: %d/%d points matched exactly\\n', ...
+            n_matched, emesh.pt.n);
+end
 """
-            
-            # Field calculation at peak wavelength
+
+            # ================================================================
+            # Each polarization calculated separately
+            # ================================================================
             code += """
 % Initialize field data storage
 field_data = struct();
@@ -2437,74 +2510,164 @@ field_data = struct();
 fprintf('\\nCalculating fields at lambda = %.1f nm...\\n', enei(field_wavelength_idx));
 field_calc_start = tic;
 
-% Clear BEM and recalculate sig at peak wavelength
-fprintf('  Clearing BEM and computing solution at peak wavelength...\\n');
-bem = clear(bem);
-sig_peak = bem \\ exc(p, enei(field_wavelength_idx));
+% Store grid info for later use
+n_grid_points = numel(x_grid);
 
-% Calculate induced field
-fprintf('  Computing induced fields...\\n');
-e_induced_all = emesh(sig_peak);
-
-% Loop over each polarization
+% ================================================================
+% CRITICAL FIX: Calculate BEM solution SEPARATELY for each polarization
+% This is the correct approach used in all MNPBEM demo files
+% ================================================================
 for ipol = 1:n_polarizations
     fprintf('  Processing polarization %d/%d...\\n', ipol, n_polarizations);
-    
+
 """
             
-            # Create single-polarization excitation based on type
+            # Create single-polarization excitation
             if excitation_type == 'planewave':
-                code += """    % Create single-polarization plane wave
+                code += """    % STEP 1: Create single-polarization plane wave excitation
     exc_single = planewave(pol(ipol, :), dir(ipol, :), op);
 """
             elif excitation_type == 'dipole':
-                code += """    % Create single-polarization dipole
-    exc_single = dipole(pt, dip_mom(ipol, :), op);
+                code += """    % STEP 1: Create single-polarization dipole excitation
+    pt_single = compoint(p, dip_pos, op);
+    exc_single = dipole(pt_single, dip_mom, op);
 """
-            else:
-                code += """    % Use original excitation
-    exc_single = exc;
+            elif excitation_type == 'eels':
+                code += """    % STEP 1: Create EELS excitation
+    exc_single = eelsret(p, impact, beam_energy, 'width', beam_width, op);
 """
 
+            # Calculate each component separately
             code += """
-    % Get incoming field at mesh points
-    e_inc = exc_single.field(emesh.pt, enei(field_wavelength_idx));
-    
-    % Get induced field for this polarization
-    e_ind = e_induced_all(:, :, ipol);
-    
-    % Total field
-    e_total = e_inc + e_ind;
-    
-    % Field enhancement |E|/|E0|
-    E_mag = sqrt(sum(abs(e_total).^2, 2));
-    E0_mag = sqrt(sum(abs(e_inc).^2, 2));
-    E0_mag(E0_mag < 1e-10) = 1e-10;  % Avoid division by zero
-    enhancement = E_mag ./ E0_mag;
-    
-    % Intensity enhancement |E|^2/|E0|^2
-    intensity = enhancement.^2;
-    
-    % Store in field_data
-    field_data(ipol).wavelength = enei(field_wavelength_idx);
-    field_data(ipol).wavelength_idx = field_wavelength_idx;
+    % STEP 2: Compute BEM solution for THIS polarization ONLY
+    fprintf('    Computing BEM solution...\\n');
+    sig_single = bem \\ exc_single(p, enei(field_wavelength_idx));
+
+    % STEP 3: Compute induced field for THIS polarization
+    fprintf('    Computing induced field...\\n');
+    e_induced_obj = emesh(sig_single);
+
+    % Extract numeric array from field object
+    if isobject(e_induced_obj) || isstruct(e_induced_obj)
+        if isfield(e_induced_obj, 'e') || isprop(e_induced_obj, 'e')
+            e_induced = e_induced_obj.e;
+        elseif isfield(e_induced_obj, 'val') || isprop(e_induced_obj, 'val')
+            e_induced = e_induced_obj.val;
+        else
+            e_induced = double(e_induced_obj);
+        end
+    else
+        e_induced = e_induced_obj;
+    end
+    fprintf('      e_induced size: [%s]\\n', num2str(size(e_induced)));
+
+    % STEP 4: Compute incoming field for THIS polarization
+    fprintf('    Computing incoming field...\\n');
+    e_incoming_obj = exc_single.field(emesh.pt, enei(field_wavelength_idx));
+
+    % Extract numeric array from field object
+    if isobject(e_incoming_obj) || isstruct(e_incoming_obj)
+        if isfield(e_incoming_obj, 'e') || isprop(e_incoming_obj, 'e')
+            e_incoming = e_incoming_obj.e;
+        elseif isfield(e_incoming_obj, 'val') || isprop(e_incoming_obj, 'val')
+            e_incoming = e_incoming_obj.val;
+        else
+            e_incoming = double(e_incoming_obj);
+        end
+    else
+        e_incoming = e_incoming_obj;
+    end
+    fprintf('      e_incoming size: [%s]\\n', num2str(size(e_incoming)));
+
+    % STEP 5: Handle dimension mismatch - EXPAND e_incoming to grid form
+    % emesh(sig) returns grid shape [nx, ny, 3] with NaN for invalid points (for visualization)
+    % exc.field(emesh.pt) returns [n_meshfield_pts, 3] (only valid points)
+    % We want to KEEP the grid form and expand e_incoming to match
+    sz_induced = size(e_induced);
+    sz_incoming = size(e_incoming);
+    n_emesh_pts = emesh.pt.n;
+    grid_shape = size(x_grid);
+
+    fprintf('      meshfield has %d points (grid has %d total)\\n', n_emesh_pts, n_grid_points);
+
+    % KEEP GRID FORM: If e_induced is grid-shaped, expand e_incoming to grid
+    if ndims(e_induced) == 3 && sz_induced(3) == 3 && numel(sz_incoming) == 2 && sz_incoming(1) == n_emesh_pts
+        fprintf('      -> e_induced is grid [%dx%dx3], e_incoming is points [%dx3]\\n', ...
+                sz_induced(1), sz_induced(2), sz_incoming(1));
+        fprintf('      -> Expanding e_incoming to grid form (NaN for invalid points)...\\n');
+
+        % Create full grid array filled with NaN
+        e_incoming_grid = nan(n_grid_points, 3);
+
+        % Place valid meshfield points into grid using emesh_ind
+        if exist('emesh_ind', 'var') && ~isempty(emesh_ind) && length(emesh_ind) == n_emesh_pts
+            e_incoming_grid(emesh_ind, :) = e_incoming;
+            fprintf('      -> Placed %d valid points into grid using emesh_ind\\n', n_emesh_pts);
+        else
+            fprintf('      [!] emesh_ind not available, cannot expand to grid!\\n');
+            error('emesh_ind required for grid expansion');
+        end
+
+        % Reshape e_incoming to match e_induced grid shape [nx, ny, 3]
+        e_incoming = reshape(e_incoming_grid, [grid_shape, 3]);
+        fprintf('      -> e_incoming now: [%s]\\n', num2str(size(e_incoming)));
+        fprintf('      -> e_induced kept: [%s]\\n', num2str(size(e_induced)));
+    else
+        % Both are already in compatible form, just squeeze if needed
+        if ndims(e_induced) == 3
+            e_induced = squeeze(e_induced);
+            fprintf('      e_induced squeezed to: [%s]\\n', num2str(size(e_induced)));
+        end
+        if ndims(e_incoming) == 3
+            e_incoming = squeeze(e_incoming);
+            fprintf('      e_incoming squeezed to: [%s]\\n', num2str(size(e_incoming)));
+        end
+    end
+
+    % Verify sizes match now
+    if ~isequal(size(e_induced), size(e_incoming))
+        fprintf('    [!] Size mismatch after expansion!\\n');
+        fprintf('        e_induced: [%s], e_incoming: [%s]\\n', ...
+                num2str(size(e_induced)), num2str(size(e_incoming)));
+        error('Field array size mismatch - check emesh_ind mapping');
+    end
+
+    % STEP 6: Calculate total field and enhancement (in grid form)
+    % NaN + anything = NaN, so invalid points stay NaN (good for visualization)
+    e_total = e_induced + e_incoming;
+
+    % For 3D grid arrays, compute intensity along 3rd dimension
+    if ndims(e_total) == 3
+        e_intensity = sum(e_total .* e_total, 3);
+        e0_intensity = sum(e_incoming .* e_incoming, 3);
+    else
+        e_intensity = dot(e_total, e_total, 2);
+        e0_intensity = dot(e_incoming, e_incoming, 2);
+    end
+    enhancement = sqrt(e_intensity ./ e0_intensity);
+
+    % Enhancement is already in grid shape [nx, ny] - no need to reshape
+    fprintf('      enhancement shape: [%s]\\n', num2str(size(enhancement)));
+    fprintf('      e_intensity shape: [%s]\\n', num2str(size(e_intensity)));
+
+    % STEP 9: Store results
     field_data(ipol).polarization = pol(ipol, :);
-    field_data(ipol).polarization_idx = ipol;
+    field_data(ipol).wavelength = enei(field_wavelength_idx);
     field_data(ipol).e_total = e_total;
     field_data(ipol).enhancement = enhancement;
-    field_data(ipol).intensity = intensity;
+    field_data(ipol).intensity = e_intensity;
     field_data(ipol).x_grid = x_grid;
     field_data(ipol).y_grid = y_grid;
     field_data(ipol).z_grid = z_grid;
-    field_data(ipol).grid_shape = grid_shape;
-    
-    % Statistics
-    fprintf('    Max enhancement: %.2f\\n', max(enhancement));
-    fprintf('    Max intensity: %.2f\\n', max(intensity));
 end
 
 field_calc_time = toc(field_calc_start);
-fprintf('\\n[OK] Field calculation completed in %.1f seconds\\n', field_calc_time);
-"""
+fprintf('\\n[OK] Field calculation completed in %.2f seconds\\n', field_calc_time);
+fprintf('================================================================\\n');
 
+% Update total calculation time
+calculation_time = calculation_time + field_calc_time;
+"""
+        
         return code
+
