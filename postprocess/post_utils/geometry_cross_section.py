@@ -493,69 +493,67 @@ class GeometryCrossSection:
     def _calculate_cluster_positions(self, num_spheres, spacing):
         """
         Calculate positions of spheres in a cluster.
-        
-        FIXED: Now matches MATLAB's position calculation exactly.
-        
+
+        FIXED: Now correctly matches MATLAB's hexagonal layout for N=4~7.
+        Uses identical hex_positions calculation from geometry_generator.py.
+
         Parameters
         ----------
         num_spheres : int
             Number of spheres (1-7)
         spacing : float
             Center-to-center spacing (diameter + gap)
-        
+
         Returns
         -------
         list of [x, y, z]
-            Positions of sphere centers (matching MATLAB)
+            Positions of sphere centers (matching MATLAB geometry)
         """
-        # 60-degree triangle height (for triangular arrangements)
-        dy_60deg = spacing * 0.866025404  # sin(60°) = sqrt(3)/2
+        import numpy as np
         
-        # FIX: These positions now EXACTLY match MATLAB's geometry_generator.py
+        # 60-degree triangle height (for N=3)
+        dy_60deg = spacing * 0.866025404  # sin(60°) = sqrt(3)/2
+
+        # ===================================================================
+        # FIX: Use identical hexagonal positions as MATLAB for N=4~7
+        # ===================================================================
+        # Hexagonal surrounding positions (60° intervals, starting from +x)
+        hex_positions = []
+        for i in range(6):
+            angle = i * 60 * np.pi / 180  # 0°, 60°, 120°, 180°, 240°, 300°
+            x = spacing * np.cos(angle)
+            y = spacing * np.sin(angle)
+            hex_positions.append((x, y, 0))  # Add z=0
+
+        # Define positions matching MATLAB code exactly
         cluster_positions = {
+            # N=1~3: Original (unchanged)
             1: [(0, 0, 0)],
-            
-            2: [(-spacing/2, 0, 0), 
+
+            2: [(-spacing/2, 0, 0),
                 (spacing/2, 0, 0)],
-            
+
             3: [(-spacing/2, 0, 0),         # bottom-left
                 (spacing/2, 0, 0),          # bottom-right
                 (0, dy_60deg, 0)],          # top
-            
-            4: [(-spacing/2, -spacing/2, 0),  # bottom-left
-                (spacing/2, -spacing/2, 0),   # bottom-right
-                (-spacing/2, spacing/2, 0),   # top-left
-                (spacing/2, spacing/2, 0)],   # top-right
-            
-            5: [(-spacing, 0, 0),            # bottom-left
-                (0, 0, 0),                   # bottom-center
-                (spacing, 0, 0),             # bottom-right
-                (-spacing/2, dy_60deg, 0),   # top-left
-                (spacing/2, dy_60deg, 0)],   # top-right
-            
-            6: [(-spacing, 0, 0),            # bottom-left
-                (0, 0, 0),                   # bottom-center
-                (spacing, 0, 0),             # bottom-right
-                (-spacing/2, dy_60deg, 0),   # middle-left
-                (spacing/2, dy_60deg, 0),    # middle-right
-                (0, 2*dy_60deg, 0)],         # top-center
-            
-            7: [(-1.5*spacing, 0, 0),        # bottom row (4)
-                (-0.5*spacing, 0, 0),
-                (0.5*spacing, 0, 0),
-                (1.5*spacing, 0, 0),
-                (-spacing, dy_60deg, 0),     # top row (3)
-                (0, dy_60deg, 0),
-                (spacing, dy_60deg, 0)]
+
+            # N=4~7: Center (0,0,0) + hexagonal surrounding positions
+            4: [(0, 0, 0)] + hex_positions[0:3],
+
+            5: [(0, 0, 0)] + hex_positions[0:4],
+
+            6: [(0, 0, 0)] + hex_positions[0:5],
+
+            7: [(0, 0, 0)] + hex_positions[0:6],
         }
-        
+
         if num_spheres not in cluster_positions:
             raise ValueError(f"n_spheres must be 1-7, got {num_spheres}")
-        
+
         positions = cluster_positions[num_spheres]
-        
-        # Convert to list of [x, y, z]
-        return [[x, y, z] for x, y, z in positions]
+
+        # Return positions directly (no y-flip needed when positions match MATLAB)
+        return positions
 
     def _triangle_cross_section(self, z_plane):
         """Calculate cross-section for triangular prism."""
