@@ -27,7 +27,7 @@ class FieldExporter:
         field_analysis_list : list of dict
             List of field analysis results
         """
-        # ✅ FIX: Handle both single and list inputs
+        # FIX: Handle both single and list inputs
         if not isinstance(field_data_list, list):
             field_data_list = [field_data_list]
         if not isinstance(field_analysis_list, list):
@@ -81,7 +81,7 @@ class FieldExporter:
         
         Only exports downsampled data to keep file size reasonable.
         """
-        # ✅ FIX: Handle single input
+        # FIX: Handle single input
         if not isinstance(field_data_list, list):
             field_data_list = [field_data_list]
         
@@ -97,7 +97,7 @@ class FieldExporter:
         }
         
         for i, field_data in enumerate(field_data_list):
-            # ✅ FIX: Handle scalar data
+            # FIX: Handle scalar data
             enhancement = field_data['enhancement']
             x_grid = field_data['x_grid']
             y_grid = field_data['y_grid']
@@ -128,7 +128,7 @@ class FieldExporter:
                 y_grid = y_grid.reshape(1, -1)
                 z_grid = z_grid.reshape(1, -1)
             
-            # ✅ IMPROVED: Smart downsampling that preserves data distribution
+            # IMPROVED: Smart downsampling that preserves data distribution
             # Check if data is concentrated (e.g., left-bottom concentration bug)
             if self._is_data_concentrated(enhancement):
                 if self.verbose:

@@ -232,7 +232,7 @@ requested_workers = 1;
 fprintf('Using default: 1 worker (serial execution)\\n');
 """
         
-        # ✅ NEW: Computational threads configuration
+        # NEW: Computational threads configuration
         code += """
 %% Computational Threads Configuration
 % Control threads used by BLAS, FFT, and other low-level operations
@@ -377,7 +377,7 @@ fprintf('=== Parallel Setup Complete ===\\n\\n');
         """
         Generate safe parallel pool cleanup code.
         
-        ✅ IMPROVEMENTS:
+        IMPROVEMENTS:
         1. Longer timeout for worker termination (15 seconds)
         2. Force kill if timeout
         3. Better verification
@@ -958,7 +958,7 @@ fprintf('Simulation wavelengths: %.1f to %.1f nm (%d points)\\n', ...
         min(enei), max(enei), length(enei));
 """
 
-        # ✅ FIX: Field points를 tabulation에 포함!
+        # FIX: Field points를 tabulation에 포함!
         if calculate_fields:
             field_region = self.config.get('field_region', {})
             x_range = field_region.get('x_range', [-50, 50, 101])
@@ -2059,7 +2059,7 @@ exit;
         """
         Wavelength loop with memory-efficient chunking AND field calculation support.
         
-        ✅ CRITICAL FIX (2024-12-05 - FINAL):
+        CRITICAL FIX (2024-12-05 - FINAL):
         1. Field calculation uses SEPARATE BEM solutions for each polarization
         2. meshfield uses standard x_grid, y_grid, z_grid (NOT pt_field directly!)
         3. emesh_ind variable stores accurate coordinate mapping (separate from meshfield)
@@ -2296,7 +2296,7 @@ fprintf('================================================================\\n');
 """
 
         # ================================================================
-        # ✅✅✅ CORRECTED FIELD CALCULATION ✅✅✅
+        # CORRECTED FIELD CALCULATION
         # ================================================================
         if calculate_fields:
             code += """
@@ -2362,7 +2362,7 @@ fprintf('Using middle wavelength: lambda = %.1f nm (index %d)\\n', ...
 """
             
             # ================================================================
-            # ✅ CORRECTED: Standard meshfield creation (NOT using pt_field)
+            # CORRECTED: Standard meshfield creation (NOT using pt_field)
             # ================================================================
             use_substrate = self.config.get('use_substrate', False)
             

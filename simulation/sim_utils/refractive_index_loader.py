@@ -101,7 +101,7 @@ class RefractiveIndexLoader:
         target_wavelengths = np.asarray(target_wavelengths)
         
         # ═══════════════════════════════════════════════════════════
-        # ✅ 수정: Linear → Cubic Spline 보간
+        # Linear → Cubic Spline interpolation
         # ═══════════════════════════════════════════════════════════
         
         # Cubic spline interpolation for n (MATLAB과 동일)

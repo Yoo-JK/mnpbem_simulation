@@ -232,7 +232,7 @@ requested_workers = 1;
 fprintf('Using default: 1 worker (serial execution)\\n');
 """
         
-        # ✅ NEW: Computational threads configuration
+        # NEW: Computational threads configuration
         code += """
 %% Computational Threads Configuration
 % Control threads used by BLAS, FFT, and other low-level operations
@@ -377,7 +377,7 @@ fprintf('=== Parallel Setup Complete ===\\n\\n');
         """
         Generate safe parallel pool cleanup code.
         
-        ✅ IMPROVEMENTS:
+        IMPROVEMENTS:
         1. Longer timeout for worker termination (15 seconds)
         2. Force kill if timeout
         3. Better verification
@@ -958,7 +958,7 @@ fprintf('Simulation wavelengths: %.1f to %.1f nm (%d points)\\n', ...
         min(enei), max(enei), length(enei));
 """
 
-        # ✅ FIX: Field points를 tabulation에 포함!
+        # FIX: Field points를 tabulation에 포함!
         if calculate_fields:
             field_region = self.config.get('field_region', {})
             x_range = field_region.get('x_range', [-50, 50, 101])
@@ -2059,7 +2059,7 @@ exit;
         """
         Wavelength loop with memory-efficient chunking AND field calculation support.
         
-        ✅ FINAL VERSION - Supports:
+        FINAL VERSION - Supports:
         1. Direct solver + parfor
         2. Iterative solver + parfor (H-matrix compression ~14% memory)
         3. Serial execution with thread parallelism

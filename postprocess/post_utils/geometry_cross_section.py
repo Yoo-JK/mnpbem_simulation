@@ -73,7 +73,7 @@ class GeometryCrossSection:
             'rod': self._rod_cross_section,
             'ellipsoid': self._ellipsoid_cross_section,
             'sphere_cluster': self._sphere_cluster_cross_section,
-            'sphere_cluster_aggregate': self._sphere_cluster_cross_section,  # ✅ ADD THIS
+            'sphere_cluster_aggregate': self._sphere_cluster_cross_section, 
             'triangle': self._triangle_cross_section,
             'from_shape': self._from_shape_cross_section,
         }
