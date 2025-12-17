@@ -212,7 +212,7 @@ class PostprocessManager:
             f.write("SPECTRAL ANALYSIS\n")
             f.write("-"*60 + "\n\n")
             
-            # ✅ FIX: analysis is a single dict with arrays
+            # FIX: analysis is a single dict with arrays
             n_pol = len(analysis['peak_wavelengths'])
             
             for ipol in range(n_pol):
@@ -323,7 +323,7 @@ class PostprocessManager:
             'analysis': {}
         }
         
-        # ✅ FIX: Convert analysis dict properly
+        # FIX: Convert analysis dict properly
         for key, value in analysis.items():
             if hasattr(value, 'tolist'):
                 json_data['analysis'][key] = value.tolist()

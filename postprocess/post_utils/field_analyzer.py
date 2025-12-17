@@ -29,7 +29,7 @@ class FieldAnalyzer:
         dict or list of dict
             Analysis results (single dict if input is dict, list if input is list)
         """
-        # ✅ FIX: Handle both single and multiple polarizations properly
+        # FIX: Handle both single and multiple polarizations properly
         if isinstance(field_data, list):
             # Multiple polarizations: analyze each separately
             if self.verbose:

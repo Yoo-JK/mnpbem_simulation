@@ -1022,6 +1022,12 @@ class Visualizer:
             )
             saved_files.extend(unpol_files)
 
+            # Plot unpolarized intensity
+            unpol_intensity_files = self._plot_unpolarized_field_intensity(
+                unpol_field, wavelength, expected_n_pol
+            )
+            saved_files.extend(unpol_intensity_files)
+
             # Plot field comparison (all polarizations + unpolarized)
             comparison_files = self._plot_field_comparison_with_unpolarized(
                 wl_fields_sorted, unpol_field, wavelength
@@ -1114,6 +1120,74 @@ class Visualizer:
         plt.close(fig)
 
         return saved_files
+
+    def _plot_unpolarized_field_intensity(self, unpol_field, wavelength, n_pol):
+        """Plot unpolarized field intensity."""
+        saved_files = []
+
+        intensity = unpol_field['intensity']
+        x_grid = unpol_field['x_grid']
+        y_grid = unpol_field['y_grid']
+        z_grid = unpol_field['z_grid']
+
+        # Handle scalar/1D arrays
+        if not isinstance(intensity, np.ndarray):
+            intensity = np.array([[intensity]])
+        elif intensity.ndim == 0:
+            intensity = np.array([[intensity.item()]])
+        elif intensity.ndim == 1:
+            intensity = intensity.reshape(1, -1)
+
+        if np.iscomplexobj(intensity):
+            intensity = np.abs(intensity)
+
+        plane_type, extent, x_label, y_label = self._determine_plane(x_grid, y_grid, z_grid)
+
+        # Create figure - single plot with log scale
+        fig, ax = plt.subplots(figsize=(9, 7))
+
+        # Log scale for intensity
+        intensity_log = np.maximum(intensity, 1e-10)
+        int_max = intensity.max()
+        int_min = intensity_log[intensity_log > 0].min() if np.any(intensity_log > 0) else 1e-10
+
+        if int_max > int_min and int_max > 0:
+            vmin_log = max(int_min, int_max / 1e6)
+            vmax_log = int_max
+
+            if vmin_log >= vmax_log:
+                vmin_log = vmax_log / 10
+
+            im = ax.imshow(intensity_log, extent=extent, origin='lower',
+                          cmap='viridis', aspect='auto',
+                          norm=LogNorm(vmin=vmin_log, vmax=vmax_log))
+        else:
+            im = ax.imshow(intensity, extent=extent, origin='lower',
+                          cmap='viridis', aspect='auto')
+
+        ax.set_xlabel(x_label, fontsize=11)
+        ax.set_ylabel(y_label, fontsize=11)
+        ax.set_title(f'Unpolarized Field Intensity |E|² (Log Scale)\n'
+                     f'λ = {wavelength:.1f} nm, avg of {n_pol} pols',
+                     fontsize=12, fontweight='bold')
+
+        cbar = plt.colorbar(im, ax=ax)
+        cbar.set_label('|E|² (a.u.)', fontsize=11)
+
+        z_plane = float(z_grid.flat[0]) if isinstance(z_grid, np.ndarray) else float(z_grid)
+        sections = self.geometry.get_cross_section(z_plane)
+        for section in sections:
+            self._draw_material_boundary(ax, section, plane_type)
+
+        plt.tight_layout()
+
+        base_filename = f'field_intensity_unpolarized_{plane_type}'
+        files = self._save_figure(fig, base_filename)
+        if files:
+            saved_files.extend(files)
+        plt.close(fig)
+
+        return saved_files        
 
     def _plot_field_comparison_with_unpolarized(self, pol_fields, unpol_field, wavelength):
         """Plot comparison of field enhancement: all polarizations + unpolarized."""

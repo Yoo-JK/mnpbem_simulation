@@ -213,7 +213,7 @@ class SpectrumAnalyzer:
         """
         n_pol = cross_sections.shape[1]
         
-        # ✅ FIX: Handle complex data by taking magnitude
+        # FIX: Handle complex data by taking magnitude
         if np.iscomplexobj(cross_sections):
             if self.verbose:
                 print("  Note: Converting complex cross_sections to magnitude")
@@ -253,7 +253,7 @@ class SpectrumAnalyzer:
         """
         n_pol = cross_sections.shape[1]
         
-        # ✅ FIX: Handle complex data
+        # FIX: Handle complex data
         if np.iscomplexobj(cross_sections):
             cross_sections = np.abs(cross_sections)
         
