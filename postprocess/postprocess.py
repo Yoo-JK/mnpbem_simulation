@@ -20,6 +20,7 @@ from postprocess.post_utils.visualizer import Visualizer
 from postprocess.post_utils.field_analyzer import FieldAnalyzer
 from postprocess.post_utils.field_exporter import FieldExporter
 from postprocess.post_utils.data_exporter import DataExporter
+from postprocess.post_utils.geometry_cross_section import GeometryCrossSection
 
 
 class PostprocessManager:
@@ -47,6 +48,7 @@ class PostprocessManager:
         self.field_analyzer = FieldAnalyzer(verbose)
         self.field_exporter = FieldExporter(self.output_dir, verbose)
         self.data_exporter = DataExporter(config, verbose)
+        self.geometry = GeometryCrossSection(config, verbose)
     
     def run(self):
         """Execute complete postprocessing workflow."""
@@ -113,6 +115,35 @@ class PostprocessManager:
             # Optionally export downsampled field arrays
             if self.config.get('export_field_arrays', False):
                 self.field_exporter.export_field_data_arrays(data['fields'])
+
+        # Step 4.5: Near-field integration
+        near_field_results = None
+        if 'fields' in data and data['fields']:
+            if self.verbose:
+                print("\n[4.5/6] Calculating near-field integration...")
+            
+            try:
+                near_field_results = self.field_analyzer.calculate_near_field_integration(
+                    data['fields'], self.config, self.geometry
+                )
+                
+                if near_field_results:
+                    # Save to text file
+                    output_file = os.path.join(self.output_dir, 'near_field_integration.txt')
+                    self.field_analyzer.save_near_field_results(
+                        near_field_results, self.config, output_file
+                    )
+                    
+                    if self.verbose:
+                        print(f"  ✓ Near-field integration completed")
+                else:
+                    if self.verbose:
+                        print(f"  Structure not supported for near-field integration")
+            except Exception as e:
+                print(f"  [!] Near-field integration failed: {e}")
+                if self.verbose:
+                    import traceback
+                    traceback.print_exc()
 
         # Step 5: Save processed data
         if self.verbose:
