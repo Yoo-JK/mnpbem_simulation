@@ -18,7 +18,7 @@ echo "Job started on $(date)"
 
 echo "---------- Start simulation: Johnson / AuAu / Distance: Contact ----------"
 cd /u/yoojk20/workspace/mnpbem_simulation
-./master.sh --str-conf ./config/rod_contact/au/johnson/config_str_auau.py --sim-conf ./config/rod_contact/au/johnson/config_sim_auau.py --verbose
+./master.sh --str-conf ./config/rod_exp/rod_contact/johnson/config_str_auau.py --sim-conf ./config/rod_exp/rod_contact/johnson/config_sim_auau.py --verbose
 
 echo "Job finished on $(date)"
 
