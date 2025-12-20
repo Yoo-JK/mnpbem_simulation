@@ -13,7 +13,7 @@ class FieldAnalyzer:
     
     def __init__(self, verbose=False):
         self.verbose = verbose
-        self.near_field_distance = 5.0
+        self.near_field_distances = [10.0, 15.0]
     
     def analyze_field(self, field_data):
         """
@@ -354,10 +354,12 @@ class FieldAnalyzer:
         """
         Integrate field values for a single wavelength/polarization.
         
+        Calculates integration at multiple depths (10nm, 15nm interior).
+        
         Returns
         -------
         dict
-            Integration results with strict and conservative filtering
+            Integration results with strict and conservative filtering for each depth
         """
         enhancement = field_data['enhancement']
         intensity = field_data['intensity']
@@ -379,28 +381,42 @@ class FieldAnalyzer:
                 print("    [!] Could not determine sphere boundaries")
             return self._empty_integration_result()
         
-        # Create distance mask
-        distance_mask = self._create_distance_mask(x_grid, y_grid, z_grid, spheres)
+        n_spheres = len(spheres)
         
-        # Calculate with two filtering methods
-        result_strict = self._calculate_with_filtering(
-            enhancement, intensity, distance_mask, method='strict'
-        )
+        # Calculate for each depth
+        results_by_depth = {}
         
-        result_conservative = self._calculate_with_filtering(
-            enhancement, intensity, distance_mask, method='conservative'
-        )
+        for depth in self.near_field_distances:
+            # Create distance mask for this depth
+            distance_mask = self._create_distance_mask(x_grid, y_grid, z_grid, spheres, depth)
+            
+            # Calculate with two filtering methods
+            result_strict = self._calculate_with_filtering(
+                enhancement, intensity, distance_mask, n_spheres, method='strict'
+            )
+            
+            result_conservative = self._calculate_with_filtering(
+                enhancement, intensity, distance_mask, n_spheres, method='conservative'
+            )
+            
+            results_by_depth[depth] = {
+                'strict': result_strict,
+                'conservative': result_conservative,
+                'n_spheres': n_spheres
+            }
+        
+        # Add grid info (same for all depths)
+        grid_info = {
+            'total_points': int(np.prod(enhancement.shape)),
+            'valid_points': int(np.sum(~np.isnan(enhancement)))
+        }
         
         return {
-            'strict': result_strict,
-            'conservative': result_conservative,
-            'grid_info': {
-                'total_points': int(np.prod(enhancement.shape)),
-                'valid_points': int(np.sum(~np.isnan(enhancement)))
-            }
+            'depths': results_by_depth,
+            'grid_info': grid_info
         }
     
-    def _calculate_with_filtering(self, enhancement, intensity, distance_mask, method='strict'):
+    def _calculate_with_filtering(self, enhancement, intensity, distance_mask, n_spheres, method='strict'):
         """
         Calculate sums with specified filtering method.
         
@@ -412,13 +428,15 @@ class FieldAnalyzer:
             Field intensity array
         distance_mask : ndarray (bool)
             Mask for integration region
+        n_spheres : int
+            Number of spheres
         method : str
             'strict' or 'conservative'
         
         Returns
         -------
         dict
-            Calculated sums and statistics
+            Calculated sums and statistics (including per-sphere values)
         """
         # Start with distance mask
         final_mask = distance_mask.copy()
@@ -457,33 +475,46 @@ class FieldAnalyzer:
         enh_sum = float(np.sum(enh_in_region))
         enh_mean = float(np.mean(enh_in_region))
         
+        # Per-sphere statistics
+        enh_per_sphere = enh_sum / n_spheres if n_spheres > 0 else 0.0
+        
         result = {
             'enhancement_sum': enh_sum,
             'enhancement_mean': enh_mean,
+            'enhancement_per_sphere': enh_per_sphere,
             'valid_points': int(np.sum(final_mask)),
         }
         
         # Add intensity if available
         if intensity is not None:
             int_in_region = intensity[final_mask]
-            result['intensity_sum'] = float(np.sum(int_in_region))
-            result['intensity_mean'] = float(np.mean(int_in_region))
+            int_sum = float(np.sum(int_in_region))
+            int_mean = float(np.mean(int_in_region))
+            int_per_sphere = int_sum / n_spheres if n_spheres > 0 else 0.0
+            
+            result['intensity_sum'] = int_sum
+            result['intensity_mean'] = int_mean
+            result['intensity_per_sphere'] = int_per_sphere
         else:
             result['intensity_sum'] = None
             result['intensity_mean'] = None
+            result['intensity_per_sphere'] = None
         
         if method == 'conservative':
             result['excluded_outliers'] = excluded_outliers
         
         return result
     
-    def _create_distance_mask(self, x_grid, y_grid, z_grid, spheres):
+    def _create_distance_mask(self, x_grid, y_grid, z_grid, spheres, depth):
         """
-        Create mask for integration region.
+        Create mask for integration region - INTERIOR VERSION.
         
         Region criteria:
-        1. Outside ALL spheres (not inside any particle)
-        2. Within near_field_distance from at least one sphere
+        1. Inside at least ONE sphere
+        2. Within 'depth' nm from surface (measured inward)
+        
+        This selects the region inside particles, near the surface.
+        Overlapping regions between particles are included only once (OR operation).
         
         Parameters
         ----------
@@ -491,6 +522,8 @@ class FieldAnalyzer:
             Coordinate grids
         spheres : list of tuple
             List of (center_x, center_y, center_z, radius)
+        depth : float
+            Integration depth from surface (nm)
         
         Returns
         -------
@@ -499,9 +532,8 @@ class FieldAnalyzer:
         """
         shape = x_grid.shape
         
-        # Initialize masks
-        all_outside = np.ones(shape, dtype=bool)
-        any_within_distance = np.zeros(shape, dtype=bool)
+        # Initialize mask - all False
+        integration_mask = np.zeros(shape, dtype=bool)
         
         for cx, cy, cz, radius in spheres:
             # Calculate distance from sphere center
@@ -511,26 +543,23 @@ class FieldAnalyzer:
                 (z_grid - cz)**2
             )
             
-            # Distance from surface (positive = outside, negative = inside)
+            # Distance from surface (negative = inside, positive = outside)
             dist_from_surface = dist_from_center - radius
             
-            # Update masks
-            inside_this_sphere = (dist_from_surface <= 0)
-            all_outside = all_outside & ~inside_this_sphere
-            
-            within_distance_this_sphere = (
-                (dist_from_surface > 0) &
-                (dist_from_surface <= self.near_field_distance)
+            # Points inside this sphere AND within depth from surface (inward)
+            # -depth <= dist_from_surface <= 0
+            inside_near_surface = (
+                (dist_from_surface <= 0) &  # inside sphere
+                (dist_from_surface >= -depth)  # within depth from surface
             )
-            any_within_distance = any_within_distance | within_distance_this_sphere
-        
-        # Final mask: outside ALL spheres AND within distance from at least one
-        integration_mask = all_outside & any_within_distance
+            
+            # OR operation: add to integration mask (overlaps counted once)
+            integration_mask = integration_mask | inside_near_surface
         
         if self.verbose:
             n_total = np.prod(shape)
             n_selected = np.sum(integration_mask)
-            print(f"    Integration region: {n_selected}/{n_total} points ({100*n_selected/n_total:.1f}%)")
+            print(f"    Integration region ({depth:.1f}nm interior): {n_selected}/{n_total} points ({100*n_selected/n_total:.1f}%)")
         
         return integration_mask
     
@@ -647,11 +676,11 @@ class FieldAnalyzer:
     def _write_integration_header(self, f, config):
         """Write file header for near-field integration results."""
         f.write("=" * 80 + "\n")
-        f.write("Near-Field Integration Analysis\n")
+        f.write("Near-Field Integration Analysis (INTERIOR)\n")
         f.write("=" * 80 + "\n\n")
         
         f.write("Configuration:\n")
-        f.write(f"  Integration region: {self.near_field_distance:.1f} nm from particle surface (exterior only)\n")
+        f.write(f"  Integration depths: {', '.join([f'{d:.1f}' for d in self.near_field_distances])} nm from particle surface (interior)\n")
         
         structure_type = config.get('structure', 'unknown')
         f.write(f"  Structure: {structure_type}\n")
@@ -688,37 +717,52 @@ class FieldAnalyzer:
                 f.write(f"{pol_label}\n")
                 f.write("-" * 80 + "\n\n")
                 
-                # Grid info (only once)
+                # Grid info (only once per polarization)
                 if 'grid_info' in pol_data:
                     grid_info = pol_data['grid_info']
                     f.write("Grid information:\n")
                     f.write(f"  Total grid points:       {grid_info['total_points']}\n")
                     f.write(f"  Valid points (not NaN):  {grid_info['valid_points']}\n\n")
                 
-                # Strict filtering results
-                strict = pol_data['strict']
-                f.write("Strict filtering (Inf only):\n")
-                f.write(f"  Enhancement sum:         {strict['enhancement_sum']:15.3f}\n")
-                if strict['intensity_sum'] is not None:
-                    f.write(f"  Intensity sum:           {strict['intensity_sum']:15.3f}\n")
-                f.write(f"  Valid points in region:  {strict['valid_points']:15d}\n")
-                f.write(f"  Mean enhancement:        {strict['enhancement_mean']:15.3f}\n")
-                if strict['intensity_mean'] is not None:
-                    f.write(f"  Mean intensity:          {strict['intensity_mean']:15.3f}\n")
-                f.write("\n")
-                
-                # Conservative filtering results
-                cons = pol_data['conservative']
-                f.write("Conservative filtering (Inf + outliers):\n")
-                f.write(f"  Enhancement sum:         {cons['enhancement_sum']:15.3f}\n")
-                if cons['intensity_sum'] is not None:
-                    f.write(f"  Intensity sum:           {cons['intensity_sum']:15.3f}\n")
-                f.write(f"  Valid points in region:  {cons['valid_points']:15d}\n")
-                f.write(f"  Excluded outliers:       {cons['excluded_outliers']:15d}\n")
-                f.write(f"  Mean enhancement:        {cons['enhancement_mean']:15.3f}\n")
-                if cons['intensity_mean'] is not None:
-                    f.write(f"  Mean intensity:          {cons['intensity_mean']:15.3f}\n")
-                f.write("\n" + "-" * 80 + "\n")
+                # Results for each depth
+                if 'depths' in pol_data:
+                    for depth in sorted(pol_data['depths'].keys()):
+                        depth_data = pol_data['depths'][depth]
+                        n_spheres = depth_data.get('n_spheres', 1)
+                        
+                        f.write(f"Integration depth: {depth:.1f} nm (interior)\n")
+                        f.write(f"  Number of spheres: {n_spheres}\n\n")
+                        
+                        # Strict filtering results
+                        strict = depth_data['strict']
+                        f.write("  Strict filtering (Inf only):\n")
+                        f.write(f"    Enhancement sum:         {strict['enhancement_sum']:15.3f}\n")
+                        if strict['intensity_sum'] is not None:
+                            f.write(f"    Intensity sum:           {strict['intensity_sum']:15.3f}\n")
+                        f.write(f"    Valid points in region:  {strict['valid_points']:15d}\n")
+                        f.write(f"    Mean enhancement:        {strict['enhancement_mean']:15.3f}\n")
+                        if strict['intensity_mean'] is not None:
+                            f.write(f"    Mean intensity:          {strict['intensity_mean']:15.3f}\n")
+                        f.write(f"    Per-sphere enhancement:  {strict['enhancement_per_sphere']:15.3f}\n")
+                        if strict['intensity_per_sphere'] is not None:
+                            f.write(f"    Per-sphere intensity:    {strict['intensity_per_sphere']:15.3f}\n")
+                        f.write("\n")
+                        
+                        # Conservative filtering results
+                        cons = depth_data['conservative']
+                        f.write("  Conservative filtering (Inf + outliers):\n")
+                        f.write(f"    Enhancement sum:         {cons['enhancement_sum']:15.3f}\n")
+                        if cons['intensity_sum'] is not None:
+                            f.write(f"    Intensity sum:           {cons['intensity_sum']:15.3f}\n")
+                        f.write(f"    Valid points in region:  {cons['valid_points']:15d}\n")
+                        f.write(f"    Excluded outliers:       {cons['excluded_outliers']:15d}\n")
+                        f.write(f"    Mean enhancement:        {cons['enhancement_mean']:15.3f}\n")
+                        if cons['intensity_mean'] is not None:
+                            f.write(f"    Mean intensity:          {cons['intensity_mean']:15.3f}\n")
+                        f.write(f"    Per-sphere enhancement:  {cons['enhancement_per_sphere']:15.3f}\n")
+                        if cons['intensity_per_sphere'] is not None:
+                            f.write(f"    Per-sphere intensity:    {cons['intensity_per_sphere']:15.3f}\n")
+                        f.write("\n" + "-" * 80 + "\n")
             
             f.write("\n")
     
@@ -729,7 +773,7 @@ class FieldAnalyzer:
         f.write("=" * 80 + "\n\n")
         
         # Table header
-        f.write(f"{'Wavelength':<12} {'Polarization':<15} {'Enh.Sum':<15} {'Int.Sum':<15} {'Points':<10}\n")
+        f.write(f"{'Wavelength':<12} {'Polarization':<15} {'Depth':<8} {'Enh.Sum':<15} {'Int.Sum':<15} {'Points':<10}\n")
         f.write("-" * 80 + "\n")
         
         # Table rows
@@ -738,20 +782,26 @@ class FieldAnalyzer:
             
             for pol_key in sorted(wl_results.keys()):
                 pol_data = wl_results[pol_key]
-                strict = pol_data['strict']
                 
-                # Format wavelength and polarization
-                wl_str = f"{wl:.1f} nm"
+                # Format polarization
                 if pol_key == 'unpolarized':
                     pol_str = "unpolarized"
                 else:
                     pol_num = pol_key.split('_')[1]
                     pol_str = f"pol{pol_num}"
                 
-                enh_sum = strict['enhancement_sum']
-                int_sum = strict['intensity_sum'] if strict['intensity_sum'] is not None else 0
-                points = strict['valid_points']
-                
-                f.write(f"{wl_str:<12} {pol_str:<15} {enh_sum:<15.3f} {int_sum:<15.3f} {points:<10d}\n")
+                # Results for each depth
+                if 'depths' in pol_data:
+                    for depth in sorted(pol_data['depths'].keys()):
+                        depth_data = pol_data['depths'][depth]
+                        strict = depth_data['strict']
+                        
+                        wl_str = f"{wl:.1f} nm"
+                        depth_str = f"{depth:.1f}nm"
+                        enh_sum = strict['enhancement_sum']
+                        int_sum = strict['intensity_sum'] if strict['intensity_sum'] is not None else 0
+                        points = strict['valid_points']
+                        
+                        f.write(f"{wl_str:<12} {pol_str:<15} {depth_str:<8} {enh_sum:<15.3f} {int_sum:<15.3f} {points:<10d}\n")
         
         f.write("\n" + "=" * 80 + "\n")
