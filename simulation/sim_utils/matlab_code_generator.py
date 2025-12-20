@@ -2803,44 +2803,60 @@ for ipol = 1:n_polarizations
     %% OPTION 1: UNIVERSAL REFERENCE ENHANCEMENT CALCULATION
     fprintf('    → Calculating enhancement (universal reference)...\\n');
     
-    % Determine external medium index
-    external_medium_idx = 2;  % Default: vacuum/embedding medium
+    % CRITICAL FIX: Determine correct external (embedding) medium index
+    % inout format: [internal_medium_idx, external_medium_idx]
+    if size(inout, 1) == 1
+        % Single particle
+        external_medium_idx = inout(1, 2);  % Column 2 = external/embedding medium
+    else
+        % Multi-particle: use first particle's external medium
+        external_medium_idx = inout(1, 2);
+    end
+    
+    fprintf('      Auto-detected external medium index: %d\\n', external_medium_idx);
+    fprintf('      (Internal medium: %d, External medium: %d)\\n', ...
+            inout(1,1), external_medium_idx);
     """
             
             # Check if substrate exists
             if use_substrate:
                 code += """    if exist('layer', 'var')
-        external_medium_idx = layer.ind(1);  % Upper layer medium
+        external_medium_idx = layer.ind(1);  % Override: Upper layer medium
+        fprintf('      Substrate detected: using layer medium %d\\n', external_medium_idx);
     end
     """
             
             code += """
-    % CRITICAL: Create reference points in EXTERNAL medium for ALL grid points
-    fprintf('      Creating universal reference in external medium (idx=%d)...\\n', ...
-            external_medium_idx);
-    pt_reference = compoint(p, [x_grid(:), y_grid(:), z_grid(:)], op, ...
-                            'medium', external_medium_idx);
+    % CRITICAL FIX: Calculate incoming field DIRECTLY (avoid compoint issues)
+    % For plane wave: E0 = pol * exp(i*k·r)
+    fprintf('      Computing incoming field reference (direct calculation)...\\n');
     
-    % Calculate incoming field at ALL points as if in external medium
-    fprintf('      Computing incoming field reference...\\n');
-    exc_field_reference = exc_single.field(pt_reference, enei(field_wavelength_idx));
-    e_incoming_reference = exc_field_reference.e;
+    % Get wave vector
+    k0 = 2 * pi / enei(field_wavelength_idx);  % Free space wave number
+    kvec = k0 * dir(ipol, :);                 % Wave vector: k = k0 * direction
+    pol_vec = pol(ipol, :);                   % Polarization vector
     
-    % Handle array dimensions
-    if ndims(e_incoming_reference) == 3 && size(e_incoming_reference, 3) == n_polarizations
-        e_incoming_reference = e_incoming_reference(:, :, ipol);
-    end
-    if ndims(e_incoming_reference) == 3
-        e_incoming_reference = squeeze(e_incoming_reference);
-    end
+    % Calculate phase at each grid point: exp(i*k·r)
+    phase = exp(1i * (kvec(1)*x_flat + kvec(2)*y_flat + kvec(3)*z_flat));
+    
+    % Incoming field: E0 = pol * phase (for ALL grid points)
+    e_incoming_reference = zeros(n_grid_points, 3);
+    e_incoming_reference(:, 1) = pol_vec(1) * phase;
+    e_incoming_reference(:, 2) = pol_vec(2) * phase;
+    e_incoming_reference(:, 3) = pol_vec(3) * phase;
     
     % Calculate reference intensity (universal for all points)
     e0_reference_intensity = sum(e_incoming_reference .* conj(e_incoming_reference), 2);
     
     fprintf('      Reference incoming intensity stats:\\n');
     fprintf('        min: %.3e, max: %.3e, valid: %d/%d\\n', ...
-            min(e0_reference_intensity), max(e0_reference_intensity), ...
+            min(abs(e0_reference_intensity)), max(abs(e0_reference_intensity)), ...
             sum(isfinite(e0_reference_intensity)), numel(e0_reference_intensity));
+    
+    % Sanity check
+    if all(abs(e0_reference_intensity) < 1e-12)
+        error('Universal reference incoming field is all zero! Check calculation.');
+    end
     
     % Calculate field intensities
     e_intensity = sum(e_total_full .* conj(e_total_full), 2);
@@ -2852,15 +2868,15 @@ for ipol = 1:n_polarizations
     
     % Merged (visualization)
     intensity_enhancement = e_intensity ./ max(e0_reference_intensity, e0_threshold);
-    intensity_enhancement(e0_reference_intensity < e0_threshold) = NaN;
+    intensity_enhancement(e0_reference_intensity < e0_threshold | isnan(e_intensity)) = NaN;
     
     % External enhancement (using universal reference)
     intensity_enhancement_ext = e_intensity_ext ./ max(e0_reference_intensity, e0_threshold);
-    intensity_enhancement_ext(e0_reference_intensity < e0_threshold) = NaN;
+    intensity_enhancement_ext(e0_reference_intensity < e0_threshold | isnan(e_intensity_ext)) = NaN;
     
     % Internal enhancement (using universal reference) ← CRITICAL FIX!
     intensity_enhancement_int = e_intensity_int ./ max(e0_reference_intensity, e0_threshold);
-    intensity_enhancement_int(e0_reference_intensity < e0_threshold) = NaN;
+    intensity_enhancement_int(e0_reference_intensity < e0_threshold | isnan(e_intensity_int)) = NaN;
     
     % Reshape to grid
     intensity_enhancement = reshape(intensity_enhancement, grid_shape);
@@ -2873,7 +2889,7 @@ for ipol = 1:n_polarizations
     e_total_ext_grid = reshape(e_total_ext_grid, [grid_shape, 3]);
     e_total_int_grid = reshape(e_total_int_grid, [grid_shape, 3]);
     
-    fprintf('      Intensity_enh valid (universal ref):\\n');
+    fprintf('      Intensity_enh valid (universal ref - direct calc):\\n');
     fprintf('        Merged: %d/%d\\n', sum(isfinite(intensity_enhancement(:))), numel(intensity_enhancement));
     fprintf('        External: %d/%d\\n', sum(isfinite(intensity_enhancement_ext(:))), numel(intensity_enhancement_ext));
     fprintf('        Internal: %d/%d\\n', sum(isfinite(intensity_enhancement_int(:))), numel(intensity_enhancement_int));
@@ -2884,8 +2900,7 @@ for ipol = 1:n_polarizations
                 max(intensity_enhancement_int(isfinite(intensity_enhancement_int))));
     elseif has_internal_field
         fprintf('      [WARNING] All internal enhancement = NaN!\\n');
-        fprintf('      This should NOT happen with universal reference method.\\n');
-        fprintf('      Check external_medium_idx = %d is correct.\\n', external_medium_idx);
+        fprintf('      Possible causes: threshold too high or intensity too low\\n');
     end
     
     %% STORE FIELD DATA
@@ -2921,8 +2936,9 @@ end
 field_calc_time = toc(field_calc_start);
 fprintf('\\n[OK] Field calculation completed in %.1f seconds\\n', field_calc_time);
 fprintf('================================================================\\n');
-fprintf('ENHANCEMENT METHOD: Universal Reference (External Medium)\\n');
-fprintf('Reference field: Incoming field as if particle does not exist\\n');
+fprintf('ENHANCEMENT METHOD: Universal Reference (Direct Calculation)\\n');
+fprintf('Reference field: Plane wave E0 = pol * exp(i*k·r)\\n');
+fprintf('Enhancement: |E|² / |E0|² for all grid points\\n');
 fprintf('================================================================\\n');
 """
 
