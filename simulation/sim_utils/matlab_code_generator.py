@@ -2682,12 +2682,16 @@ for ipol = 1:n_polarizations
         e_total_int = [];
     end
     
-    %% MERGE EXTERNAL + INTERNAL
+    %% MERGE EXTERNAL + INTERNAL (IMPROVED!)
     fprintf('    → Merging fields...\\n');
     
     % Initialize full grid with NaN
     e_total_full = nan(n_grid_points, 3);
     e_incoming_full = nan(n_grid_points, 3);
+    
+    % NEW: Separate storage for visualization
+    e_total_ext_grid = nan(n_grid_points, 3);
+    e_total_int_grid = nan(n_grid_points, 3);
     
     % Flatten grid coordinates
     x_flat = x_grid(:);
@@ -2704,24 +2708,91 @@ for ipol = 1:n_polarizations
         
         e_total_full(idx, :) = e_total_ext(ii, :);
         e_incoming_full(idx, :) = e_incoming_ext(ii, :);
+        
+        % Store external separately
+        e_total_ext_grid(idx, :) = e_total_ext(ii, :);
     end
     
-    % Fill internal points (overwrite external)
+    % Fill internal points (IMPROVED: Exact grid matching)
     if has_internal_field
-        fprintf('      Filling %d internal points...\\n', pt_internal.n);
-        for ii = 1:pt_internal.n
-            dx = abs(x_flat - pt_internal.pos(ii,1));
-            dy = abs(y_flat - pt_internal.pos(ii,2));
-            dz = abs(z_flat - pt_internal.pos(ii,3));
-            [~, idx] = min(dx + dy + dz);
+        fprintf('      Filling %d internal points (exact matching)...\\n', pt_internal.n);
+        
+        % Extract grid vectors
+        if numel(unique(y_grid)) == 1
+            % xz-plane: y is constant
+            x_vec = unique(x_grid);
+            z_vec = unique(z_grid);
             
-            % Overwrite with internal field
-            e_total_full(idx, :) = e_total_int(ii, :);
-            e_incoming_full(idx, :) = e_incoming_int(ii, :);
+            fprintf('      Grid type: xz-plane (y=%.1f)\\n', unique(y_grid));
+            fprintf('      x range: [%.1f, %.1f], %d points\\n', min(x_vec), max(x_vec), numel(x_vec));
+            fprintf('      z range: [%.1f, %.1f], %d points\\n', min(z_vec), max(z_vec), numel(z_vec));
+            
+            % Find nearest indices for each internal point
+            ix = zeros(pt_internal.n, 1);
+            iz = zeros(pt_internal.n, 1);
+            
+            for ii = 1:pt_internal.n
+                [~, ix(ii)] = min(abs(pt_internal.pos(ii,1) - x_vec));
+                [~, iz(ii)] = min(abs(pt_internal.pos(ii,3) - z_vec));
+            end
+            
+            % Convert to linear index
+            linear_idx = sub2ind(grid_shape, iz, ix);
+            
+        elseif numel(unique(z_grid)) == 1
+            % xy-plane: z is constant
+            x_vec = unique(x_grid);
+            y_vec = unique(y_grid);
+            
+            fprintf('      Grid type: xy-plane (z=%.1f)\\n', unique(z_grid));
+            fprintf('      x range: [%.1f, %.1f], %d points\\n', min(x_vec), max(x_vec), numel(x_vec));
+            fprintf('      y range: [%.1f, %.1f], %d points\\n', min(y_vec), max(y_vec), numel(y_vec));
+            
+            % Find nearest indices
+            ix = zeros(pt_internal.n, 1);
+            iy = zeros(pt_internal.n, 1);
+            
+            for ii = 1:pt_internal.n
+                [~, ix(ii)] = min(abs(pt_internal.pos(ii,1) - x_vec));
+                [~, iy(ii)] = min(abs(pt_internal.pos(ii,2) - y_vec));
+            end
+            
+            % Convert to linear index
+            linear_idx = sub2ind(grid_shape, iy, ix);
+        else
+            error('Unsupported grid configuration');
         end
+        
+        % Check for duplicates
+        [unique_idx, ~, ic] = unique(linear_idx);
+        n_unique = numel(unique_idx);
+        n_duplicates = pt_internal.n - n_unique;
+        
+        if n_duplicates > 0
+            fprintf('      Warning: %d duplicate grid points detected\\n', n_duplicates);
+            fprintf('      Multiple internal points map to same grid location\\n');
+        end
+        
+        % Assign internal field to exact grid locations
+        e_total_full(linear_idx, :) = e_total_int;
+        e_incoming_full(linear_idx, :) = e_incoming_int;
+        
+        % Store internal separately
+        e_total_int_grid(linear_idx, :) = e_total_int;
+        
+        fprintf('      Internal field mapped to %d unique grid points\\n', n_unique);
     end
     
-    fprintf('      Merge complete: %d total points filled\\n', sum(all(isfinite(e_total_full), 2)));
+    % Count filled points
+    n_filled = sum(all(isfinite(e_total_full), 2));
+    n_ext_only = sum(all(isfinite(e_total_ext_grid), 2) & all(isnan(e_total_int_grid), 2));
+    n_int_only = sum(all(isfinite(e_total_int_grid), 2) & all(isnan(e_total_ext_grid), 2));
+    n_overlap = sum(all(isfinite(e_total_ext_grid), 2) & all(isfinite(e_total_int_grid), 2));
+    
+    fprintf('      Merge complete: %d total points filled\\n', n_filled);
+    fprintf('        External only: %d points\\n', n_ext_only);
+    fprintf('        Internal only: %d points\\n', n_int_only);
+    fprintf('        Overlap: %d points\\n', n_overlap);
     
     %% CALCULATE ENHANCEMENT & INTENSITY
     e_intensity = sum(e_total_full .* conj(e_total_full), 2);
@@ -2729,25 +2800,60 @@ for ipol = 1:n_polarizations
     enhancement = sqrt(e_intensity ./ e0_intensity);
     enhancement(e0_intensity == 0) = NaN;
     
+    % Separate enhancement for internal/external
+    e_intensity_ext = sum(e_total_ext_grid .* conj(e_total_ext_grid), 2);
+    e_intensity_int = sum(e_total_int_grid .* conj(e_total_int_grid), 2);
+    
+    e0_intensity_ext = e0_intensity;  % Same incoming field
+    e0_intensity_int = e0_intensity;
+    
+    enhancement_ext = sqrt(e_intensity_ext ./ e0_intensity_ext);
+    enhancement_int = sqrt(e_intensity_int ./ e0_intensity_int);
+    
+    enhancement_ext(e0_intensity_ext == 0) = NaN;
+    enhancement_int(e0_intensity_int == 0) = NaN;
+    
     % Reshape to grid
     enhancement = reshape(enhancement, grid_shape);
     e_intensity = reshape(e_intensity, grid_shape);
     e_total_grid = reshape(e_total_full, [grid_shape, 3]);
     
-    %% STORE FIELD DATA
+    % Reshape separate fields
+    enhancement_ext = reshape(enhancement_ext, grid_shape);
+    enhancement_int = reshape(enhancement_int, grid_shape);
+    e_intensity_ext = reshape(e_intensity_ext, grid_shape);
+    e_intensity_int = reshape(e_intensity_int, grid_shape);
+    e_total_ext_grid = reshape(e_total_ext_grid, [grid_shape, 3]);
+    e_total_int_grid = reshape(e_total_int_grid, [grid_shape, 3]);
+    
+    %% STORE FIELD DATA (with separate internal/external)
     field_data(ipol).wavelength = enei(field_wavelength_idx);
     field_data(ipol).wavelength_idx = field_wavelength_idx;
     field_data(ipol).polarization = pol(ipol, :);
     field_data(ipol).polarization_idx = ipol;
+    
+    % Combined (merged)
     field_data(ipol).e_total = e_total_grid;
     field_data(ipol).enhancement = enhancement;
     field_data(ipol).intensity = e_intensity;
+    
+    % Separate fields
+    field_data(ipol).e_total_ext = e_total_ext_grid;
+    field_data(ipol).e_total_int = e_total_int_grid;
+    field_data(ipol).enhancement_ext = enhancement_ext;
+    field_data(ipol).enhancement_int = enhancement_int;
+    field_data(ipol).intensity_ext = e_intensity_ext;
+    field_data(ipol).intensity_int = e_intensity_int;
+    
+    % Grid coordinates
     field_data(ipol).x_grid = x_grid;
     field_data(ipol).y_grid = y_grid;
     field_data(ipol).z_grid = z_grid;
     
     fprintf('    → Stored field_data(%d)\\n', ipol);
-    fprintf('      Valid points: %d/%d\\n', sum(isfinite(enhancement(:))), numel(enhancement));
+    fprintf('      Valid points (merged): %d/%d\\n', sum(isfinite(enhancement(:))), numel(enhancement));
+    fprintf('      Valid points (external): %d/%d\\n', sum(isfinite(enhancement_ext(:))), numel(enhancement_ext));
+    fprintf('      Valid points (internal): %d/%d\\n', sum(isfinite(enhancement_int(:))), numel(enhancement_int));
 end
 
 field_calc_time = toc(field_calc_start);
