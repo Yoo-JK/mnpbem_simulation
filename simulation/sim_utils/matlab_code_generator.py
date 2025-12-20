@@ -2068,7 +2068,8 @@ exit;
         
         FIXED BUGS:
         - pt_internal.pc → pt_internal (compoint returns point object directly)
-        - External field dimension handling (properly slice 3D arrays)
+        - 4D array handling for grid-based field calculations
+        - External field dimension handling (properly slice 3D and 4D arrays)
         
         Strategy: 
         1. Calculate ALL cross sections first (no field in loop)
@@ -2312,13 +2313,13 @@ fprintf('================================================================\\n');
 """
 
         # ================================================================
-        # FIELD CALCULATION (After all chunks complete) - FIXED VERSION
+        # FIELD CALCULATION (After all chunks complete) - FIXED FOR 4D ARRAYS
         # ================================================================
         if calculate_fields:
             code += """
 %% ========================================
 %% FIELD CALCULATION (After all chunks complete)
-%% Internal + External Field Support
+%% Internal + External Field Support (4D Array Compatible)
 %% ========================================
 fprintf('\\n');
 fprintf('================================================================\\n');
@@ -2511,13 +2512,19 @@ for ipol = 1:n_polarizations
     % Induced field from BEM solution
     e_induced_ext_all = emesh_external(sig_peak);
     
-    % FIX 2: Extract field for this polarization
-    % emesh returns [n_points, 3, n_polarizations] or [n_points, 3]
-    if ndims(e_induced_ext_all) == 3
-        % Multi-polarization: extract this polarization
+    % FIX 2: Handle 4D arrays (grid-based) and 3D arrays
+    fprintf('      Raw external field size: [%s]\\n', num2str(size(e_induced_ext_all)));
+    
+    if ndims(e_induced_ext_all) == 4
+        % 4D array: [nz, nx, 3, n_pol] - typical for grid-based calculations
+        e_induced_ext = e_induced_ext_all(:, :, :, ipol);
+        % Reshape to [n_points, 3]
+        e_induced_ext = reshape(e_induced_ext, [], 3);
+    elseif ndims(e_induced_ext_all) == 3 && size(e_induced_ext_all, 3) > 3
+        % 3D array with polarizations: [n_points, 3, n_pol]
         e_induced_ext = e_induced_ext_all(:, :, ipol);
     else
-        % Single polarization or already sliced
+        % 2D array: [n_points, 3] - single polarization
         e_induced_ext = e_induced_ext_all;
     end
     
@@ -2525,8 +2532,13 @@ for ipol = 1:n_polarizations
     exc_field_ext = exc_single.field(emesh_external.pt, enei(field_wavelength_idx));
     e_incoming_ext_all = emesh_external(exc_field_ext);
     
-    % FIX 2: Extract incoming field for this polarization
-    if ndims(e_incoming_ext_all) == 3
+    fprintf('      Raw incoming field size: [%s]\\n', num2str(size(e_incoming_ext_all)));
+    
+    % Extract incoming field for this polarization
+    if ndims(e_incoming_ext_all) == 4
+        e_incoming_ext = e_incoming_ext_all(:, :, :, ipol);
+        e_incoming_ext = reshape(e_incoming_ext, [], 3);
+    elseif ndims(e_incoming_ext_all) == 3 && size(e_incoming_ext_all, 3) > 3
         e_incoming_ext = e_incoming_ext_all(:, :, ipol);
     else
         e_incoming_ext = e_incoming_ext_all;
@@ -2540,10 +2552,20 @@ for ipol = 1:n_polarizations
         e_incoming_ext = squeeze(e_incoming_ext);
     end
     
+    % Final safety check
+    if size(e_induced_ext, 1) ~= emesh_external.pt.n || size(e_induced_ext, 2) ~= 3
+        fprintf('      [WARNING] Reshaping external induced field...\\n');
+        e_induced_ext = reshape(e_induced_ext, emesh_external.pt.n, 3);
+    end
+    if size(e_incoming_ext, 1) ~= emesh_external.pt.n || size(e_incoming_ext, 2) ~= 3
+        fprintf('      [WARNING] Reshaping external incoming field...\\n');
+        e_incoming_ext = reshape(e_incoming_ext, emesh_external.pt.n, 3);
+    end
+    
     % Total external field
     e_total_ext = e_induced_ext + e_incoming_ext;
     
-    fprintf('      External field size: [%s]\\n', num2str(size(e_total_ext)));
+    fprintf('      Final external field size: [%s]\\n', num2str(size(e_total_ext)));
     
     %% INTERNAL FIELD
     if has_internal_field
@@ -2553,20 +2575,29 @@ for ipol = 1:n_polarizations
         f_induced_int = field(g_internal, sig_peak);
         e_induced_int_all = f_induced_int.e;
         
-        % FIX 2: Extract for this polarization
-        if ndims(e_induced_int_all) == 3
+        fprintf('      Raw internal induced field size: [%s]\\n', num2str(size(e_induced_int_all)));
+        
+        % Extract for this polarization
+        if ndims(e_induced_int_all) == 4
+            e_induced_int = e_induced_int_all(:, :, :, ipol);
+            e_induced_int = reshape(e_induced_int, [], 3);
+        elseif ndims(e_induced_int_all) == 3 && size(e_induced_int_all, 3) > 3
             e_induced_int = e_induced_int_all(:, :, ipol);
         else
             e_induced_int = e_induced_int_all;
         end
         
         % Incoming field at internal points
-        % FIX 1: Use pt_internal.pos (not pt_internal.pc.pos)
         exc_field_int = exc_single.field(pt_internal, enei(field_wavelength_idx));
         e_incoming_int_all = exc_field_int.e;
         
-        % FIX 2: Extract for this polarization
-        if ndims(e_incoming_int_all) == 3
+        fprintf('      Raw internal incoming field size: [%s]\\n', num2str(size(e_incoming_int_all)));
+        
+        % Extract for this polarization
+        if ndims(e_incoming_int_all) == 4
+            e_incoming_int = e_incoming_int_all(:, :, :, ipol);
+            e_incoming_int = reshape(e_incoming_int, [], 3);
+        elseif ndims(e_incoming_int_all) == 3 && size(e_incoming_int_all, 3) > 3
             e_incoming_int = e_incoming_int_all(:, :, ipol);
         else
             e_incoming_int = e_incoming_int_all;
@@ -2580,10 +2611,20 @@ for ipol = 1:n_polarizations
             e_incoming_int = squeeze(e_incoming_int);
         end
         
+        % Final safety check
+        if size(e_induced_int, 1) ~= pt_internal.n || size(e_induced_int, 2) ~= 3
+            fprintf('      [WARNING] Reshaping internal induced field...\\n');
+            e_induced_int = reshape(e_induced_int, pt_internal.n, 3);
+        end
+        if size(e_incoming_int, 1) ~= pt_internal.n || size(e_incoming_int, 2) ~= 3
+            fprintf('      [WARNING] Reshaping internal incoming field...\\n');
+            e_incoming_int = reshape(e_incoming_int, pt_internal.n, 3);
+        end
+        
         % Total internal field
         e_total_int = e_induced_int + e_incoming_int;
         
-        fprintf('      Internal field size: [%s]\\n', num2str(size(e_total_int)));
+        fprintf('      Final internal field size: [%s]\\n', num2str(size(e_total_int)));
     else
         e_total_int = [];
     end
@@ -2601,6 +2642,7 @@ for ipol = 1:n_polarizations
     z_flat = z_grid(:);
     
     % Fill external points
+    fprintf('      Filling %d external points...\\n', emesh_external.pt.n);
     for ii = 1:emesh_external.pt.n
         dx = abs(x_flat - emesh_external.pt.pos(ii,1));
         dy = abs(y_flat - emesh_external.pt.pos(ii,2));
@@ -2613,7 +2655,7 @@ for ipol = 1:n_polarizations
     
     % Fill internal points (overwrite external)
     if has_internal_field
-        % FIX 1: Use pt_internal.pos (not pt_internal.pc.pos)
+        fprintf('      Filling %d internal points...\\n', pt_internal.n);
         for ii = 1:pt_internal.n
             dx = abs(x_flat - pt_internal.pos(ii,1));
             dy = abs(y_flat - pt_internal.pos(ii,2));
@@ -2625,6 +2667,8 @@ for ipol = 1:n_polarizations
             e_incoming_full(idx, :) = e_incoming_int(ii, :);
         end
     end
+    
+    fprintf('      Merge complete: %d total points filled\\n', sum(all(isfinite(e_total_full), 2)));
     
     %% CALCULATE ENHANCEMENT & INTENSITY
     e_intensity = sum(e_total_full .* conj(e_total_full), 2);
