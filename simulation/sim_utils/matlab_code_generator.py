@@ -2064,7 +2064,11 @@ exit;
         2. Iterative solver + parfor (H-matrix compression ~14% memory)
         3. Serial execution with thread parallelism
         4. Proper memory management with bem = clear(bem)
-        5. Internal + External field calculation  ← NEW!
+        5. Internal + External field calculation
+        
+        FIXED BUGS:
+        - pt_internal.pc → pt_internal (compoint returns point object directly)
+        - External field dimension handling (properly slice 3D arrays)
         
         Strategy: 
         1. Calculate ALL cross sections first (no field in loop)
@@ -2202,8 +2206,6 @@ for ichunk = 1:n_chunks
                 end
 
                 % BEM calculation
-                % Note: bem \\ exc internally calls bem = bem(enei) if needed
-                % For iterative solver, H-matrix is computed per wavelength
                 sig = bem \\ exc(p, enei_local(ien));
 
                 % Store results
@@ -2310,7 +2312,7 @@ fprintf('================================================================\\n');
 """
 
         # ================================================================
-        # FIELD CALCULATION (After all chunks complete) - MODIFIED VERSION
+        # FIELD CALCULATION (After all chunks complete) - FIXED VERSION
         # ================================================================
         if calculate_fields:
             code += """
@@ -2437,6 +2439,7 @@ end
 fprintf('  Creating compoint (medium=%d, mindist={mindist_internal})...\\n', internal_medium_idx);
 
 try
+    % FIX 1: compoint returns point object directly (not .pc)
     pt_internal = compoint(p, [x_grid(:), y_grid(:), z_grid(:)], op, ...
                            'medium', internal_medium_idx, ...
                            'mindist', {mindist_internal});
@@ -2444,7 +2447,8 @@ try
     fprintf('  Creating Green function...\\n');
     g_internal = greenfunction(pt_internal, p, op);
     
-    fprintf('  → Internal field setup: %d points\\n', pt_internal.pc.n);
+    % FIX 1: Use pt_internal.n (not pt_internal.pc.n)
+    fprintf('  → Internal field setup: %d points\\n', pt_internal.n);
     has_internal_field = true;
     
 catch ME
@@ -2457,7 +2461,7 @@ fprintf('\\n[OK] Field calculation setup complete\\n');
 fprintf('  Grid: %dx%d = %d points\\n', grid_shape(1), grid_shape(2), n_grid_points);
 if has_internal_field
     fprintf('  External: %d points, Internal: %d points\\n', ...
-            emesh_external.pt.n, pt_internal.pc.n);
+            emesh_external.pt.n, pt_internal.n);
 else
     fprintf('  External: %d points (Internal: disabled)\\n', emesh_external.pt.n);
 end
@@ -2503,19 +2507,83 @@ for ipol = 1:n_polarizations
             code += """
     %% EXTERNAL FIELD
     fprintf('    → External field...\\n');
-    e_induced_ext = emesh_external(sig_peak);
+    
+    % Induced field from BEM solution
+    e_induced_ext_all = emesh_external(sig_peak);
+    
+    % FIX 2: Extract field for this polarization
+    % emesh returns [n_points, 3, n_polarizations] or [n_points, 3]
+    if ndims(e_induced_ext_all) == 3
+        % Multi-polarization: extract this polarization
+        e_induced_ext = e_induced_ext_all(:, :, ipol);
+    else
+        % Single polarization or already sliced
+        e_induced_ext = e_induced_ext_all;
+    end
+    
+    % Incoming field
     exc_field_ext = exc_single.field(emesh_external.pt, enei(field_wavelength_idx));
-    e_incoming_ext = emesh_external(exc_field_ext);
+    e_incoming_ext_all = emesh_external(exc_field_ext);
+    
+    % FIX 2: Extract incoming field for this polarization
+    if ndims(e_incoming_ext_all) == 3
+        e_incoming_ext = e_incoming_ext_all(:, :, ipol);
+    else
+        e_incoming_ext = e_incoming_ext_all;
+    end
+    
+    % Ensure 2D: [n_points, 3]
+    if ndims(e_induced_ext) == 3
+        e_induced_ext = squeeze(e_induced_ext);
+    end
+    if ndims(e_incoming_ext) == 3
+        e_incoming_ext = squeeze(e_incoming_ext);
+    end
+    
+    % Total external field
     e_total_ext = e_induced_ext + e_incoming_ext;
+    
+    fprintf('      External field size: [%s]\\n', num2str(size(e_total_ext)));
     
     %% INTERNAL FIELD
     if has_internal_field
         fprintf('    → Internal field...\\n');
+        
+        % Induced field using Green function
         f_induced_int = field(g_internal, sig_peak);
-        e_induced_int = f_induced_int.e;
-        exc_field_int = exc_single.field(pt_internal.pc, enei(field_wavelength_idx));
-        e_incoming_int = exc_field_int.e;
+        e_induced_int_all = f_induced_int.e;
+        
+        % FIX 2: Extract for this polarization
+        if ndims(e_induced_int_all) == 3
+            e_induced_int = e_induced_int_all(:, :, ipol);
+        else
+            e_induced_int = e_induced_int_all;
+        end
+        
+        % Incoming field at internal points
+        % FIX 1: Use pt_internal.pos (not pt_internal.pc.pos)
+        exc_field_int = exc_single.field(pt_internal, enei(field_wavelength_idx));
+        e_incoming_int_all = exc_field_int.e;
+        
+        % FIX 2: Extract for this polarization
+        if ndims(e_incoming_int_all) == 3
+            e_incoming_int = e_incoming_int_all(:, :, ipol);
+        else
+            e_incoming_int = e_incoming_int_all;
+        end
+        
+        % Ensure 2D
+        if ndims(e_induced_int) == 3
+            e_induced_int = squeeze(e_induced_int);
+        end
+        if ndims(e_incoming_int) == 3
+            e_incoming_int = squeeze(e_incoming_int);
+        end
+        
+        % Total internal field
         e_total_int = e_induced_int + e_incoming_int;
+        
+        fprintf('      Internal field size: [%s]\\n', num2str(size(e_total_int)));
     else
         e_total_int = [];
     end
@@ -2545,10 +2613,11 @@ for ipol = 1:n_polarizations
     
     % Fill internal points (overwrite external)
     if has_internal_field
-        for ii = 1:pt_internal.pc.n
-            dx = abs(x_flat - pt_internal.pc.pos(ii,1));
-            dy = abs(y_flat - pt_internal.pc.pos(ii,2));
-            dz = abs(z_flat - pt_internal.pc.pos(ii,3));
+        % FIX 1: Use pt_internal.pos (not pt_internal.pc.pos)
+        for ii = 1:pt_internal.n
+            dx = abs(x_flat - pt_internal.pos(ii,1));
+            dy = abs(y_flat - pt_internal.pos(ii,2));
+            dz = abs(z_flat - pt_internal.pos(ii,3));
             [~, idx] = min(dx + dy + dz);
             
             % Overwrite with internal field
