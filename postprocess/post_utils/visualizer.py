@@ -267,6 +267,15 @@ class Visualizer:
                 if vector_file:
                     saved_files.extend(vector_file)
 
+        if self.verbose:
+            print("\n  Creating separate internal/external field plots...")
+        
+        separate_files = self.plot_field_separate_internal_external(fields)
+        if separate_files:
+            saved_files.extend(separate_files)
+            if self.verbose:
+                print(f"  Created {len(separate_files)} separate field plot(s)")
+
         return saved_files
     
     def _plot_field_enhancement(self, field_data, polarization_idx, wavelength_idx=None):
@@ -556,7 +565,359 @@ class Visualizer:
         plt.close(fig)
 
         return saved_files
+
+    def plot_field_separate_internal_external(self, field_data):
+        """
+        Plot internal and external fields separately if available.
+        
+        Creates 3 types of plots:
+        1. Separate 2-panel plots (Ext | Int)
+        2. Comparison 3-panel plots (Ext | Int | Merged)
+        3. Overlay plots (Ext heatmap + Int scatter)
+        
+        Only creates plots if field_data contains enhancement_ext and enhancement_int.
+        """
+        if not field_data:
+            return []
+        
+        saved_files = []
+        
+        # Check if we have separate internal/external data
+        for idx, field in enumerate(field_data):
+            # Check if this field has separate ext/int data
+            has_separate = (
+                'enhancement_ext' in field and 
+                'enhancement_int' in field and
+                field['enhancement_ext'] is not None and
+                field['enhancement_int'] is not None
+            )
+            
+            if not has_separate:
+                continue  # Skip this field
+            
+            pol_idx = field.get('polarization_idx', idx)
+            wl_idx = field.get('wavelength_idx')
+            
+            if self.verbose:
+                print(f"  Creating separate int/ext plots for pol {pol_idx+1}...")
+            
+            # Create separate plots
+            sep_files = self._plot_field_separate(field, pol_idx, wl_idx)
+            if sep_files:
+                saved_files.extend(sep_files)
+            
+            # Create comparison plots
+            comp_files = self._plot_field_comparison(field, pol_idx, wl_idx)
+            if comp_files:
+                saved_files.extend(comp_files)
+            
+            # Create overlay plots
+            overlay_files = self._plot_field_overlay(field, pol_idx, wl_idx)
+            if overlay_files:
+                saved_files.extend(overlay_files)
+        
+        return saved_files
     
+    def _plot_field_separate(self, field_data, polarization_idx, wavelength_idx=None):
+        """Plot internal and external fields separately (2 subplots)."""
+        saved_files = []
+        
+        # Extract data
+        enhancement_ext = np.array(field_data['enhancement_ext'])
+        enhancement_int = np.array(field_data['enhancement_int'])
+        x_grid = field_data['x_grid']
+        y_grid = field_data['y_grid']
+        z_grid = field_data['z_grid']
+        wavelength = field_data['wavelength']
+        
+        # Convert complex to magnitude
+        if np.iscomplexobj(enhancement_ext):
+            enhancement_ext = np.abs(enhancement_ext)
+        if np.iscomplexobj(enhancement_int):
+            enhancement_int = np.abs(enhancement_int)
+        
+        # Determine plane
+        plane_type, extent, x_label, y_label = self._determine_plane(x_grid, y_grid, z_grid)
+        pol_label = self._get_polarization_label(polarization_idx)
+        
+        # Masked arrays for NaN transparency
+        enh_ext_masked = np.ma.masked_invalid(enhancement_ext)
+        enh_int_masked = np.ma.masked_invalid(enhancement_int)
+        
+        # Determine color scale (use same for both)
+        valid_ext = enh_ext_masked.compressed()
+        valid_int = enh_int_masked.compressed()
+        
+        if len(valid_ext) > 0 and len(valid_int) > 0:
+            vmin = min(np.percentile(valid_ext, 1), np.percentile(valid_int, 1))
+            vmax = max(np.percentile(valid_ext, 99), np.percentile(valid_int, 99))
+        elif len(valid_ext) > 0:
+            vmin = np.percentile(valid_ext, 1)
+            vmax = np.percentile(valid_ext, 99)
+        elif len(valid_int) > 0:
+            vmin = np.percentile(valid_int, 1)
+            vmax = np.percentile(valid_int, 99)
+        else:
+            vmin, vmax = 0, 1
+        
+        # Create figure
+        fig, axes = plt.subplots(1, 2, figsize=(16, 6))
+        
+        # Plot 1: External field
+        im1 = axes[0].imshow(enh_ext_masked, extent=extent, origin='lower',
+                            cmap='hot', aspect='auto', vmin=vmin, vmax=vmax)
+        axes[0].set_xlabel(x_label, fontsize=11)
+        axes[0].set_ylabel(y_label, fontsize=11)
+        axes[0].set_title(f'External Field Only\nλ = {wavelength:.1f} nm, {pol_label}',
+                         fontsize=12, fontweight='bold')
+        
+        cbar1 = plt.colorbar(im1, ax=axes[0])
+        cbar1.set_label('|E|/|E₀|', fontsize=11)
+        
+        # Add particle boundaries
+        z_plane = float(z_grid.flat[0]) if isinstance(z_grid, np.ndarray) else float(z_grid)
+        sections = self.geometry.get_cross_section(z_plane)
+        for section in sections:
+            self._draw_material_boundary(axes[0], section, plane_type)
+        
+        # Count valid points
+        n_valid_ext = np.sum(np.isfinite(enhancement_ext))
+        axes[0].text(0.02, 0.98, f'Valid: {n_valid_ext} pts',
+                    transform=axes[0].transAxes, fontsize=9,
+                    verticalalignment='top',
+                    bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+        
+        # Plot 2: Internal field
+        im2 = axes[1].imshow(enh_int_masked, extent=extent, origin='lower',
+                            cmap='hot', aspect='auto', vmin=vmin, vmax=vmax)
+        axes[1].set_xlabel(x_label, fontsize=11)
+        axes[1].set_ylabel(y_label, fontsize=11)
+        axes[1].set_title(f'Internal Field Only\nλ = {wavelength:.1f} nm, {pol_label}',
+                         fontsize=12, fontweight='bold')
+        
+        cbar2 = plt.colorbar(im2, ax=axes[1])
+        cbar2.set_label('|E|/|E₀|', fontsize=11)
+        
+        for section in sections:
+            self._draw_material_boundary(axes[1], section, plane_type)
+        
+        # Count valid points
+        n_valid_int = np.sum(np.isfinite(enhancement_int))
+        axes[1].text(0.02, 0.98, f'Valid: {n_valid_int} pts',
+                    transform=axes[1].transAxes, fontsize=9,
+                    verticalalignment='top',
+                    bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+        
+        plt.tight_layout()
+        
+        # Save
+        if wavelength_idx is not None:
+            base_filename = f'field_enhancement_separate_wl{wavelength_idx}_pol{polarization_idx+1}_{plane_type}'
+        else:
+            base_filename = f'field_enhancement_separate_pol{polarization_idx+1}_{plane_type}'
+        
+        files = self._save_figure(fig, base_filename)
+        if files:
+            saved_files.extend(files)
+        plt.close(fig)
+        
+        return saved_files
+    
+    def _plot_field_comparison(self, field_data, polarization_idx, wavelength_idx=None):
+        """Plot 3-panel comparison: External | Internal | Merged."""
+        saved_files = []
+        
+        # Extract data
+        enhancement_ext = np.array(field_data['enhancement_ext'])
+        enhancement_int = np.array(field_data['enhancement_int'])
+        enhancement_merged = np.array(field_data['enhancement'])
+        x_grid = field_data['x_grid']
+        y_grid = field_data['y_grid']
+        z_grid = field_data['z_grid']
+        wavelength = field_data['wavelength']
+        
+        # Convert complex to magnitude
+        if np.iscomplexobj(enhancement_ext):
+            enhancement_ext = np.abs(enhancement_ext)
+        if np.iscomplexobj(enhancement_int):
+            enhancement_int = np.abs(enhancement_int)
+        if np.iscomplexobj(enhancement_merged):
+            enhancement_merged = np.abs(enhancement_merged)
+        
+        # Determine plane
+        plane_type, extent, x_label, y_label = self._determine_plane(x_grid, y_grid, z_grid)
+        pol_label = self._get_polarization_label(polarization_idx)
+        
+        # Masked arrays
+        enh_ext_masked = np.ma.masked_invalid(enhancement_ext)
+        enh_int_masked = np.ma.masked_invalid(enhancement_int)
+        enh_merged_masked = np.ma.masked_invalid(enhancement_merged)
+        
+        # Determine color scale (use same for all 3)
+        valid_data = []
+        for enh in [enh_ext_masked, enh_int_masked, enh_merged_masked]:
+            compressed = enh.compressed()
+            if len(compressed) > 0:
+                valid_data.extend(compressed)
+        
+        if len(valid_data) > 0:
+            vmin = np.percentile(valid_data, 1)
+            vmax = np.percentile(valid_data, 99)
+        else:
+            vmin, vmax = 0, 1
+        
+        # Create figure
+        fig, axes = plt.subplots(1, 3, figsize=(22, 6))
+        
+        titles = ['External Field Only', 'Internal Field Only', 'Merged (Combined)']
+        enhancements = [enh_ext_masked, enh_int_masked, enh_merged_masked]
+        
+        z_plane = float(z_grid.flat[0]) if isinstance(z_grid, np.ndarray) else float(z_grid)
+        sections = self.geometry.get_cross_section(z_plane)
+        
+        for idx, (ax, title, enh) in enumerate(zip(axes, titles, enhancements)):
+            im = ax.imshow(enh, extent=extent, origin='lower',
+                          cmap='hot', aspect='auto', vmin=vmin, vmax=vmax)
+            
+            ax.set_xlabel(x_label, fontsize=11)
+            ax.set_ylabel(y_label, fontsize=11)
+            ax.set_title(f'{title}\nλ = {wavelength:.1f} nm, {pol_label}',
+                        fontsize=11, fontweight='bold')
+            
+            cbar = plt.colorbar(im, ax=ax)
+            cbar.set_label('|E|/|E₀|', fontsize=10)
+            
+            for section in sections:
+                self._draw_material_boundary(ax, section, plane_type)
+            
+            # Count valid points
+            n_valid = np.sum(np.isfinite(enh))
+            ax.text(0.02, 0.98, f'Valid: {n_valid} pts',
+                   transform=ax.transAxes, fontsize=9,
+                   verticalalignment='top',
+                   bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+        
+        plt.tight_layout()
+        
+        # Save
+        if wavelength_idx is not None:
+            base_filename = f'field_enhancement_comparison_wl{wavelength_idx}_pol{polarization_idx+1}_{plane_type}'
+        else:
+            base_filename = f'field_enhancement_comparison_pol{polarization_idx+1}_{plane_type}'
+        
+        files = self._save_figure(fig, base_filename)
+        if files:
+            saved_files.extend(files)
+        plt.close(fig)
+        
+        return saved_files
+    
+    def _plot_field_overlay(self, field_data, polarization_idx, wavelength_idx=None):
+        """Plot internal field as scatter points over external field heatmap."""
+        saved_files = []
+        
+        # Extract data
+        enhancement_ext = np.array(field_data['enhancement_ext'])
+        enhancement_int = np.array(field_data['enhancement_int'])
+        x_grid = field_data['x_grid']
+        y_grid = field_data['y_grid']
+        z_grid = field_data['z_grid']
+        wavelength = field_data['wavelength']
+        
+        # Convert complex to magnitude
+        if np.iscomplexobj(enhancement_ext):
+            enhancement_ext = np.abs(enhancement_ext)
+        if np.iscomplexobj(enhancement_int):
+            enhancement_int = np.abs(enhancement_int)
+        
+        # Determine plane
+        plane_type, extent, x_label, y_label = self._determine_plane(x_grid, y_grid, z_grid)
+        pol_label = self._get_polarization_label(polarization_idx)
+        
+        # Create figure
+        fig, ax = plt.subplots(figsize=(12, 9))
+        
+        # Plot external field as heatmap
+        enh_ext_masked = np.ma.masked_invalid(enhancement_ext)
+        valid_ext = enh_ext_masked.compressed()
+        
+        if len(valid_ext) > 0:
+            vmin_ext = np.percentile(valid_ext, 1)
+            vmax_ext = np.percentile(valid_ext, 99)
+        else:
+            vmin_ext, vmax_ext = 0, 1
+        
+        im_ext = ax.imshow(enh_ext_masked, extent=extent, origin='lower',
+                          cmap='hot', aspect='auto', 
+                          vmin=vmin_ext, vmax=vmax_ext, alpha=0.7)
+        
+        # Get internal field points (where not NaN)
+        mask_int = np.isfinite(enhancement_int) & (enhancement_int > 0)
+        
+        if np.any(mask_int):
+            # Get coordinates of internal points
+            if plane_type == 'xy':
+                x_int = x_grid[mask_int]
+                y_int = y_grid[mask_int]
+            elif plane_type == 'xz':
+                x_int = x_grid[mask_int]
+                y_int = z_grid[mask_int]
+            elif plane_type == 'yz':
+                x_int = y_grid[mask_int]
+                y_int = z_grid[mask_int]
+            else:
+                x_int = x_grid[mask_int]
+                y_int = y_grid[mask_int]
+            
+            values_int = enhancement_int[mask_int]
+            
+            # Plot internal field as scatter
+            vmin_int = np.min(values_int)
+            vmax_int = np.max(values_int)
+            
+            scatter = ax.scatter(x_int, y_int, c=values_int,
+                               cmap='viridis', s=20, 
+                               vmin=vmin_int, vmax=vmax_int,
+                               edgecolors='black', linewidth=0.3, alpha=0.9,
+                               label=f'Internal ({len(x_int)} pts)')
+            
+            # Add colorbar for internal field
+            cbar_int = plt.colorbar(scatter, ax=ax, pad=0.12)
+            cbar_int.set_label('|E|/|E₀| (Internal)', fontsize=11)
+        
+        # Add colorbar for external field
+        cbar_ext = plt.colorbar(im_ext, ax=ax)
+        cbar_ext.set_label('|E|/|E₀| (External)', fontsize=11)
+        
+        # Add particle boundaries
+        z_plane = float(z_grid.flat[0]) if isinstance(z_grid, np.ndarray) else float(z_grid)
+        sections = self.geometry.get_cross_section(z_plane)
+        for section in sections:
+            self._draw_material_boundary(ax, section, plane_type)
+        
+        ax.set_xlabel(x_label, fontsize=11)
+        ax.set_ylabel(y_label, fontsize=11)
+        ax.set_title(f'Internal (scatter) + External (heatmap) Fields\nλ = {wavelength:.1f} nm, {pol_label}',
+                    fontsize=12, fontweight='bold')
+        
+        if np.any(mask_int):
+            ax.legend(loc='upper right', fontsize=10)
+        
+        plt.tight_layout()
+        
+        # Save
+        if wavelength_idx is not None:
+            base_filename = f'field_enhancement_overlay_wl{wavelength_idx}_pol{polarization_idx+1}_{plane_type}'
+        else:
+            base_filename = f'field_enhancement_overlay_pol{polarization_idx+1}_{plane_type}'
+        
+        files = self._save_figure(fig, base_filename)
+        if files:
+            saved_files.extend(files)
+        plt.close(fig)
+        
+        return saved_files
+
     def _determine_plane(self, x_grid, y_grid, z_grid):
         """Determine which 2D plane is being plotted."""
         if not isinstance(x_grid, np.ndarray):
