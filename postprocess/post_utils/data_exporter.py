@@ -213,13 +213,13 @@ class DataExporter:
             pol_idx = field.get('polarization_idx', 0)
             wavelength = field.get('wavelength', 0)
 
-            filename = f'field_pol{pol_idx + 1}_{wavelength:.0f}nm.txt'
+            filename = f'field_pol{pol_idx}_{wavelength:.0f}nm.txt'
             filepath = os.path.join(self.output_dir, filename)
 
             pol_label = self._format_polarization_label(polarizations, pol_idx)
 
             exported = self._export_single_field(
-                filepath, field, f'Polarization {pol_idx + 1}: {pol_label}'
+                filepath, field, f'Polarization {pol_idx}: {pol_label}'
             )
             if exported:
                 exported_files.append(filepath)
@@ -445,7 +445,7 @@ class DataExporter:
                 wl = field.get('wavelength', 0)
                 enh = field.get('enhancement')
                 max_enh = np.nanmax(np.abs(enh)) if enh is not None else 'N/A'
-                lines.append(f'  Field {idx + 1}: pol{pol_idx + 1}, λ={wl:.1f}nm, max_enhancement={max_enh}')
+                lines.append(f'  Field {idx + 1}: pol{pol_idx}, λ={wl:.1f}nm, max_enhancement={max_enh}')
 
         lines.extend(['', '=' * 70])
 
