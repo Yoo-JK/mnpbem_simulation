@@ -2070,6 +2070,7 @@ exit;
         - pt_internal.pc → pt_internal (compoint returns point object directly)
         - 4D array handling for grid-based field calculations
         - NaN filtering after reshape (meshfield mindist filtering)
+        - 3D array slicing condition: size(...,3) == n_polarizations (not > 3)
         
         Strategy: 
         1. Calculate ALL cross sections first (no field in loop)
@@ -2313,13 +2314,13 @@ fprintf('================================================================\\n');
 """
 
         # ================================================================
-        # FIELD CALCULATION (After all chunks complete) - FIXED WITH NaN FILTERING
+        # FIELD CALCULATION (After all chunks complete) - COMPLETE FIX
         # ================================================================
         if calculate_fields:
             code += """
 %% ========================================
 %% FIELD CALCULATION (After all chunks complete)
-%% Internal + External Field Support (4D Array + NaN Filtering)
+%% Internal + External Field Support (Complete 3D/4D handling)
 %% ========================================
 fprintf('\\n');
 fprintf('================================================================\\n');
@@ -2505,7 +2506,7 @@ for ipol = 1:n_polarizations
     exc_single = exc;
 """
             
-            # FIXED: 4D array handling with NaN filtering
+            # FIXED: Complete 3D/4D array handling
             code += """
     %% EXTERNAL FIELD
     fprintf('    → External field...\\n');
@@ -2519,7 +2520,6 @@ for ipol = 1:n_polarizations
     if ndims(e_induced_ext_all) == 4
         % 4D array: [nz, nx, 3, n_pol] - typical for grid-based calculations
         e_induced_ext = e_induced_ext_all(:, :, :, ipol);  % [nz, nx, 3]
-        % Reshape to [n_points, 3]
         e_induced_ext = reshape(e_induced_ext, [], 3);  % [15251, 3] with NaNs
         
         % CRITICAL FIX: Remove NaN points (meshfield filtering)
@@ -2528,9 +2528,15 @@ for ipol = 1:n_polarizations
         fprintf('      After filtering: [%d, 3] (removed %d NaN points)\\n', ...
                 size(e_induced_ext, 1), sum(~valid_mask));
         
-    elseif ndims(e_induced_ext_all) == 3 && size(e_induced_ext_all, 3) > 3
-        % 3D array with polarizations: [n_points, 3, n_pol]
-        e_induced_ext = e_induced_ext_all(:, :, ipol);
+    elseif ndims(e_induced_ext_all) == 3
+        % 3D array: Two cases
+        if size(e_induced_ext_all, 3) == n_polarizations
+            % [n_points, 3, n_pol] → slice
+            e_induced_ext = e_induced_ext_all(:, :, ipol);
+        else
+            % [n_points, 3] or [nz, nx, 3] → keep as is
+            e_induced_ext = e_induced_ext_all;
+        end
     else
         % 2D array: [n_points, 3] - single polarization
         e_induced_ext = e_induced_ext_all;
@@ -2551,15 +2557,17 @@ for ipol = 1:n_polarizations
         valid_mask = all(isfinite(e_incoming_ext), 2);
         e_incoming_ext = e_incoming_ext(valid_mask, :);  % [15148, 3]
         
-    elseif ndims(e_incoming_ext_all) == 3 && size(e_incoming_ext_all, 3) > 3
-        e_incoming_ext = e_incoming_ext_all(:, :, ipol);
     elseif ndims(e_incoming_ext_all) == 3
-        % 3D grid shape: [nz, nx, 3]
-        e_incoming_ext = reshape(e_incoming_ext_all, [], 3);  % [15251, 3]
-        
-        % CRITICAL FIX: Remove NaN points
-        valid_mask = all(isfinite(e_incoming_ext), 2);
-        e_incoming_ext = e_incoming_ext(valid_mask, :);  % [15148, 3]
+        % 3D array: Two cases
+        if size(e_incoming_ext_all, 3) == n_polarizations
+            % [n_points, 3, n_pol] → slice
+            e_incoming_ext = e_incoming_ext_all(:, :, ipol);
+        else
+            % [nz, nx, 3] → reshape and filter
+            e_incoming_ext = reshape(e_incoming_ext_all, [], 3);
+            valid_mask = all(isfinite(e_incoming_ext), 2);
+            e_incoming_ext = e_incoming_ext(valid_mask, :);
+        end
     else
         e_incoming_ext = e_incoming_ext_all;
     end
@@ -2593,18 +2601,28 @@ for ipol = 1:n_polarizations
         
         fprintf('      Raw internal induced field size: [%s]\\n', num2str(size(e_induced_int_all)));
         
-        % Extract for this polarization
+        % FIX 3: Complete 3D/4D handling for internal fields
         if ndims(e_induced_int_all) == 4
-            e_induced_int = e_induced_int_all(:, :, :, ipol);  % [nz, nx, 3]
-            e_induced_int = reshape(e_induced_int, [], 3);  % [15251, 3]
+            % 4D: [nz, nx, 3, n_pol]
+            e_induced_int = e_induced_int_all(:, :, :, ipol);
+            e_induced_int = reshape(e_induced_int, [], 3);
             
-            % CRITICAL FIX: Remove NaN points
+            % Remove NaN points
             valid_mask = all(isfinite(e_induced_int), 2);
             e_induced_int = e_induced_int(valid_mask, :);
             
-        elseif ndims(e_induced_int_all) == 3 && size(e_induced_int_all, 3) > 3
-            e_induced_int = e_induced_int_all(:, :, ipol);
+        elseif ndims(e_induced_int_all) == 3
+            % 3D: Check if polarization dimension exists
+            if size(e_induced_int_all, 3) == n_polarizations
+                % [n_points, 3, n_pol] → slice for this polarization
+                e_induced_int = e_induced_int_all(:, :, ipol);
+                fprintf('      Sliced 3D array: [%s]\\n', num2str(size(e_induced_int)));
+            else
+                % [n_points, 3] → keep as is
+                e_induced_int = e_induced_int_all;
+            end
         else
+            % 2D: [n_points, 3]
             e_induced_int = e_induced_int_all;
         end
         
@@ -2616,16 +2634,26 @@ for ipol = 1:n_polarizations
         
         % Extract for this polarization
         if ndims(e_incoming_int_all) == 4
-            e_incoming_int = e_incoming_int_all(:, :, :, ipol);  % [nz, nx, 3]
-            e_incoming_int = reshape(e_incoming_int, [], 3);  % [15251, 3]
+            % 4D: [nz, nx, 3, n_pol]
+            e_incoming_int = e_incoming_int_all(:, :, :, ipol);
+            e_incoming_int = reshape(e_incoming_int, [], 3);
             
-            % CRITICAL FIX: Remove NaN points
+            % Remove NaN points
             valid_mask = all(isfinite(e_incoming_int), 2);
             e_incoming_int = e_incoming_int(valid_mask, :);
             
-        elseif ndims(e_incoming_int_all) == 3 && size(e_incoming_int_all, 3) > 3
-            e_incoming_int = e_incoming_int_all(:, :, ipol);
+        elseif ndims(e_incoming_int_all) == 3
+            % 3D: Check if polarization dimension exists
+            if size(e_incoming_int_all, 3) == n_polarizations
+                % [n_points, 3, n_pol] → slice for this polarization
+                e_incoming_int = e_incoming_int_all(:, :, ipol);
+                fprintf('      Sliced 3D array: [%s]\\n', num2str(size(e_incoming_int)));
+            else
+                % [n_points, 3] → keep as is
+                e_incoming_int = e_incoming_int_all;
+            end
         else
+            % 2D: [n_points, 3]
             e_incoming_int = e_incoming_int_all;
         end
         
@@ -2638,9 +2666,12 @@ for ipol = 1:n_polarizations
         end
         
         % Verify sizes
-        if size(e_induced_int, 1) ~= size(e_incoming_int, 1)
-            error('Size mismatch: internal induced [%d, 3] vs incoming [%d, 3]', ...
-                  size(e_induced_int, 1), size(e_incoming_int, 1));
+        fprintf('      After processing: induced [%s], incoming [%s]\\n', ...
+                num2str(size(e_induced_int)), num2str(size(e_incoming_int)));
+        
+        if size(e_induced_int, 1) ~= size(e_incoming_int, 1) || size(e_induced_int, 2) ~= 3
+            error('Size mismatch: internal induced [%s] vs incoming [%s]', ...
+                  num2str(size(e_induced_int)), num2str(size(e_incoming_int)));
         end
         
         % Total internal field
