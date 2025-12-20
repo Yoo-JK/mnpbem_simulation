@@ -2,31 +2,26 @@ import os
 from pathlib import Path
 
 args = {}
-
-args['structure_name'] = 'AuAu_vac/table'
-
-args['structure'] = 'rod'
-args['diameter'] = 13  # nm
-args['height'] = 37  # nm (along z-axis)
+args['structure_name'] = 'Au90Cu10_vac/johnson_christy'
+args['structure'] = 'core_shell_rod'
+args['core_diameter'] = 20  # nm
+args['shell_thickness'] = 3.5  # nm (total diameter = 25nm)
+args['height'] = 67  # nm (along z-axis)
 args['rod_mesh'] = [15, 20, 20]   # [nphi, ntheta, nz]: circumference / caps / length
-args['materials'] = ['Au100Cu0']
+args['materials'] = ['gold', 'ctab']  # [core, shell]
 args['medium'] = 'air'
-# Options: 'air', 'water', 'vacuum', 'glass'
-# OR custom constant: args['medium'] = {'type': 'constant', 'epsilon': 1.77}
-
 args['refractive_index_paths'] = {
-        'au100cu0': os.path.join(Path.home(), 'dataset/mnpbem/refrac/Au_100.00_Cu_0.00.txt')
+        'ctab': os.path.join(Path.home(), 'dataset/mnpbem/refrac/Au_100.00_Cu_0.00.txt')
         }
 # Example:
 # args['refractive_index_paths'] = {
 #     'gold': os.path.join(Path.home(), 'materials/gold_palik.dat'),
 #     'silver': os.path.join(Path.home(), 'materials/silver_jc.dat')
 # }
-# File format: [wavelength(nm), n, k] per line
 
 args['use_substrate'] = True
 args['substrate'] = {
     'material': 'glass',  # or 'silicon', custom dict
-    'position': -7.5,  # z-coordinate of interface (nm)
+    'position': -14.5,  # z-coordinate of interface (nm)
 }
 

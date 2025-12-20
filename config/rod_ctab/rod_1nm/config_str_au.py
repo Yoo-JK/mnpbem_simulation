@@ -5,8 +5,8 @@ args = {}
 args['structure_name'] = 'Au_vac/johnson_christy'
 
 args['structure'] = 'rod'
-args['diameter'] = 9.0  # nm
-args['height'] = 33  # nm (along z-axis)
+args['diameter'] = 20.0  # nm
+args['height'] = 60  # nm (along z-axis)
 args['rod_mesh'] = [15, 20, 20]   # [nphi, ntheta, nz]: circumference / caps / length
 args['materials'] = ['gold']
 args['medium'] = 'air'
@@ -23,6 +23,6 @@ args['refractive_index_paths'] = {}
 args['use_substrate'] = True
 args['substrate'] = {
     'material': 'glass',  # or 'silicon', custom dict
-    'position': -5.5,  # z-coordinate of interface (nm)
+    'position': -11.0,  # z-coordinate of interface (nm)
 }
 
