@@ -2064,12 +2064,11 @@ exit;
         2. Iterative solver + parfor (H-matrix compression ~14% memory)
         3. Serial execution with thread parallelism
         4. Proper memory management with bem = clear(bem)
-        5. Internal + External field calculation  ← NEW!
         
         Strategy: 
         1. Calculate ALL cross sections first (no field in loop)
         2. Find peak AFTER all chunks complete
-        3. Calculate field separately for peak wavelength (internal + external)
+        3. Calculate field separately for peak wavelength
         """
         
         wavelength_range = self.config['wavelength_range']
@@ -2310,17 +2309,16 @@ fprintf('================================================================\\n');
 """
 
         # ================================================================
-        # FIELD CALCULATION (After all chunks complete) - MODIFIED VERSION
+        # FIELD CALCULATION (After all chunks complete)
         # ================================================================
         if calculate_fields:
             code += """
 %% ========================================
 %% FIELD CALCULATION (After all chunks complete)
-%% Internal + External Field Support
 %% ========================================
 fprintf('\\n');
 fprintf('================================================================\\n');
-fprintf('    Field Calculation at Peak Wavelength (Internal + External)  \\n');
+fprintf('           Field Calculation at Peak Wavelength                \\n');
 fprintf('================================================================\\n');
 """
             
@@ -2352,6 +2350,15 @@ ext_avg = mean(ext, 2);
 fprintf('  [OK] Peak extinction: %.2e nm^2 at lambda = %.1f nm (index %d)\\n', ...
         max_ext, enei(field_wavelength_idx), field_wavelength_idx);
 """
+            elif field_wl_idx == 'peak_sca':
+                code += """
+% Find scattering peak wavelength
+fprintf('Finding scattering peak...\\n');
+sca_avg = mean(sca, 2);
+[max_sca, field_wavelength_idx] = max(sca_avg);
+fprintf('  [OK] Peak scattering: %.2e nm^2 at lambda = %.1f nm (index %d)\\n', ...
+        max_sca, enei(field_wavelength_idx), field_wavelength_idx);
+"""
             elif isinstance(field_wl_idx, int):
                 code += f"""
 % Use specified wavelength index
@@ -2367,17 +2374,34 @@ fprintf('Using middle wavelength: lambda = %.1f nm (index %d)\\n', ...
         enei(field_wavelength_idx), field_wavelength_idx);
 """
             
-            # Create field grid
+            # Create field mesh
             use_substrate = self.config.get('use_substrate', False)
             
-            if not use_substrate:
+            if use_substrate:
+                mindist = self.config.get('field_mindist', 0.5)
+                nmax = self.config.get('field_nmax', 2000)
+                code += f"""
+% Create meshfield (substrate mode with greentab)
+fprintf('\\nCreating meshfield for substrate...\\n');
+x_grid = reshape(x_grid, grid_shape);
+y_grid = reshape(y_grid, grid_shape);
+z_grid = reshape(z_grid, grid_shape);
+
+field_mindist = {mindist};
+emesh = meshfield(p, x_grid, y_grid, z_grid, op, ...
+                  'mindist', field_mindist, 'nmax', {nmax});
+fprintf('  [OK] Meshfield ready: %d points\\n', emesh.pt.n);
+"""
+            else:
                 field_region = self.config.get('field_region', {})
+                mindist = self.config.get('field_mindist', 0.2)
+                nmax = self.config.get('field_nmax', 2000)
                 x_range = field_region.get('x_range', [-50, 50, 101])
                 y_range = field_region.get('y_range', [0, 0, 1])
                 z_range = field_region.get('z_range', [0, 0, 1])
                 
                 code += """
-% Create field grid
+% Create meshfield
 fprintf('\\nCreating field grid...\\n');
 """
                 
@@ -2393,200 +2417,94 @@ y_field = linspace({y_range[0]}, {y_range[1]}, {y_range[2]});
 [x_grid, y_grid] = meshgrid(x_field, y_field);
 z_grid = {z_range[0]} * ones(size(x_grid));
 """
-            else:
-                code += """
-% Substrate mode: grid already created
-x_grid = reshape(x_grid, grid_shape);
-y_grid = reshape(y_grid, grid_shape);
-z_grid = reshape(z_grid, grid_shape);
+                
+                code += f"""
+field_mindist = {mindist};
+emesh = meshfield(p, x_grid, y_grid, z_grid, op, ...
+                  'mindist', field_mindist, 'nmax', {nmax});
+fprintf('  [OK] Meshfield created: %d points\\n', numel(x_grid));
+
+% Store grid shape for reshape operations
+grid_shape = size(x_grid);
 """
             
-            # External + Internal field setup
-            mindist_external = self.config.get('field_mindist', 0.2 if not use_substrate else 0.5)
-            mindist_internal = self.config.get('field_mindist_internal', 0.0)
-            nmax = self.config.get('field_nmax', 2000)
-            
-            code += f"""
-% Store grid shape
-grid_shape = size(x_grid);
-n_grid_points = numel(x_grid);
-
-%% ========================================
-%% STEP 1: External Field Setup (meshfield)
-%% ========================================
-fprintf('\\n[1/2] Setting up EXTERNAL field calculation...\\n');
-field_mindist_external = {mindist_external};
-emesh_external = meshfield(p, x_grid, y_grid, z_grid, op, ...
-                           'mindist', field_mindist_external, 'nmax', {nmax});
-fprintf('  → External meshfield: %d points\\n', emesh_external.pt.n);
-
-%% ========================================
-%% STEP 2: Internal Field Setup (compoint + greenfunction)
-%% ========================================
-fprintf('\\n[2/2] Setting up INTERNAL field calculation...\\n');
-
-% Auto-detect internal medium index
-if size(inout, 1) == 1
-    internal_medium_idx = inout(1, 1);
-    fprintf('  → Single particle: medium %d\\n', internal_medium_idx);
-else
-    internal_medium_idx = inout(1, 1);
-    fprintf('  → Multi-particle: medium %d (first particle interior)\\n', internal_medium_idx);
-end
-
-fprintf('  Creating compoint (medium=%d, mindist={mindist_internal})...\\n', internal_medium_idx);
-
-try
-    pt_internal = compoint(p, [x_grid(:), y_grid(:), z_grid(:)], op, ...
-                           'medium', internal_medium_idx, ...
-                           'mindist', {mindist_internal});
-    
-    fprintf('  Creating Green function...\\n');
-    g_internal = greenfunction(pt_internal, p, op);
-    
-    fprintf('  → Internal field setup: %d points\\n', pt_internal.pc.n);
-    has_internal_field = true;
-    
-catch ME
-    fprintf('  [!] Internal field setup failed: %s\\n', ME.message);
-    fprintf('  [!] Proceeding with EXTERNAL field only\\n');
-    has_internal_field = false;
-end
-
-fprintf('\\n[OK] Field calculation setup complete\\n');
-fprintf('  Grid: %dx%d = %d points\\n', grid_shape(1), grid_shape(2), n_grid_points);
-if has_internal_field
-    fprintf('  External: %d points, Internal: %d points\\n', ...
-            emesh_external.pt.n, pt_internal.pc.n);
-else
-    fprintf('  External: %d points (Internal: disabled)\\n', emesh_external.pt.n);
-end
-
-%% ========================================
-%% STEP 3: Calculate BEM Solution at Peak Wavelength
-%% ========================================
-fprintf('\\nCalculating BEM solution at peak wavelength...\\n');
-field_calc_start = tic;
-
-% Clear BEM and recalculate
-bem = clear(bem);
-sig_peak = bem \\ exc(p, enei(field_wavelength_idx));
-fprintf('  [OK] BEM solution ready\\n');
-
-%% ========================================
-%% STEP 4: Calculate Fields for Each Polarization
-%% ========================================
+            # Field calculation at peak wavelength
+            code += """
+% Initialize field data storage
 field_data = struct();
 
+% Calculate fields at peak wavelength
+fprintf('\\nCalculating fields at lambda = %.1f nm...\\n', enei(field_wavelength_idx));
+field_calc_start = tic;
+
+% Clear BEM and recalculate sig at peak wavelength
+fprintf('  Clearing BEM and computing solution at peak wavelength...\\n');
+bem = clear(bem);
+sig_peak = bem \\ exc(p, enei(field_wavelength_idx));
+
+% Calculate induced field
+fprintf('  Computing induced fields...\\n');
+e_induced_all = emesh(sig_peak);
+
+% Loop over each polarization
 for ipol = 1:n_polarizations
-    fprintf('\\n  Processing polarization %d/%d...\\n', ipol, n_polarizations);
+    fprintf('  Processing polarization %d/%d...\\n', ipol, n_polarizations);
     
 """
             
-            # Create single-polarization excitation
-            excitation_type = self.config['excitation_type']
-            
+            # Create single-polarization excitation based on type
             if excitation_type == 'planewave':
                 code += """    % Create single-polarization plane wave
     exc_single = planewave(pol(ipol, :), dir(ipol, :), op);
 """
             elif excitation_type == 'dipole':
-                code += """    % Create dipole excitation
-    pt_single = compoint(p, dip_pos, op);
-    exc_single = dipole(pt_single, dip_mom, op);
+                code += """    % Create single-polarization dipole
+    exc_single = dipole(pt, dip_mom(ipol, :), op);
 """
             else:
                 code += """    % Use original excitation
     exc_single = exc;
 """
-            
+
             code += """
-    %% EXTERNAL FIELD
-    fprintf('    → External field...\\n');
-    e_induced_ext = emesh_external(sig_peak);
-    exc_field_ext = exc_single.field(emesh_external.pt, enei(field_wavelength_idx));
-    e_incoming_ext = emesh_external(exc_field_ext);
-    e_total_ext = e_induced_ext + e_incoming_ext;
+    % Get incoming field at mesh points
+    e_inc = exc_single.field(emesh.pt, enei(field_wavelength_idx));
     
-    %% INTERNAL FIELD
-    if has_internal_field
-        fprintf('    → Internal field...\\n');
-        f_induced_int = field(g_internal, sig_peak);
-        e_induced_int = f_induced_int.e;
-        exc_field_int = exc_single.field(pt_internal.pc, enei(field_wavelength_idx));
-        e_incoming_int = exc_field_int.e;
-        e_total_int = e_induced_int + e_incoming_int;
-    else
-        e_total_int = [];
-    end
+    % Get induced field for this polarization
+    e_ind = e_induced_all(:, :, ipol);
     
-    %% MERGE EXTERNAL + INTERNAL
-    fprintf('    → Merging fields...\\n');
+    % Total field
+    e_total = e_inc + e_ind;
     
-    % Initialize full grid with NaN
-    e_total_full = nan(n_grid_points, 3);
-    e_incoming_full = nan(n_grid_points, 3);
+    % Field enhancement |E|/|E0|
+    E_mag = sqrt(sum(abs(e_total).^2, 2));
+    E0_mag = sqrt(sum(abs(e_inc).^2, 2));
+    E0_mag(E0_mag < 1e-10) = 1e-10;  % Avoid division by zero
+    enhancement = E_mag ./ E0_mag;
     
-    % Flatten grid coordinates
-    x_flat = x_grid(:);
-    y_flat = y_grid(:);
-    z_flat = z_grid(:);
+    % Intensity enhancement |E|^2/|E0|^2
+    intensity = enhancement.^2;
     
-    % Fill external points
-    for ii = 1:emesh_external.pt.n
-        dx = abs(x_flat - emesh_external.pt.pos(ii,1));
-        dy = abs(y_flat - emesh_external.pt.pos(ii,2));
-        dz = abs(z_flat - emesh_external.pt.pos(ii,3));
-        [~, idx] = min(dx + dy + dz);
-        
-        e_total_full(idx, :) = e_total_ext(ii, :);
-        e_incoming_full(idx, :) = e_incoming_ext(ii, :);
-    end
-    
-    % Fill internal points (overwrite external)
-    if has_internal_field
-        for ii = 1:pt_internal.pc.n
-            dx = abs(x_flat - pt_internal.pc.pos(ii,1));
-            dy = abs(y_flat - pt_internal.pc.pos(ii,2));
-            dz = abs(z_flat - pt_internal.pc.pos(ii,3));
-            [~, idx] = min(dx + dy + dz);
-            
-            % Overwrite with internal field
-            e_total_full(idx, :) = e_total_int(ii, :);
-            e_incoming_full(idx, :) = e_incoming_int(ii, :);
-        end
-    end
-    
-    %% CALCULATE ENHANCEMENT & INTENSITY
-    e_intensity = sum(e_total_full .* conj(e_total_full), 2);
-    e0_intensity = sum(e_incoming_full .* conj(e_incoming_full), 2);
-    enhancement = sqrt(e_intensity ./ e0_intensity);
-    enhancement(e0_intensity == 0) = NaN;
-    
-    % Reshape to grid
-    enhancement = reshape(enhancement, grid_shape);
-    e_intensity = reshape(e_intensity, grid_shape);
-    e_total_grid = reshape(e_total_full, [grid_shape, 3]);
-    
-    %% STORE FIELD DATA
+    % Store in field_data
     field_data(ipol).wavelength = enei(field_wavelength_idx);
     field_data(ipol).wavelength_idx = field_wavelength_idx;
     field_data(ipol).polarization = pol(ipol, :);
     field_data(ipol).polarization_idx = ipol;
-    field_data(ipol).e_total = e_total_grid;
+    field_data(ipol).e_total = e_total;
     field_data(ipol).enhancement = enhancement;
-    field_data(ipol).intensity = e_intensity;
+    field_data(ipol).intensity = intensity;
     field_data(ipol).x_grid = x_grid;
     field_data(ipol).y_grid = y_grid;
     field_data(ipol).z_grid = z_grid;
+    field_data(ipol).grid_shape = grid_shape;
     
-    fprintf('    → Stored field_data(%d)\\n', ipol);
-    fprintf('      Valid points: %d/%d\\n', sum(isfinite(enhancement(:))), numel(enhancement));
+    % Statistics
+    fprintf('    Max enhancement: %.2f\\n', max(enhancement));
+    fprintf('    Max intensity: %.2f\\n', max(intensity));
 end
 
 field_calc_time = toc(field_calc_start);
 fprintf('\\n[OK] Field calculation completed in %.1f seconds\\n', field_calc_time);
-fprintf('================================================================\\n');
 """
 
         return code
