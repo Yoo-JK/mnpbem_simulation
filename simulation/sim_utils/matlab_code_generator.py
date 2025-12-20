@@ -2072,6 +2072,7 @@ exit;
         - NaN filtering after reshape (meshfield mindist filtering)
         - 3D array slicing condition: size(...,3) == n_polarizations (not > 3)
         - Enhancement calculation threshold (CRITICAL FIX!)
+        - Changed to INTENSITY enhancement: |E|²/|E0|² (not field magnitude)
         
         Strategy: 
         1. Calculate ALL cross sections first (no field in loop)
@@ -2795,29 +2796,30 @@ for ipol = 1:n_polarizations
     fprintf('        Internal only: %d points\\n', n_int_only);
     fprintf('        Overlap: %d points\\n', n_overlap);
     
-    %% CALCULATE ENHANCEMENT & INTENSITY (IMPROVED - THRESHOLD!)
-    e_intensity = sum(e_total_full .* conj(e_total_full), 2);
-    e0_intensity = sum(e_incoming_full .* conj(e_incoming_full), 2);
+    %% CALCULATE INTENSITY ENHANCEMENT (IMPROVED - THRESHOLD!)
+    % Compute field intensities
+    e_intensity = sum(e_total_full .* conj(e_total_full), 2);     % |E|²
+    e0_intensity = sum(e_incoming_full .* conj(e_incoming_full), 2);  % |E0|²
     
     % CRITICAL FIX: Threshold to prevent division by very small numbers
     % This is especially important for internal fields in metals where
-    % incoming field can be exponentially small
+    % incoming field can be exponentially small (e.g., 1e-50, 1e-100)
     e0_threshold = 1e-10;
     
-    % Calculate enhancement with threshold
-    enhancement = sqrt(e_intensity ./ max(e0_intensity, e0_threshold));
+    % Calculate INTENSITY enhancement: |E|² / |E0|² (NOT field magnitude!)
+    intensity_enhancement = e_intensity ./ max(e0_intensity, e0_threshold);
     
     % Mark unreliable points (very weak incoming field) as NaN
-    enhancement(e0_intensity < e0_threshold) = NaN;
+    intensity_enhancement(e0_intensity < e0_threshold) = NaN;
     
-    fprintf('      Enhancement calculated (merged): min=%.3f, max=%.3f, valid=%d\\n', ...
-            min(enhancement(isfinite(enhancement))), ...
-            max(enhancement(isfinite(enhancement))), ...
-            sum(isfinite(enhancement)));
+    fprintf('      Intensity enhancement calculated (merged): min=%.3f, max=%.3f, valid=%d\\n', ...
+            min(intensity_enhancement(isfinite(intensity_enhancement))), ...
+            max(intensity_enhancement(isfinite(intensity_enhancement))), ...
+            sum(isfinite(intensity_enhancement)));
     
-    % Separate enhancement for internal/external (IMPROVED!)
-    e_intensity_ext = sum(e_total_ext_grid .* conj(e_total_ext_grid), 2);
-    e_intensity_int = sum(e_total_int_grid .* conj(e_total_int_grid), 2);
+    % Separate intensity enhancement for internal/external (IMPROVED!)
+    e_intensity_ext = sum(e_total_ext_grid .* conj(e_total_ext_grid), 2);  % |E_ext|²
+    e_intensity_int = sum(e_total_int_grid .* conj(e_total_int_grid), 2);  % |E_int|²
     
     e0_intensity_ext = e0_intensity;  % Same incoming field
     e0_intensity_int = e0_intensity;
@@ -2825,25 +2827,26 @@ for ipol = 1:n_polarizations
     % CRITICAL FIX: Apply threshold for both external and internal
     e0_threshold = 1e-10;
     
-    enhancement_ext = sqrt(e_intensity_ext ./ max(e0_intensity_ext, e0_threshold));
-    enhancement_int = sqrt(e_intensity_int ./ max(e0_intensity_int, e0_threshold));
+    % Intensity enhancement (NOT field magnitude!)
+    intensity_enhancement_ext = e_intensity_ext ./ max(e0_intensity_ext, e0_threshold);
+    intensity_enhancement_int = e_intensity_int ./ max(e0_intensity_int, e0_threshold);
     
-    enhancement_ext(e0_intensity_ext < e0_threshold) = NaN;
-    enhancement_int(e0_intensity_int < e0_threshold) = NaN;
+    intensity_enhancement_ext(e0_intensity_ext < e0_threshold) = NaN;
+    intensity_enhancement_int(e0_intensity_int < e0_threshold) = NaN;
     
-    fprintf('      Enhancement_ext valid: %d/%d\\n', ...
-            sum(isfinite(enhancement_ext)), numel(enhancement_ext));
-    fprintf('      Enhancement_int valid: %d/%d\\n', ...
-            sum(isfinite(enhancement_int)), numel(enhancement_int));
+    fprintf('      Intensity_enh_ext valid: %d/%d\\n', ...
+            sum(isfinite(intensity_enhancement_ext)), numel(intensity_enhancement_ext));
+    fprintf('      Intensity_enh_int valid: %d/%d\\n', ...
+            sum(isfinite(intensity_enhancement_int)), numel(intensity_enhancement_int));
     
     % Reshape to grid
-    enhancement = reshape(enhancement, grid_shape);
+    intensity_enhancement = reshape(intensity_enhancement, grid_shape);
     e_intensity = reshape(e_intensity, grid_shape);
     e_total_grid = reshape(e_total_full, [grid_shape, 3]);
     
     % Reshape separate fields
-    enhancement_ext = reshape(enhancement_ext, grid_shape);
-    enhancement_int = reshape(enhancement_int, grid_shape);
+    intensity_enhancement_ext = reshape(intensity_enhancement_ext, grid_shape);
+    intensity_enhancement_int = reshape(intensity_enhancement_int, grid_shape);
     e_intensity_ext = reshape(e_intensity_ext, grid_shape);
     e_intensity_int = reshape(e_intensity_int, grid_shape);
     e_total_ext_grid = reshape(e_total_ext_grid, [grid_shape, 3]);
@@ -2855,18 +2858,18 @@ for ipol = 1:n_polarizations
     field_data(ipol).polarization = pol(ipol, :);
     field_data(ipol).polarization_idx = ipol;
     
-    % Combined (merged)
+    % Combined (merged) - using intensity enhancement
     field_data(ipol).e_total = e_total_grid;
-    field_data(ipol).enhancement = enhancement;
-    field_data(ipol).intensity = e_intensity;
+    field_data(ipol).enhancement = intensity_enhancement;  % |E|²/|E0|²
+    field_data(ipol).intensity = e_intensity;              % |E|²
     
     % Separate fields
     field_data(ipol).e_total_ext = e_total_ext_grid;
     field_data(ipol).e_total_int = e_total_int_grid;
-    field_data(ipol).enhancement_ext = enhancement_ext;
-    field_data(ipol).enhancement_int = enhancement_int;
-    field_data(ipol).intensity_ext = e_intensity_ext;
-    field_data(ipol).intensity_int = e_intensity_int;
+    field_data(ipol).enhancement_ext = intensity_enhancement_ext;  % |E|²/|E0|²
+    field_data(ipol).enhancement_int = intensity_enhancement_int;  % |E|²/|E0|²
+    field_data(ipol).intensity_ext = e_intensity_ext;              % |E|²
+    field_data(ipol).intensity_int = e_intensity_int;              % |E|²
     
     % Grid coordinates
     field_data(ipol).x_grid = x_grid;
@@ -2874,9 +2877,9 @@ for ipol = 1:n_polarizations
     field_data(ipol).z_grid = z_grid;
     
     fprintf('    → Stored field_data(%d)\\n', ipol);
-    fprintf('      Valid points (merged): %d/%d\\n', sum(isfinite(enhancement(:))), numel(enhancement));
-    fprintf('      Valid points (external): %d/%d\\n', sum(isfinite(enhancement_ext(:))), numel(enhancement_ext));
-    fprintf('      Valid points (internal): %d/%d\\n', sum(isfinite(enhancement_int(:))), numel(enhancement_int));
+    fprintf('      Valid points (merged): %d/%d\\n', sum(isfinite(intensity_enhancement(:))), numel(intensity_enhancement));
+    fprintf('      Valid points (external): %d/%d\\n', sum(isfinite(intensity_enhancement_ext(:))), numel(intensity_enhancement_ext));
+    fprintf('      Valid points (internal): %d/%d\\n', sum(isfinite(intensity_enhancement_int(:))), numel(intensity_enhancement_int));
 end
 
 field_calc_time = toc(field_calc_start);
