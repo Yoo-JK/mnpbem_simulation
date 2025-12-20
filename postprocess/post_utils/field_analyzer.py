@@ -372,6 +372,18 @@ class FieldAnalyzer:
             enhancement = np.abs(enhancement)
         if intensity is not None and np.iscomplexobj(intensity):
             intensity = np.abs(intensity)
+
+        if self.verbose:
+            enh_finite = enhancement[np.isfinite(enhancement)]
+            print(f"    [DEBUG] Enhancement array:")
+            print(f"      Shape: {enhancement.shape}")
+            print(f"      Total points: {enhancement.size}")
+            print(f"      Finite points: {len(enh_finite)}")
+            print(f"      NaN points: {np.sum(np.isnan(enhancement))}")
+            print(f"      Inf points: {np.sum(np.isinf(enhancement))}")
+            if len(enh_finite) > 0:
+                print(f"      Range: {np.min(enh_finite):.3f} ~ {np.max(enh_finite):.3f}")
+                print(f"      Mean: {np.mean(enh_finite):.3f}")
         
         # Get particle boundaries
         spheres = self._get_sphere_boundaries(config, geometry)
@@ -382,11 +394,19 @@ class FieldAnalyzer:
             return self._empty_integration_result()
         
         n_spheres = len(spheres)
+
+        if self.verbose:
+            print(f"    [DEBUG] Spheres ({n_spheres} total):")
+            for i, (cx, cy, cz, r) in enumerate(spheres):
+                print(f"      Sphere {i+1}: center=({cx:.1f}, {cy:.1f}, {cz:.1f}), radius={r:.1f} nm")
         
         # Calculate for each depth
         results_by_depth = {}
         
         for depth in self.near_field_distances:
+
+            if self.verbose:
+                print(f"    [DEBUG] Processing depth = {depth:.1f} nm (interior)")
             # Create distance mask for this depth
             distance_mask = self._create_distance_mask(x_grid, y_grid, z_grid, spheres, depth)
             
@@ -440,11 +460,19 @@ class FieldAnalyzer:
         """
         # Start with distance mask
         final_mask = distance_mask.copy()
+
+        if self.verbose:
+            print(f"      [DEBUG] {method.upper()} filtering:")
+            print(f"        Distance mask: {np.sum(distance_mask)} points")
         
         # Apply filtering
         if method == 'strict':
             # Remove only Inf and NaN
             valid_enh = np.isfinite(enhancement)
+
+            if self.verbose:
+                print(f"        Finite enhancement: {np.sum(valid_enh)} points")
+            
             final_mask = final_mask & valid_enh
             
             excluded_outliers = 0
@@ -452,11 +480,18 @@ class FieldAnalyzer:
         elif method == 'conservative':
             # Remove Inf, NaN, and outliers
             valid_enh = np.isfinite(enhancement)
+
+            if self.verbose:
+                print(f"        Finite enhancement: {np.sum(valid_enh)} points")
             
             if np.sum(valid_enh) > 0:
                 # Calculate threshold from valid data
                 threshold = np.percentile(enhancement[valid_enh], 99.9)
                 outlier_mask = enhancement <= threshold * 10
+
+                if self.verbose:
+                    print(f"        99.9%ile threshold: {threshold:.3f}")
+                    print(f"        Outlier cutoff: {threshold * 10:.3f}")
                 
                 excluded_outliers = int(np.sum(distance_mask & valid_enh & ~outlier_mask))
                 
@@ -464,11 +499,18 @@ class FieldAnalyzer:
             else:
                 final_mask = final_mask & valid_enh
                 excluded_outliers = 0
+
+        if self.verbose:
+            print(f"        Final mask: {np.sum(final_mask)} points")
         
         # Extract values in region
         enh_in_region = enhancement[final_mask]
         
         if len(enh_in_region) == 0:
+
+            if self.verbose:
+                print(f"        [!] No valid points found in region!")
+            
             return self._empty_integration_result(method)
         
         # Calculate sums
@@ -477,6 +519,11 @@ class FieldAnalyzer:
         
         # Per-sphere statistics
         enh_per_sphere = enh_sum / n_spheres if n_spheres > 0 else 0.0
+
+        if self.verbose:
+            print(f"        Enhancement sum: {enh_sum:.3f}")
+            print(f"        Enhancement mean: {enh_mean:.3f}")
+            print(f"        Per-sphere: {enh_per_sphere:.3f}")
         
         result = {
             'enhancement_sum': enh_sum,
@@ -534,8 +581,11 @@ class FieldAnalyzer:
         
         # Initialize mask - all False
         integration_mask = np.zeros(shape, dtype=bool)
+
+        if self.verbose:
+            print(f"      Grid shape: {shape}, total points: {np.prod(shape)}")
         
-        for cx, cy, cz, radius in spheres:
+        for sphere_idx, (cx, cy, cz, radius) in enumerate(spheres):
             # Calculate distance from sphere center
             dist_from_center = np.sqrt(
                 (x_grid - cx)**2 + 
@@ -552,6 +602,11 @@ class FieldAnalyzer:
                 (dist_from_surface <= 0) &  # inside sphere
                 (dist_from_surface >= -depth)  # within depth from surface
             )
+
+            if self.verbose:
+                n_inside_total = np.sum(dist_from_surface <= 0)
+                n_inside_near = np.sum(inside_near_surface)
+                print(f"      Sphere {sphere_idx+1}: {n_inside_near}/{n_inside_total} points in near-surface region")
             
             # OR operation: add to integration mask (overlaps counted once)
             integration_mask = integration_mask | inside_near_surface
@@ -644,8 +699,10 @@ class FieldAnalyzer:
         result = {
             'enhancement_sum': 0.0,
             'enhancement_mean': 0.0,
+            'enhancement_per_sphere': 0.0,
             'intensity_sum': 0.0,
             'intensity_mean': 0.0,
+            'intensity_per_sphere': 0.0,
             'valid_points': 0,
         }
         if method == 'conservative':
