@@ -2071,6 +2071,7 @@ exit;
         - 4D array handling for grid-based field calculations
         - NaN filtering after reshape (meshfield mindist filtering)
         - 3D array slicing condition: size(...,3) == n_polarizations (not > 3)
+        - Enhancement calculation threshold (CRITICAL FIX!)
         
         Strategy: 
         1. Calculate ALL cross sections first (no field in loop)
@@ -2794,24 +2795,46 @@ for ipol = 1:n_polarizations
     fprintf('        Internal only: %d points\\n', n_int_only);
     fprintf('        Overlap: %d points\\n', n_overlap);
     
-    %% CALCULATE ENHANCEMENT & INTENSITY
+    %% CALCULATE ENHANCEMENT & INTENSITY (IMPROVED - THRESHOLD!)
     e_intensity = sum(e_total_full .* conj(e_total_full), 2);
     e0_intensity = sum(e_incoming_full .* conj(e_incoming_full), 2);
-    enhancement = sqrt(e_intensity ./ e0_intensity);
-    enhancement(e0_intensity == 0) = NaN;
     
-    % Separate enhancement for internal/external
+    % CRITICAL FIX: Threshold to prevent division by very small numbers
+    % This is especially important for internal fields in metals where
+    % incoming field can be exponentially small
+    e0_threshold = 1e-10;
+    
+    % Calculate enhancement with threshold
+    enhancement = sqrt(e_intensity ./ max(e0_intensity, e0_threshold));
+    
+    % Mark unreliable points (very weak incoming field) as NaN
+    enhancement(e0_intensity < e0_threshold) = NaN;
+    
+    fprintf('      Enhancement calculated (merged): min=%.3f, max=%.3f, valid=%d\\n', ...
+            min(enhancement(isfinite(enhancement))), ...
+            max(enhancement(isfinite(enhancement))), ...
+            sum(isfinite(enhancement)));
+    
+    % Separate enhancement for internal/external (IMPROVED!)
     e_intensity_ext = sum(e_total_ext_grid .* conj(e_total_ext_grid), 2);
     e_intensity_int = sum(e_total_int_grid .* conj(e_total_int_grid), 2);
     
     e0_intensity_ext = e0_intensity;  % Same incoming field
     e0_intensity_int = e0_intensity;
     
-    enhancement_ext = sqrt(e_intensity_ext ./ e0_intensity_ext);
-    enhancement_int = sqrt(e_intensity_int ./ e0_intensity_int);
+    % CRITICAL FIX: Apply threshold for both external and internal
+    e0_threshold = 1e-10;
     
-    enhancement_ext(e0_intensity_ext == 0) = NaN;
-    enhancement_int(e0_intensity_int == 0) = NaN;
+    enhancement_ext = sqrt(e_intensity_ext ./ max(e0_intensity_ext, e0_threshold));
+    enhancement_int = sqrt(e_intensity_int ./ max(e0_intensity_int, e0_threshold));
+    
+    enhancement_ext(e0_intensity_ext < e0_threshold) = NaN;
+    enhancement_int(e0_intensity_int < e0_threshold) = NaN;
+    
+    fprintf('      Enhancement_ext valid: %d/%d\\n', ...
+            sum(isfinite(enhancement_ext)), numel(enhancement_ext));
+    fprintf('      Enhancement_int valid: %d/%d\\n', ...
+            sum(isfinite(enhancement_int)), numel(enhancement_int));
     
     % Reshape to grid
     enhancement = reshape(enhancement, grid_shape);
