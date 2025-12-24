@@ -1760,10 +1760,12 @@ field_data_idx = 0;  % Counter for field_data entries
 
                 % Total field
                 e_total = e_induced + e_incoming;
-                
-                e_intensity = dot(e_total, e_total, 2);
-                e0_intensity = dot(e_incoming, e_incoming, 2);
-                enhancement = sqrt(e_intensity ./ e0_intensity);
+
+                % Calculate field and intensity enhancement
+                e_mag_sq = dot(e_total, e_total, 2);         % |E|²
+                e0_mag_sq = dot(e_incoming, e_incoming, 2);  % |E0|²
+                enhancement = sqrt(e_mag_sq ./ e0_mag_sq);   % |E/E0| (field enhancement)
+                e_intensity = e_mag_sq ./ e0_mag_sq;         % |E|²/|E0|² (intensity enhancement)
                 
                 % Handle meshfield point filtering (mindist option)
                 % meshfield removes points too close to particle surface
@@ -1867,8 +1869,8 @@ field_data_idx = 0;  % Counter for field_data entries
                 field_data(field_data_idx).polarization = pol(ipol, :);
                 field_data(field_data_idx).polarization_idx = ipol;
                 field_data(field_data_idx).e_total = e_total;
-                field_data(field_data_idx).enhancement = enhancement;
-                field_data(field_data_idx).intensity = e_intensity;
+                field_data(field_data_idx).enhancement = enhancement;  % |E/E0| (field enhancement)
+                field_data(field_data_idx).intensity = e_intensity;    % |E|²/|E0|² (intensity enhancement)
                 field_data(field_data_idx).x_grid = x_grid;
                 field_data(field_data_idx).y_grid = y_grid;
                 field_data(field_data_idx).z_grid = z_grid;
@@ -2969,17 +2971,22 @@ for ipol = 1:n_polarizations
     intensity_enhancement_int = e_intensity_int ./ max(e0_reference_intensity, e0_threshold);
     intensity_enhancement_int(e0_reference_intensity < e0_threshold | isnan(e_intensity_int)) = NaN;
     
+    % Calculate field enhancement: |E/E0| = sqrt(|E|²/|E0|²)
+    field_enhancement = sqrt(intensity_enhancement);
+    field_enhancement_ext = sqrt(intensity_enhancement_ext);
+    field_enhancement_int = sqrt(intensity_enhancement_int);
+
     % Reshape to grid
     intensity_enhancement = reshape(intensity_enhancement, grid_shape);
     intensity_enhancement_ext = reshape(intensity_enhancement_ext, grid_shape);
     intensity_enhancement_int = reshape(intensity_enhancement_int, grid_shape);
-    e_intensity = reshape(e_intensity, grid_shape);
-    e_intensity_ext = reshape(e_intensity_ext, grid_shape);
-    e_intensity_int = reshape(e_intensity_int, grid_shape);
+    field_enhancement = reshape(field_enhancement, grid_shape);
+    field_enhancement_ext = reshape(field_enhancement_ext, grid_shape);
+    field_enhancement_int = reshape(field_enhancement_int, grid_shape);
     e_total_grid = reshape(e_total_full, [grid_shape, 3]);
     e_total_ext_grid = reshape(e_total_ext_grid, [grid_shape, 3]);
     e_total_int_grid = reshape(e_total_int_grid, [grid_shape, 3]);
-    
+
     fprintf('      Intensity_enh valid (universal ref - direct calc):\\n');
     fprintf('        Merged: %d/%d\\n', sum(isfinite(intensity_enhancement(:))), numel(intensity_enhancement));
     fprintf('        External: %d/%d\\n', sum(isfinite(intensity_enhancement_ext(:))), numel(intensity_enhancement_ext));
@@ -3000,18 +3007,18 @@ for ipol = 1:n_polarizations
     field_data(ipol).polarization = pol(ipol, :);
     field_data(ipol).polarization_idx = ipol;
     
-    % Combined (merged) - intensity enhancement
+    % Combined (merged) - field and intensity enhancement
     field_data(ipol).e_total = e_total_grid;
-    field_data(ipol).enhancement = intensity_enhancement;  % |E|²/|E0|²
-    field_data(ipol).intensity = e_intensity;              % |E|²
-    
+    field_data(ipol).enhancement = field_enhancement;          % |E/E0| (field enhancement)
+    field_data(ipol).intensity = intensity_enhancement;        % |E|²/|E0|² (intensity enhancement)
+
     % Separate fields
     field_data(ipol).e_total_ext = e_total_ext_grid;
     field_data(ipol).e_total_int = e_total_int_grid;
-    field_data(ipol).enhancement_ext = intensity_enhancement_ext;  % |E|²/|E0|²
-    field_data(ipol).enhancement_int = intensity_enhancement_int;  % |E|²/|E0|²
-    field_data(ipol).intensity_ext = e_intensity_ext;              % |E|²
-    field_data(ipol).intensity_int = e_intensity_int;              % |E|²
+    field_data(ipol).enhancement_ext = field_enhancement_ext;      % |E/E0| (field enhancement)
+    field_data(ipol).enhancement_int = field_enhancement_int;      % |E/E0| (field enhancement)
+    field_data(ipol).intensity_ext = intensity_enhancement_ext;    % |E|²/|E0|² (intensity enhancement)
+    field_data(ipol).intensity_int = intensity_enhancement_int;    % |E|²/|E0|² (intensity enhancement)
     
     % Grid coordinates
     field_data(ipol).x_grid = x_grid;
@@ -3029,7 +3036,8 @@ fprintf('\\n[OK] Field calculation completed in %.1f seconds\\n', field_calc_tim
 fprintf('================================================================\\n');
 fprintf('ENHANCEMENT METHOD: Universal Reference (Direct Calculation)\\n');
 fprintf('Reference field: Plane wave E0 = pol * exp(i*k·r)\\n');
-fprintf('Enhancement: |E|² / |E0|² for all grid points\\n');
+fprintf('Enhancement: |E/E0| (field enhancement)\\n');
+fprintf('Intensity:   |E|²/|E0|² (intensity enhancement)\\n');
 fprintf('================================================================\\n');
 """
 
