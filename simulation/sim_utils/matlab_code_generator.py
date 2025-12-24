@@ -1774,39 +1774,91 @@ field_data_idx = 0;  % Counter for field_data entries
                     % Points were filtered - create full grid with NaN
                     fprintf('    -> Grid filtering: %d/%d points used (mindist=%.2f nm)\\n', ...
                             n_field_points, n_grid_points, field_mindist);
-                    
-                    % Create NaN-filled arrays
+
+                    % Create NaN-filled arrays for scalars and vectors
                     enhancement_full = nan(n_grid_points, 1);
                     e_intensity_full = nan(n_grid_points, 1);
-                    
+                    e_total_full = nan(n_grid_points, 3);  % Vector field (Ex, Ey, Ez)
+
                     % Fill valid points using meshfield indices
                     if exist('emesh_ind', 'var') && ~isempty(emesh_ind)
                         enhancement_full(emesh_ind) = enhancement;
                         e_intensity_full(emesh_ind) = e_intensity;
+                        e_total_full(emesh_ind, :) = e_total;
                     else
-                        % Fallback: match by coordinates (slower but works)
-                        fprintf('    [!] Warning: emesh_ind not found, using coordinate matching\\n');
-                        x_flat = x_grid(:);
-                        y_flat = y_grid(:);
-                        z_flat = z_grid(:);
-                        for ii = 1:n_field_points
-                            % Find matching coordinates
-                            dx = abs(x_flat - emesh.pt.pos(ii,1));
-                            dy = abs(y_flat - emesh.pt.pos(ii,2));
-                            dz = abs(z_flat - emesh.pt.pos(ii,3));
-                            [~, idx] = min(dx + dy + dz);
-                            enhancement_full(idx) = enhancement(ii);
-                            e_intensity_full(idx) = e_intensity(ii);
+                        % Fallback: match by coordinates using exact axis matching
+                        fprintf('    [!] Warning: emesh_ind not found, using exact axis matching\\n');
+
+                        % Get unique axis values for proper grid mapping
+                        x_vec = unique(x_grid);
+                        y_vec = unique(y_grid);
+                        z_vec = unique(z_grid);
+
+                        % Determine plane type and use appropriate matching
+                        if numel(y_vec) == 1
+                            % xz-plane: y is constant
+                            fprintf('      Grid type: xz-plane\\n');
+                            for ii = 1:n_field_points
+                                [~, ix] = min(abs(emesh.pt.pos(ii,1) - x_vec));
+                                [~, iz] = min(abs(emesh.pt.pos(ii,3) - z_vec));
+                                idx = sub2ind(grid_shape, iz, ix);
+                                enhancement_full(idx) = enhancement(ii);
+                                e_intensity_full(idx) = e_intensity(ii);
+                                e_total_full(idx, :) = e_total(ii, :);
+                            end
+                        elseif numel(z_vec) == 1
+                            % xy-plane: z is constant
+                            fprintf('      Grid type: xy-plane\\n');
+                            for ii = 1:n_field_points
+                                [~, ix] = min(abs(emesh.pt.pos(ii,1) - x_vec));
+                                [~, iy] = min(abs(emesh.pt.pos(ii,2) - y_vec));
+                                idx = sub2ind(grid_shape, iy, ix);
+                                enhancement_full(idx) = enhancement(ii);
+                                e_intensity_full(idx) = e_intensity(ii);
+                                e_total_full(idx, :) = e_total(ii, :);
+                            end
+                        elseif numel(x_vec) == 1
+                            % yz-plane: x is constant
+                            fprintf('      Grid type: yz-plane\\n');
+                            for ii = 1:n_field_points
+                                [~, iy] = min(abs(emesh.pt.pos(ii,2) - y_vec));
+                                [~, iz] = min(abs(emesh.pt.pos(ii,3) - z_vec));
+                                idx = sub2ind(grid_shape, iz, iy);
+                                enhancement_full(idx) = enhancement(ii);
+                                e_intensity_full(idx) = e_intensity(ii);
+                                e_total_full(idx, :) = e_total(ii, :);
+                            end
+                        else
+                            % 3D grid: fallback to flattened coordinate matching
+                            fprintf('      Grid type: 3D (using coordinate matching)\\n');
+                            x_flat = x_grid(:);
+                            y_flat = y_grid(:);
+                            z_flat = z_grid(:);
+                            for ii = 1:n_field_points
+                                dx = abs(x_flat - emesh.pt.pos(ii,1));
+                                dy = abs(y_flat - emesh.pt.pos(ii,2));
+                                dz = abs(z_flat - emesh.pt.pos(ii,3));
+                                [~, idx] = min(dx + dy + dz);
+                                enhancement_full(idx) = enhancement(ii);
+                                e_intensity_full(idx) = e_intensity(ii);
+                                e_total_full(idx, :) = e_total(ii, :);
+                            end
                         end
                     end
-                    
+
                     enhancement = enhancement_full;
                     e_intensity = e_intensity_full;
+                    e_total = e_total_full;
                 end
                 
                 % Now safely reshape
                 enhancement = reshape(enhancement, grid_shape);
                 e_intensity = reshape(e_intensity, grid_shape);
+
+                % Reshape e_total to [ny, nx, 3] for vector field
+                if numel(grid_shape) == 2
+                    e_total = reshape(e_total, [grid_shape(1), grid_shape(2), 3]);
+                end
 
                 % Store with wavelength and polarization indices
                 field_data_idx = field_data_idx + 1;
