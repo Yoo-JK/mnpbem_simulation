@@ -423,10 +423,32 @@ class GeometryGenerator:
         return result
     
     def _apply_nonlocal_coverlayer(self, base_geometry_code):
-        """Apply nonlocal cover layer to existing geometry."""
+        """Apply nonlocal cover layer to existing geometry.
+
+        IMPORTANT: Cover layer is applied ONLY to the outermost metal layer.
+        If the outermost layer is not a metal, no cover layer is applied.
+        """
         if not self.nonlocal_gen.is_needed():
             return base_geometry_code
-        
+
+        # Check if outermost layer is a metal
+        materials = self.config.get('materials', [])
+        metals = ['gold', 'silver', 'au', 'ag', 'aluminum', 'al', 'copper', 'cu']
+
+        outermost_metal = None
+        outermost_idx = None
+        for i in range(len(materials) - 1, -1, -1):
+            mat_name = materials[i].lower() if isinstance(materials[i], str) else ''
+            if any(metal in mat_name for metal in metals):
+                outermost_metal = materials[i]
+                outermost_idx = i
+                break
+
+        if outermost_metal is None:
+            if self.verbose:
+                print("  No outermost metal found - skipping cover layer application")
+            return base_geometry_code
+
         is_applicable, warnings = self.nonlocal_gen.check_applicability()
         if warnings:
             warning_str = "\n".join([f"%   - {w}" for w in warnings])
@@ -436,35 +458,44 @@ class GeometryGenerator:
 """
         else:
             warning_code = ""
-        
+
         structure = self.config.get('structure', '')
-        
+
         if 'sphere' in structure:
-            cover_code = self._apply_coverlayer_sphere()
+            cover_code = self._apply_coverlayer_sphere(outermost_idx, outermost_metal)
         elif 'cube' in structure:
-            cover_code = self._apply_coverlayer_cube()
+            cover_code = self._apply_coverlayer_cube(outermost_idx, outermost_metal)
         else:
             if self.verbose:
                 print(f"  ⚠ Warning: Nonlocal not fully implemented for structure '{structure}'")
             cover_code = self._apply_coverlayer_manual()
-        
+
         combined_code = f"""
 {base_geometry_code}
 
 {warning_code}
 
-%% Apply Nonlocal Cover Layers
+%% Apply Nonlocal Cover Layers (ONLY to outermost metal: {outermost_metal})
 fprintf('\\n=== Applying Nonlocal Cover Layers ===\\n');
+fprintf('  Outermost metal: {outermost_metal}\\n');
 {cover_code}
 """
         return combined_code
     
-    def _apply_coverlayer_sphere(self):
-        """Apply cover layer to sphere structures."""
+    def _apply_coverlayer_sphere(self, outermost_idx=None, outermost_metal=None):
+        """Apply cover layer to sphere structures.
+
+        For core-shell structures, only the outermost layer (shell) gets a cover layer.
+        For single sphere, the sphere gets a cover layer.
+        """
         d = self.nonlocal_gen.cover_thickness
-        
-        code = f"""
-% Apply nonlocal cover layers to spheres
+        materials = self.config.get('materials', [])
+        n_layers = len(materials)
+
+        if n_layers == 1:
+            # Single sphere - apply cover layer
+            code = f"""
+% Apply nonlocal cover layer to single sphere ({outermost_metal})
 d_cover = {d};
 particles_with_cover = {{}};
 
@@ -479,123 +510,212 @@ end
 particles = particles_with_cover;
 fprintf('  Total particles after cover layers: %d\\n', length(particles));
 """
-        return code
-    
-    def _apply_coverlayer_cube(self):
-        """Apply cover layer to cube structures."""
-        d = self.nonlocal_gen.cover_thickness
-        structure = self.config.get('structure', '')
-
-        if structure == 'advanced_dimer_cube':
-            shell_layers = self.config.get('shell_layers', [])
-            if len(shell_layers) > 0:
-                core_size = self.config.get('core_size', 30)
-                materials = self.config.get('materials', [])
-                roundings = self.config.get('roundings', None)
-                if roundings is None:
-                    rounding = self.config.get('rounding', 0.25)
-                    roundings = [rounding] * len(materials)
-                mesh = self.config.get('mesh_density', 12)
-
-                code = f"""
-% Apply nonlocal cover layers to core-shell structure
+        else:
+            # Core-shell structure - only apply cover layer to outermost layer
+            # particles list: [core1, shell1, ..., core2, shell2, ...] for dimer
+            # or [core, shell, ...] for single
+            code = f"""
+% Apply nonlocal cover layer ONLY to outermost layer ({outermost_metal})
+% Inner layers (core, inner shells) are NOT modified
 d_cover = {d};
+n_layers = {n_layers};  % layers per particle
 particles_with_cover = {{}};
 
-for i = 1:length(particles)
-    p_outer = particles{{i}};
-    verts = p_outer.verts;
-    current_size = max(verts(:,1)) - min(verts(:,1));
-    
-    layer_idx = mod(i-1, {len(materials)}) + 1;
-    roundings_array = {roundings};
-    rounding_val = roundings_array(layer_idx);
-    
-    size_inner = current_size - 2*d_cover;
-    p_inner = tricube({mesh}, size_inner, 'e', rounding_val);
-    
-    center_outer = mean(p_outer.verts, 1);
-    center_inner = mean(p_inner.verts, 1);
-    p_inner = shift(p_inner, center_outer - center_inner);
-    
-    particles_with_cover{{end+1}} = p_outer;
-    particles_with_cover{{end+1}} = p_inner;
+n_particles = length(particles) / n_layers;  % number of particles (1 for single, 2 for dimer)
+
+for p_idx = 1:n_particles
+    base_idx = (p_idx - 1) * n_layers;
+
+    % Copy inner layers as-is (no cover layer)
+    for layer_idx = 1:(n_layers-1)
+        particles_with_cover{{end+1}} = particles{{base_idx + layer_idx}};
+    end
+
+    % Apply cover layer ONLY to outermost layer
+    p_outer_layer = particles{{base_idx + n_layers}};  % outermost layer
+    p_outer_boundary = coverlayer.shift( p_outer_layer, d_cover );
+    particles_with_cover{{end+1}} = p_outer_boundary;  % new outer boundary
+    particles_with_cover{{end+1}} = p_outer_layer;      % inner boundary (original shell)
+
+    fprintf('  [OK] Particle %d: cover layer on outermost ({outermost_metal})\\n', p_idx);
 end
 
 particles = particles_with_cover;
-fprintf('  Total boundaries: %d\\n', length(particles));
+fprintf('  Total boundaries after cover layers: %d\\n', length(particles));
 """
-                return code
-            
-            # advanced_dimer_cube 파라미터 가져오기
-            core_size = self.config.get('core_size', 30)
+        return code
+    
+    def _apply_coverlayer_cube(self, outermost_idx=None, outermost_metal=None):
+        """Apply cover layer to cube structures.
+
+        IMPORTANT: Cover layer is applied ONLY to the outermost metal layer.
+        Inner layers (core, inner shells) are NOT modified.
+        """
+        d = self.nonlocal_gen.cover_thickness
+        structure = self.config.get('structure', '')
+        materials = self.config.get('materials', [])
+        n_layers = len(materials)
+
+        if structure == 'advanced_dimer_cube':
+            shell_layers = self.config.get('shell_layers', [])
+            mesh = self.config.get('mesh_density', 12)
+
+            # Get rounding for the outermost layer
             roundings = self.config.get('roundings', None)
             if roundings is None:
                 rounding = self.config.get('rounding', 0.25)
-            else:
-                rounding = roundings[0]
-            mesh = self.config.get('mesh_density', 12)
-            
-            code = f"""
-% Apply nonlocal cover layers to advanced_dimer_cube
+                roundings = [rounding] * n_layers
+            outermost_rounding = roundings[outermost_idx] if outermost_idx < len(roundings) else 0.25
+
+            if n_layers == 1:
+                # Single material (no shell) - apply cover to all cubes
+                core_size = self.config.get('core_size', 30)
+                code = f"""
+% Apply nonlocal cover layers to advanced_dimer_cube (single material: {outermost_metal})
 d_cover = {d};
 particles_with_cover = {{}};
 
-fprintf('  Applying cover layers to advanced_dimer_cube...\\n');
+fprintf('  Applying cover layers to {outermost_metal}...\\n');
 
 for i = 1:length(particles)
     p_outer = particles{{i}};  % Original cube (outer boundary)
-    
+
     % Create inner boundary (smaller cube)
     size_inner = {core_size} - 2*d_cover;
-    p_inner = tricube({mesh}, size_inner, 'e', {rounding});
-    
+    p_inner = tricube({mesh}, size_inner, 'e', {outermost_rounding});
+
     % Align centers
     center_outer = mean(p_outer.verts, 1);
     center_inner = mean(p_inner.verts, 1);
     p_inner = shift(p_inner, center_outer - center_inner);
-    
+
     % Add: outer first, then inner
     particles_with_cover{{end+1}} = p_outer;
     particles_with_cover{{end+1}} = p_inner;
-    
+
     fprintf('    [OK] Particle %d: cover layer %.3f nm\\n', i, d_cover);
 end
 
 particles = particles_with_cover;
 fprintf('  Total boundaries: %d\\n', length(particles));
 """
-            return code        
-        
-        else:
+                return code
+            else:
+                # Multi-layer (core-shell) - only apply cover to outermost layer
+                code = f"""
+% Apply nonlocal cover layer ONLY to outermost layer ({outermost_metal})
+% Inner layers are NOT modified
+d_cover = {d};
+n_layers = {n_layers};  % layers per particle
+mesh = {mesh};
+outermost_rounding = {outermost_rounding};
+particles_with_cover = {{}};
 
-            code = f"""
-% Apply nonlocal cover layers to cubes
+n_particles = length(particles) / n_layers;  % number of particles (2 for dimer)
+
+for p_idx = 1:n_particles
+    base_idx = (p_idx - 1) * n_layers;
+
+    % Copy inner layers as-is (no cover layer)
+    for layer_idx = 1:(n_layers-1)
+        particles_with_cover{{end+1}} = particles{{base_idx + layer_idx}};
+    end
+
+    % Apply cover layer ONLY to outermost layer
+    p_outer_layer = particles{{base_idx + n_layers}};  % outermost layer
+    verts = p_outer_layer.verts;
+    current_size = max(verts(:,1)) - min(verts(:,1));
+
+    % Create inner boundary for the outermost layer
+    size_inner = current_size - 2*d_cover;
+    p_inner_boundary = tricube(mesh, size_inner, 'e', outermost_rounding);
+    center_outer = mean(p_outer_layer.verts, 1);
+    center_inner = mean(p_inner_boundary.verts, 1);
+    p_inner_boundary = shift(p_inner_boundary, center_outer - center_inner);
+
+    % Add: outer boundary first, then inner boundary
+    particles_with_cover{{end+1}} = p_outer_layer;      % outer boundary
+    particles_with_cover{{end+1}} = p_inner_boundary;   % inner boundary
+
+    fprintf('    [OK] Particle %d: cover layer on {outermost_metal}\\n', p_idx);
+end
+
+particles = particles_with_cover;
+fprintf('  Total boundaries: %d\\n', length(particles));
+"""
+                return code
+
+        else:
+            # Other cube structures (dimer_cube, cube, etc.)
+            rounding = self.config.get('rounding', 0.25)
+            mesh = self.config.get('mesh_density', 12)
+
+            if n_layers == 1:
+                # Single layer - apply cover to all cubes
+                code = f"""
+% Apply nonlocal cover layers to cubes ({outermost_metal})
 d_cover = {d};
 particles_with_cover = {{}};
 
 for i = 1:length(particles)
-    p_inner = particles{{i}};
-    verts = p_inner.verts;
+    p_outer = particles{{i}};
+    verts = p_outer.verts;
     size_current = max(verts(:,1)) - min(verts(:,1));
-    
-    rounding_current = {self.config.get('rounding', 0.25)};
-    mesh_current = {self.config.get('mesh_density', 12)};
-    
-    p_inner_smaller = tricube(mesh_current, size_current - 2*d_cover, 'e', rounding_current);
-    center_orig = mean(p_inner.verts, 1);
-    center_new = mean(p_inner_smaller.verts, 1);
-    p_inner_smaller = shift(p_inner_smaller, center_orig - center_new);
-    
-    p_outer = p_inner;
+
+    % Create inner boundary
+    size_inner = size_current - 2*d_cover;
+    p_inner = tricube({mesh}, size_inner, 'e', {rounding});
+    center_orig = mean(p_outer.verts, 1);
+    center_new = mean(p_inner.verts, 1);
+    p_inner = shift(p_inner, center_orig - center_new);
+
     particles_with_cover{{end+1}} = p_outer;
-    particles_with_cover{{end+1}} = p_inner_smaller;
-    
-    fprintf('  [OK] Particle %d: added %.3f nm cover layer (cube)\\n', i, d_cover);
+    particles_with_cover{{end+1}} = p_inner;
+
+    fprintf('  [OK] Particle %d: added %.3f nm cover layer\\n', i, d_cover);
 end
 
 particles = particles_with_cover;
 fprintf('  Total particles after cover layers: %d\\n', length(particles));
+"""
+            else:
+                # Core-shell - only apply cover to outermost layer
+                code = f"""
+% Apply nonlocal cover layer ONLY to outermost layer ({outermost_metal})
+% Inner layers are NOT modified
+d_cover = {d};
+n_layers = {n_layers};
+particles_with_cover = {{}};
+
+n_particles = length(particles) / n_layers;
+
+for p_idx = 1:n_particles
+    base_idx = (p_idx - 1) * n_layers;
+
+    % Copy inner layers as-is
+    for layer_idx = 1:(n_layers-1)
+        particles_with_cover{{end+1}} = particles{{base_idx + layer_idx}};
+    end
+
+    % Apply cover layer to outermost layer only
+    p_outer_layer = particles{{base_idx + n_layers}};
+    verts = p_outer_layer.verts;
+    size_current = max(verts(:,1)) - min(verts(:,1));
+
+    size_inner = size_current - 2*d_cover;
+    p_inner = tricube({mesh}, size_inner, 'e', {rounding});
+    center_orig = mean(p_outer_layer.verts, 1);
+    center_new = mean(p_inner.verts, 1);
+    p_inner = shift(p_inner, center_orig - center_new);
+
+    particles_with_cover{{end+1}} = p_outer_layer;  % outer boundary
+    particles_with_cover{{end+1}} = p_inner;        % inner boundary
+
+    fprintf('  [OK] Particle %d: cover layer on outermost ({outermost_metal})\\n', p_idx);
+end
+
+particles = particles_with_cover;
+fprintf('  Total boundaries: %d\\n', length(particles));
 """
             return code
     
