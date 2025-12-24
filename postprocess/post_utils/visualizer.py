@@ -285,7 +285,7 @@ class Visualizer:
         y_grid = field_data['y_grid']
         z_grid = field_data['z_grid']
         wavelength = field_data['wavelength']
-        
+
         # FIX: Handle scalar enhancement
         if not isinstance(enhancement, np.ndarray):
             enhancement = np.array([[enhancement]])
@@ -297,6 +297,12 @@ class Visualizer:
         # FIX: Convert complex to real magnitude for plotting
         if np.iscomplexobj(enhancement):
             enhancement = np.abs(enhancement)
+
+        # FIX: Transpose if shape is (nx, ny) instead of expected (ny, nx)
+        n_unique_x = len(np.unique(x_grid))
+        n_unique_y = len(np.unique(y_grid))
+        if enhancement.shape == (n_unique_x, n_unique_y):
+            enhancement = enhancement.T
 
         # Determine plane type
         plane_type, extent, x_label, y_label = self._determine_plane(x_grid, y_grid, z_grid)
@@ -385,7 +391,7 @@ class Visualizer:
         y_grid = field_data['y_grid']
         z_grid = field_data['z_grid']
         wavelength = field_data['wavelength']
-        
+
         # FIX: Handle scalar intensity
         if not isinstance(intensity, np.ndarray):
             intensity = np.array([[intensity]])
@@ -397,6 +403,12 @@ class Visualizer:
         # FIX: Convert complex to real magnitude for plotting
         if np.iscomplexobj(intensity):
             intensity = np.abs(intensity)
+
+        # FIX: Transpose if shape is (nx, ny) instead of expected (ny, nx)
+        n_unique_x = len(np.unique(x_grid))
+        n_unique_y = len(np.unique(y_grid))
+        if intensity.shape == (n_unique_x, n_unique_y):
+            intensity = intensity.T
 
         # Determine plane type
         plane_type, extent, x_label, y_label = self._determine_plane(x_grid, y_grid, z_grid)
@@ -1420,6 +1432,19 @@ class Visualizer:
         if np.iscomplexobj(enhancement):
             enhancement = np.abs(enhancement)
 
+        # DEBUG: Print shapes to verify orientation
+        print(f"  [DEBUG] enhancement shape: {enhancement.shape}")
+        print(f"  [DEBUG] x_grid shape: {x_grid.shape}, unique x: {len(np.unique(x_grid))}")
+        print(f"  [DEBUG] y_grid shape: {y_grid.shape}, unique y: {len(np.unique(y_grid))}")
+
+        # FIX: Transpose if needed - MATLAB stores (ny, nx) but may need transpose for correct display
+        # Check if shape matches expected (ny, nx) based on unique values
+        n_unique_x = len(np.unique(x_grid))
+        n_unique_y = len(np.unique(y_grid))
+        if enhancement.shape == (n_unique_x, n_unique_y):
+            print(f"  [DEBUG] Transposing enhancement from {enhancement.shape} to {(n_unique_y, n_unique_x)}")
+            enhancement = enhancement.T
+
         plane_type, extent, x_label, y_label = self._determine_plane(x_grid, y_grid, z_grid)
         enhancement_masked = np.ma.masked_invalid(enhancement)
 
@@ -1504,6 +1529,12 @@ class Visualizer:
 
         if np.iscomplexobj(intensity):
             intensity = np.abs(intensity)
+
+        # FIX: Transpose if needed - check if shape matches (nx, ny) instead of expected (ny, nx)
+        n_unique_x = len(np.unique(x_grid))
+        n_unique_y = len(np.unique(y_grid))
+        if intensity.shape == (n_unique_x, n_unique_y):
+            intensity = intensity.T
 
         plane_type, extent, x_label, y_label = self._determine_plane(x_grid, y_grid, z_grid)
 
