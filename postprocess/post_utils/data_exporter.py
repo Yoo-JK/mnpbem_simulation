@@ -327,8 +327,10 @@ class DataExporter:
             wavelength = ref_field.get('wavelength', 0)
 
             # Calculate unpolarized intensity and enhancement
+            # NOTE: MATLAB Universal Reference method stores INTENSITY enhancement (|E|²/|E0|²),
+            # not field enhancement (|E|/|E0|). For intensity enhancement, we use arithmetic mean.
             intensities = []
-            enhancements_sq = []
+            enhancements = []
 
             for field in wl_fields_sorted:
                 enh = field.get('enhancement')
@@ -342,21 +344,20 @@ class DataExporter:
                 if inten is not None and np.iscomplexobj(inten):
                     inten = np.abs(inten)
 
-                enhancements_sq.append(enh ** 2)
+                enhancements.append(enh)
                 if inten is not None:
                     intensities.append(inten)
 
-            if len(enhancements_sq) != expected_n_pol:
+            if len(enhancements) != expected_n_pol:
                 continue
 
-            # Incoherent average
-            unpol_enh_sq = np.mean(enhancements_sq, axis=0)
-            unpol_enhancement = np.sqrt(unpol_enh_sq)
+            # Incoherent average for intensity enhancement (|E|²/|E0|²)
+            unpol_enhancement = np.mean(enhancements, axis=0)
 
             if intensities and len(intensities) == expected_n_pol:
                 unpol_intensity = np.mean(intensities, axis=0)
             else:
-                unpol_intensity = unpol_enh_sq  # Use enh^2 as proxy for intensity
+                unpol_intensity = unpol_enhancement  # enhancement is already |E|²/|E0|²
 
             # Create unpolarized field dict
             unpol_field = {
