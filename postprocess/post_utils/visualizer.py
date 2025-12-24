@@ -279,7 +279,7 @@ class Visualizer:
         return saved_files
     
     def _plot_field_enhancement(self, field_data, polarization_idx, wavelength_idx=None):
-        """Plot field enhancement |E|/|E0|."""
+        """Plot intensity enhancement |E|²/|E0|²."""
         enhancement = field_data['enhancement']
         x_grid = field_data['x_grid']
         y_grid = field_data['y_grid']
@@ -323,10 +323,10 @@ class Visualizer:
                         cmap='hot', aspect='auto', vmin=vmin_linear, vmax=vmax_linear)
         ax1.set_xlabel(x_label, fontsize=11)
         ax1.set_ylabel(y_label, fontsize=11)
-        ax1.set_title(f'Field Enhancement (Linear)\nλ = {wavelength:.1f} nm, {pol_label}',
+        ax1.set_title(f'Intensity Enhancement (Linear)\nλ = {wavelength:.1f} nm, {pol_label}',
                      fontsize=11, fontweight='bold')
         cbar1 = plt.colorbar(im1, ax=ax1)
-        cbar1.set_label('|E|/|E₀|', fontsize=11)
+        cbar1.set_label('|E|²/|E₀|²', fontsize=11)
 
         z_plane = float(z_grid.flat[0])  # Extract z-coordinate
         sections = self.geometry.get_cross_section(z_plane)
@@ -348,23 +348,23 @@ class Visualizer:
                             norm=LogNorm(vmin=vmin_log, vmax=vmax_log))
             ax2.set_xlabel(x_label, fontsize=11)
             ax2.set_ylabel(y_label, fontsize=11)
-            ax2.set_title(f'Field Enhancement (Log Scale)\nλ = {wavelength:.1f} nm, {pol_label}',
+            ax2.set_title(f'Intensity Enhancement (Log Scale)\nλ = {wavelength:.1f} nm, {pol_label}',
                          fontsize=11, fontweight='bold')
             cbar2 = plt.colorbar(im2, ax=ax2)
             for section in sections:
                 self._draw_material_boundary(ax2, section, plane_type)
-            cbar2.set_label('|E|/|E₀|', fontsize=11)
+            cbar2.set_label('|E|²/|E₀|²', fontsize=11)
         else:
             im2 = ax2.imshow(enhancement_masked, extent=extent, origin='lower',
                             cmap='hot', aspect='auto')
             ax2.set_xlabel(x_label, fontsize=11)
             ax2.set_ylabel(y_label, fontsize=11)
-            ax2.set_title(f'Field Enhancement\nλ = {wavelength:.1f} nm, {pol_label}',
+            ax2.set_title(f'Intensity Enhancement\nλ = {wavelength:.1f} nm, {pol_label}',
                          fontsize=11, fontweight='bold')
             cbar2 = plt.colorbar(im2, ax=ax2)
             for section in sections:
                 self._draw_material_boundary(ax2, section, plane_type)
-            cbar2.set_label('|E|/|E₀|', fontsize=11)
+            cbar2.set_label('|E|²/|E₀|²', fontsize=11)
 
         plt.tight_layout()
 
@@ -551,7 +551,7 @@ class Visualizer:
         ax.set_title(f'Electric Field Vectors\nλ = {wavelength:.1f} nm, {pol_label}', 
                     fontsize=12, fontweight='bold')
         
-        cbar1 = plt.colorbar(im, ax=ax, pad=0.12, label='|E|/|E₀|')
+        cbar1 = plt.colorbar(im, ax=ax, pad=0.12, label='|E|²/|E₀|²')
         cbar2 = plt.colorbar(q, ax=ax, label='Field Magnitude')
 
         plt.tight_layout()
@@ -672,21 +672,21 @@ class Visualizer:
                          fontsize=12, fontweight='bold')
         
         cbar1 = plt.colorbar(im1, ax=axes[0])
-        cbar1.set_label('|E|/|E₀|', fontsize=11)
-        
+        cbar1.set_label('|E|²/|E₀|²', fontsize=11)
+
         # Add particle boundaries
         z_plane = float(z_grid.flat[0]) if isinstance(z_grid, np.ndarray) else float(z_grid)
         sections = self.geometry.get_cross_section(z_plane)
         for section in sections:
             self._draw_material_boundary(axes[0], section, plane_type)
-        
+
         # Count valid points
         n_valid_ext = np.sum(np.isfinite(enhancement_ext))
         axes[0].text(0.02, 0.98, f'Valid: {n_valid_ext} pts',
                     transform=axes[0].transAxes, fontsize=9,
                     verticalalignment='top',
                     bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
-        
+
         # Plot 2: Internal field
         im2 = axes[1].imshow(enh_int_masked, extent=extent, origin='lower',
                             cmap='hot', aspect='auto', vmin=vmin, vmax=vmax)
@@ -694,9 +694,9 @@ class Visualizer:
         axes[1].set_ylabel(y_label, fontsize=11)
         axes[1].set_title(f'Internal Field Only\nλ = {wavelength:.1f} nm, {pol_label}',
                          fontsize=12, fontweight='bold')
-        
+
         cbar2 = plt.colorbar(im2, ax=axes[1])
-        cbar2.set_label('|E|/|E₀|', fontsize=11)
+        cbar2.set_label('|E|²/|E₀|²', fontsize=11)
         
         for section in sections:
             self._draw_material_boundary(axes[1], section, plane_type)
@@ -785,11 +785,11 @@ class Visualizer:
                         fontsize=11, fontweight='bold')
             
             cbar = plt.colorbar(im, ax=ax)
-            cbar.set_label('|E|/|E₀|', fontsize=10)
-            
+            cbar.set_label('|E|²/|E₀|²', fontsize=10)
+
             for section in sections:
                 self._draw_material_boundary(ax, section, plane_type)
-            
+
             # Count valid points
             n_valid = np.sum(np.isfinite(enh))
             ax.text(0.02, 0.98, f'Valid: {n_valid} pts',
@@ -883,11 +883,11 @@ class Visualizer:
             
             # Add colorbar for internal field
             cbar_int = plt.colorbar(scatter, ax=ax, pad=0.12)
-            cbar_int.set_label('|E|/|E₀| (Internal)', fontsize=11)
-        
+            cbar_int.set_label('|E|²/|E₀|² (Internal)', fontsize=11)
+
         # Add colorbar for external field
         cbar_ext = plt.colorbar(im_ext, ax=ax)
-        cbar_ext.set_label('|E|/|E₀| (External)', fontsize=11)
+        cbar_ext.set_label('|E|²/|E₀|² (External)', fontsize=11)
         
         # Add particle boundaries
         z_plane = float(z_grid.flat[0]) if isinstance(z_grid, np.ndarray) else float(z_grid)
@@ -1341,7 +1341,9 @@ class Visualizer:
             wavelength = ref_field.get('wavelength', 0)
 
             # Calculate unpolarized (incoherent average)
-            enhancements_sq = []
+            # NOTE: MATLAB Universal Reference method stores INTENSITY enhancement (|E|²/|E0|²),
+            # not field enhancement (|E|/|E0|). For intensity enhancement, we use arithmetic mean.
+            enhancements = []
             intensities = []
 
             for field in wl_fields_sorted:
@@ -1356,16 +1358,17 @@ class Visualizer:
                 if inten is not None and np.iscomplexobj(inten):
                     inten = np.abs(inten)
 
-                enhancements_sq.append(enh ** 2)
+                enhancements.append(enh)
                 if inten is not None:
                     intensities.append(inten)
 
-            if len(enhancements_sq) != expected_n_pol:
+            if len(enhancements) != expected_n_pol:
                 continue
 
-            # Incoherent average
-            unpol_enh = np.sqrt(np.mean(enhancements_sq, axis=0))
-            unpol_intensity = np.mean(intensities, axis=0) if len(intensities) == expected_n_pol else unpol_enh ** 2
+            # Incoherent average for intensity enhancement (|E|²/|E0|²)
+            # Simply average the intensity enhancements across polarizations
+            unpol_enh = np.mean(enhancements, axis=0)
+            unpol_intensity = np.mean(intensities, axis=0) if len(intensities) == expected_n_pol else unpol_enh
 
             # Create unpolarized field dict
             unpol_field = {
@@ -1435,11 +1438,11 @@ class Visualizer:
                         cmap='hot', aspect='auto', vmin=vmin_linear, vmax=vmax_linear)
         ax1.set_xlabel(x_label, fontsize=11)
         ax1.set_ylabel(y_label, fontsize=11)
-        ax1.set_title(f'Unpolarized Field Enhancement (Linear)\n'
+        ax1.set_title(f'Unpolarized Intensity Enhancement (Linear)\n'
                      f'λ = {wavelength:.1f} nm, avg of {n_pol} pols',
                      fontsize=11, fontweight='bold')
         cbar1 = plt.colorbar(im1, ax=ax1)
-        cbar1.set_label('|E|/|E₀|', fontsize=11)
+        cbar1.set_label('|E|²/|E₀|²', fontsize=11)
 
         z_plane = float(z_grid.flat[0]) if isinstance(z_grid, np.ndarray) else float(z_grid)
         sections = self.geometry.get_cross_section(z_plane)
@@ -1463,11 +1466,11 @@ class Visualizer:
 
         ax2.set_xlabel(x_label, fontsize=11)
         ax2.set_ylabel(y_label, fontsize=11)
-        ax2.set_title(f'Unpolarized Field Enhancement (Log)\n'
+        ax2.set_title(f'Unpolarized Intensity Enhancement (Log)\n'
                      f'λ = {wavelength:.1f} nm, avg of {n_pol} pols',
                      fontsize=11, fontweight='bold')
         cbar2 = plt.colorbar(im2, ax=ax2)
-        cbar2.set_label('|E|/|E₀|', fontsize=11)
+        cbar2.set_label('|E|²/|E₀|²', fontsize=11)
 
         for section in sections:
             self._draw_material_boundary(ax2, section, plane_type)
@@ -1588,7 +1591,7 @@ class Visualizer:
         valid_data = all_data_flat[~np.isnan(all_data_flat)]
 
         if len(valid_data) > 0:
-            # Enhancement is |E|/|E₀|, must be non-negative
+            # Intensity enhancement is |E|²/|E₀|², must be non-negative
             vmin = max(0, np.percentile(valid_data, 1))
             vmax = np.percentile(valid_data, 99)
 
@@ -1641,9 +1644,9 @@ class Visualizer:
         fig.subplots_adjust(right=0.9)
         cbar_ax = fig.add_axes([0.92, 0.15, 0.02, 0.7])
         cbar = fig.colorbar(im, cax=cbar_ax)
-        cbar.set_label('|E|/|E₀|', fontsize=11)
+        cbar.set_label('|E|²/|E₀|²', fontsize=11)
 
-        plt.suptitle(f'Field Enhancement Comparison (λ = {wavelength:.1f} nm)',
+        plt.suptitle(f'Intensity Enhancement Comparison (λ = {wavelength:.1f} nm)',
                     fontsize=12, fontweight='bold')
 
         base_filename = f'field_comparison_unpolarized_{plane_type}'
