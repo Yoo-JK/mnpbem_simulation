@@ -7,7 +7,7 @@ args['use_parallel'] = True
 args['num_workers'] = 4
 args['mnpbem_path'] = os.path.join(Path.home(), 'workspace/MNPBEM')
 
-args['simulation_name'] = 'johnson/1nm/Au90Cu10'
+args['simulation_name'] = '1nm/ctab'
 args['simulation_type'] = 'ret'
 args['interp'] = 'curv'
 

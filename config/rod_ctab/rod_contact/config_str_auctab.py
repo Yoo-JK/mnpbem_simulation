@@ -22,6 +22,6 @@ args['refractive_index_paths'] = {
 args['use_substrate'] = True
 args['substrate'] = {
     'material': 'glass',  # or 'silicon', custom dict
-    'position': -14.5,  # z-coordinate of interface (nm)
+    'position': -13.501,  # z-coordinate of interface (nm)
 }
 
