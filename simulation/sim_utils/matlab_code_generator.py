@@ -2571,86 +2571,80 @@ for ipol = 1:n_polarizations
             code += """
     %% EXTERNAL FIELD
     fprintf('    → External field...\\n');
-    
+
     % Induced field from BEM solution
     e_induced_ext_all = emesh_external(sig_peak);
-    
-    % FIX 2: Handle 4D arrays (grid-based) and 3D arrays + NaN filtering
+
+    % Track whether field is grid-based (4D) or point-based (2D)
+    ext_is_grid_based = (ndims(e_induced_ext_all) == 4);
     fprintf('      Raw external field size: [%s]\\n', num2str(size(e_induced_ext_all)));
-    
-    if ndims(e_induced_ext_all) == 4
-        % 4D array: [nz, nx, 3, n_pol] - typical for grid-based calculations
-        e_induced_ext = e_induced_ext_all(:, :, :, ipol);  % [nz, nx, 3]
-        e_induced_ext = reshape(e_induced_ext, [], 3);  % [15251, 3] with NaNs
-        
-        % CRITICAL FIX: Remove NaN points (meshfield filtering)
-        valid_mask = all(isfinite(e_induced_ext), 2);
-        e_induced_ext = e_induced_ext(valid_mask, :);  % [15148, 3]
-        fprintf('      After filtering: [%d, 3] (removed %d NaN points)\\n', ...
-                size(e_induced_ext, 1), sum(~valid_mask));
-        
+    fprintf('      Grid-based: %d\\n', ext_is_grid_based);
+
+    if ext_is_grid_based
+        % 4D array: [ny, nx, 3, n_pol] - KEEP GRID STRUCTURE
+        % This preserves spatial ordering for correct grid assignment
+        e_induced_ext_grid = e_induced_ext_all(:, :, :, ipol);  % [ny, nx, 3]
+        fprintf('      Extracted grid shape: [%s]\\n', num2str(size(e_induced_ext_grid)));
+
     elseif ndims(e_induced_ext_all) == 3
         % 3D array: Two cases
         if size(e_induced_ext_all, 3) == n_polarizations
-            % [n_points, 3, n_pol] → slice
+            % [n_points, 3, n_pol] → point-based
             e_induced_ext = e_induced_ext_all(:, :, ipol);
         else
-            % [n_points, 3] or [nz, nx, 3] → keep as is
-            e_induced_ext = e_induced_ext_all;
+            % [ny, nx, 3] → grid-based single polarization
+            e_induced_ext_grid = e_induced_ext_all;
+            ext_is_grid_based = true;
         end
     else
-        % 2D array: [n_points, 3] - single polarization
+        % 2D array: [n_points, 3] - point-based
         e_induced_ext = e_induced_ext_all;
     end
-    
+
     % Incoming field
     exc_field_ext = exc_single.field(emesh_external.pt, enei(field_wavelength_idx));
     e_incoming_ext_all = emesh_external(exc_field_ext);
-    
+
     fprintf('      Raw incoming field size: [%s]\\n', num2str(size(e_incoming_ext_all)));
-    
-    % Extract incoming field for this polarization
-    if ndims(e_incoming_ext_all) == 4
-        e_incoming_ext = e_incoming_ext_all(:, :, :, ipol);  % [nz, nx, 3]
-        e_incoming_ext = reshape(e_incoming_ext, [], 3);  % [15251, 3]
-        
-        % CRITICAL FIX: Remove NaN points (same as induced)
-        valid_mask = all(isfinite(e_incoming_ext), 2);
-        e_incoming_ext = e_incoming_ext(valid_mask, :);  % [15148, 3]
-        
-    elseif ndims(e_incoming_ext_all) == 3
-        % 3D array: Two cases
-        if size(e_incoming_ext_all, 3) == n_polarizations
-            % [n_points, 3, n_pol] → slice
+
+    if ext_is_grid_based
+        % 4D/3D grid-based: keep grid structure
+        if ndims(e_incoming_ext_all) == 4
+            e_incoming_ext_grid = e_incoming_ext_all(:, :, :, ipol);
+        else
+            e_incoming_ext_grid = e_incoming_ext_all;
+        end
+
+        % Calculate total field in grid form
+        e_total_ext_grid_3d = e_induced_ext_grid + e_incoming_ext_grid;  % [ny, nx, 3]
+        fprintf('      Total external grid shape: [%s]\\n', num2str(size(e_total_ext_grid_3d)));
+
+    else
+        % Point-based: extract for polarization
+        if ndims(e_incoming_ext_all) == 3 && size(e_incoming_ext_all, 3) == n_polarizations
             e_incoming_ext = e_incoming_ext_all(:, :, ipol);
         else
-            % [nz, nx, 3] → reshape and filter
-            e_incoming_ext = reshape(e_incoming_ext_all, [], 3);
-            valid_mask = all(isfinite(e_incoming_ext), 2);
-            e_incoming_ext = e_incoming_ext(valid_mask, :);
+            e_incoming_ext = e_incoming_ext_all;
         end
-    else
-        e_incoming_ext = e_incoming_ext_all;
+
+        % Ensure 2D: [n_points, 3]
+        if ndims(e_induced_ext) == 3
+            e_induced_ext = squeeze(e_induced_ext);
+        end
+        if ndims(e_incoming_ext) == 3
+            e_incoming_ext = squeeze(e_incoming_ext);
+        end
+
+        % Verify sizes match
+        if size(e_induced_ext, 1) ~= size(e_incoming_ext, 1)
+            error('Size mismatch: induced [%d, 3] vs incoming [%d, 3]', ...
+                  size(e_induced_ext, 1), size(e_incoming_ext, 1));
+        end
+
+        % Total external field (point-based)
+        e_total_ext = e_induced_ext + e_incoming_ext;
+        fprintf('      Total external points: [%s]\\n', num2str(size(e_total_ext)));
     end
-    
-    % Ensure 2D: [n_points, 3]
-    if ndims(e_induced_ext) == 3
-        e_induced_ext = squeeze(e_induced_ext);
-    end
-    if ndims(e_incoming_ext) == 3
-        e_incoming_ext = squeeze(e_incoming_ext);
-    end
-    
-    % Verify sizes match
-    if size(e_induced_ext, 1) ~= size(e_incoming_ext, 1)
-        error('Size mismatch: induced [%d, 3] vs incoming [%d, 3]', ...
-              size(e_induced_ext, 1), size(e_incoming_ext, 1));
-    end
-    
-    % Total external field
-    e_total_ext = e_induced_ext + e_incoming_ext;
-    
-    fprintf('      Final external field size: [%s]\\n', num2str(size(e_total_ext)));
     
     %% INTERNAL FIELD
     if has_internal_field
@@ -2745,14 +2739,14 @@ for ipol = 1:n_polarizations
     
     %% MERGE EXTERNAL + INTERNAL
     fprintf('    → Merging fields...\\n');
-    
+
     % Initialize full grid with NaN
     e_total_full = nan(n_grid_points, 3);
-    
-    % NEW: Separate storage for visualization
+
+    % Separate storage for visualization
     e_total_ext_grid = nan(n_grid_points, 3);
     e_total_int_grid = nan(n_grid_points, 3);
-    
+
     % Flatten grid coordinates
     x_flat = x_grid(:);
     y_flat = y_grid(:);
@@ -2763,40 +2757,57 @@ for ipol = 1:n_polarizations
     y_vec = unique(y_grid);
     z_vec = unique(z_grid);
 
-    % Fill external points using exact grid matching (same method as internal)
-    fprintf('      Filling %d external points (exact matching)...\\n', emesh_external.pt.n);
+    % Fill external points - use different methods for grid-based vs point-based
+    if ext_is_grid_based
+        % GRID-BASED: Direct assignment from grid structure (preserves spatial ordering)
+        fprintf('      Using grid-based assignment (4D array)...\\n');
 
-    % Determine plane type and create proper index mapping
-    if numel(unique(y_grid)) == 1
-        % xz-plane: y is constant
-        fprintf('      Grid type: xz-plane\\n');
-        for ii = 1:emesh_external.pt.n
-            [~, ix] = min(abs(emesh_external.pt.pos(ii,1) - x_vec));
-            [~, iz] = min(abs(emesh_external.pt.pos(ii,3) - z_vec));
-            idx = sub2ind(grid_shape, iz, ix);
-            e_total_full(idx, :) = e_total_ext(ii, :);
-            e_total_ext_grid(idx, :) = e_total_ext(ii, :);
-        end
-    elseif numel(unique(z_grid)) == 1
-        % xy-plane: z is constant
-        fprintf('      Grid type: xy-plane\\n');
-        for ii = 1:emesh_external.pt.n
-            [~, ix] = min(abs(emesh_external.pt.pos(ii,1) - x_vec));
-            [~, iy] = min(abs(emesh_external.pt.pos(ii,2) - y_vec));
-            idx = sub2ind(grid_shape, iy, ix);
-            e_total_full(idx, :) = e_total_ext(ii, :);
-            e_total_ext_grid(idx, :) = e_total_ext(ii, :);
-        end
+        % Reshape 3D grid [ny, nx, 3] to flat [n_grid, 3]
+        e_total_ext_flat = reshape(e_total_ext_grid_3d, [], 3);  % [n_grid, 3]
+
+        % Copy to output arrays (NaN values stay where they are)
+        e_total_full = e_total_ext_flat;
+        e_total_ext_grid = e_total_ext_flat;
+
+        n_valid_ext = sum(all(isfinite(e_total_ext_flat), 2));
+        fprintf('      Filled %d/%d external points from grid\\n', n_valid_ext, n_grid_points);
+
     else
-        % 3D or other: fallback to Manhattan distance (original method)
-        fprintf('      Grid type: 3D (using Manhattan distance)\\n');
-        for ii = 1:emesh_external.pt.n
-            dx = abs(x_flat - emesh_external.pt.pos(ii,1));
-            dy = abs(y_flat - emesh_external.pt.pos(ii,2));
-            dz = abs(z_flat - emesh_external.pt.pos(ii,3));
-            [~, idx] = min(dx + dy + dz);
-            e_total_full(idx, :) = e_total_ext(ii, :);
-            e_total_ext_grid(idx, :) = e_total_ext(ii, :);
+        % POINT-BASED: Map using emesh_external.pt coordinates
+        fprintf('      Using point-based mapping (%d points)...\\n', emesh_external.pt.n);
+
+        % Determine plane type and create proper index mapping
+        if numel(unique(y_grid)) == 1
+            % xz-plane: y is constant
+            fprintf('      Grid type: xz-plane\\n');
+            for ii = 1:emesh_external.pt.n
+                [~, ix] = min(abs(emesh_external.pt.pos(ii,1) - x_vec));
+                [~, iz] = min(abs(emesh_external.pt.pos(ii,3) - z_vec));
+                idx = sub2ind(grid_shape, iz, ix);
+                e_total_full(idx, :) = e_total_ext(ii, :);
+                e_total_ext_grid(idx, :) = e_total_ext(ii, :);
+            end
+        elseif numel(unique(z_grid)) == 1
+            % xy-plane: z is constant
+            fprintf('      Grid type: xy-plane\\n');
+            for ii = 1:emesh_external.pt.n
+                [~, ix] = min(abs(emesh_external.pt.pos(ii,1) - x_vec));
+                [~, iy] = min(abs(emesh_external.pt.pos(ii,2) - y_vec));
+                idx = sub2ind(grid_shape, iy, ix);
+                e_total_full(idx, :) = e_total_ext(ii, :);
+                e_total_ext_grid(idx, :) = e_total_ext(ii, :);
+            end
+        else
+            % 3D: fallback to Manhattan distance
+            fprintf('      Grid type: 3D (using Manhattan distance)\\n');
+            for ii = 1:emesh_external.pt.n
+                dx = abs(x_flat - emesh_external.pt.pos(ii,1));
+                dy = abs(y_flat - emesh_external.pt.pos(ii,2));
+                dz = abs(z_flat - emesh_external.pt.pos(ii,3));
+                [~, idx] = min(dx + dy + dz);
+                e_total_full(idx, :) = e_total_ext(ii, :);
+                e_total_ext_grid(idx, :) = e_total_ext(ii, :);
+            end
         end
     end
     
