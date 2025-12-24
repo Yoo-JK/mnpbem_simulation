@@ -2705,19 +2705,47 @@ for ipol = 1:n_polarizations
     x_flat = x_grid(:);
     y_flat = y_grid(:);
     z_flat = z_grid(:);
-    
-    % Fill external points
-    fprintf('      Filling %d external points...\\n', emesh_external.pt.n);
-    for ii = 1:emesh_external.pt.n
-        dx = abs(x_flat - emesh_external.pt.pos(ii,1));
-        dy = abs(y_flat - emesh_external.pt.pos(ii,2));
-        dz = abs(z_flat - emesh_external.pt.pos(ii,3));
-        [~, idx] = min(dx + dy + dz);
-        
-        e_total_full(idx, :) = e_total_ext(ii, :);
-        
-        % Store external separately
-        e_total_ext_grid(idx, :) = e_total_ext(ii, :);
+
+    % Extract unique grid vectors for proper indexing
+    x_vec = unique(x_grid);
+    y_vec = unique(y_grid);
+    z_vec = unique(z_grid);
+
+    % Fill external points using exact grid matching (same method as internal)
+    fprintf('      Filling %d external points (exact matching)...\\n', emesh_external.pt.n);
+
+    % Determine plane type and create proper index mapping
+    if numel(unique(y_grid)) == 1
+        % xz-plane: y is constant
+        fprintf('      Grid type: xz-plane\\n');
+        for ii = 1:emesh_external.pt.n
+            [~, ix] = min(abs(emesh_external.pt.pos(ii,1) - x_vec));
+            [~, iz] = min(abs(emesh_external.pt.pos(ii,3) - z_vec));
+            idx = sub2ind(grid_shape, iz, ix);
+            e_total_full(idx, :) = e_total_ext(ii, :);
+            e_total_ext_grid(idx, :) = e_total_ext(ii, :);
+        end
+    elseif numel(unique(z_grid)) == 1
+        % xy-plane: z is constant
+        fprintf('      Grid type: xy-plane\\n');
+        for ii = 1:emesh_external.pt.n
+            [~, ix] = min(abs(emesh_external.pt.pos(ii,1) - x_vec));
+            [~, iy] = min(abs(emesh_external.pt.pos(ii,2) - y_vec));
+            idx = sub2ind(grid_shape, iy, ix);
+            e_total_full(idx, :) = e_total_ext(ii, :);
+            e_total_ext_grid(idx, :) = e_total_ext(ii, :);
+        end
+    else
+        % 3D or other: fallback to Manhattan distance (original method)
+        fprintf('      Grid type: 3D (using Manhattan distance)\\n');
+        for ii = 1:emesh_external.pt.n
+            dx = abs(x_flat - emesh_external.pt.pos(ii,1));
+            dy = abs(y_flat - emesh_external.pt.pos(ii,2));
+            dz = abs(z_flat - emesh_external.pt.pos(ii,3));
+            [~, idx] = min(dx + dy + dz);
+            e_total_full(idx, :) = e_total_ext(ii, :);
+            e_total_ext_grid(idx, :) = e_total_ext(ii, :);
+        end
     end
     
     % Fill internal points (IMPROVED: Exact grid matching)
