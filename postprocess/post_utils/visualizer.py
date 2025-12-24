@@ -1656,3 +1656,4 @@ class Visualizer:
         plt.close(fig)
 
         return saved_files
+
