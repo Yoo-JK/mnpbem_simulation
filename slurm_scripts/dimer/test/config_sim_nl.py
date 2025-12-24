@@ -25,7 +25,7 @@ args['calculate_fields'] = False
 args['use_nonlocality'] = True
 args['use_mirror_symmetry'] = False
 
-args['output_dir'] = os.path.join(Path.home(), 'research/mnpbem/test_nonlocal_only')
+args['output_dir'] = os.path.join(Path.home(), 'research/mnpbem/test_nonlocal_mirror')
 args['output_formats'] = ['txt', 'csv', 'json']
 args['save_plots'] = True
 args['plot_format'] = ['png']
