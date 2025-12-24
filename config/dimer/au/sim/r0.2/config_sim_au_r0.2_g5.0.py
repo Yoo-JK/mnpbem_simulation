@@ -205,7 +205,7 @@ args['use_iterative_solver'] = True
 # Nonlocal effects (advanced, for very small particles <5nm)
 # Includes quantum effects at metal surfaces
 # Requires additional setup
-args['use_nonlocality'] = True
+args['use_nonlocality'] = False
 
 # ============================================================================
 # MATLAB SETTINGS (ADVANCED)
