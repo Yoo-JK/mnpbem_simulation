@@ -142,14 +142,15 @@ fprintf('  [OK] Nonlocal corrections: {material_name} with d=%.3f nm\\n', d_nonl
     def modify_materials_for_nonlocal(self, materials):
         """
         Modify material list to include nonlocal corrections.
-        
-        For each metal, we need:
-          - Original metal → inner boundary
-          - Nonlocal artificial epsilon → outer boundary (cover layer)
-        
+
+        IMPORTANT: Nonlocal is applied ONLY to the outermost metal.
+        - For Au nanocube: Au gets nonlocal
+        - For Au@Ag core-shell: Only Ag (shell) gets nonlocal
+        - For Au@Ag@AgCl: AgCl is not metal, no nonlocal applied
+
         Args:
-            materials (list): Original material list
-        
+            materials (list): Original material list (ordered core to shell)
+
         Returns:
             tuple: (modified_materials, nonlocal_mapping)
                 modified_materials: New material list with nonlocal materials
@@ -157,33 +158,47 @@ fprintf('  [OK] Nonlocal corrections: {material_name} with d=%.3f nm\\n', d_nonl
         """
         if not self.enabled:
             return materials, {}
-        
+
         metals = ['gold', 'silver', 'au', 'ag', 'aluminum', 'al', 'copper', 'cu']
-        
+
+        # Find the outermost metal (check from last to first)
+        outermost_metal_idx = None
+        for i in range(len(materials) - 1, -1, -1):
+            mat_name = materials[i].lower() if isinstance(materials[i], str) else ''
+            is_metal = any(metal in mat_name for metal in metals)
+            if is_metal:
+                outermost_metal_idx = i
+                break
+
+        if outermost_metal_idx is None:
+            if self.verbose:
+                print("  No outermost metal found - nonlocal will not be applied")
+            return materials, {}
+
+        if self.verbose:
+            print(f"  Outermost metal: {materials[outermost_metal_idx]} at index {outermost_metal_idx}")
+
         modified_materials = []
         nonlocal_mapping = {}
-        
+
         for i, mat in enumerate(materials):
-            mat_name = mat.lower() if isinstance(mat, str) else 'unknown'
-            
-            # Check if this is a metal that needs nonlocal correction
-            is_metal = any(metal in mat_name for metal in metals)
-            
-            if is_metal:
-                # Add both inner (Drude) and outer (nonlocal) materials
+            if i == outermost_metal_idx:
+                # Only the outermost metal gets Drude + nonlocal
                 modified_materials.append(mat)  # Inner: Drude
                 modified_materials.append(f"{mat}_nonlocal")  # Outer: nonlocal
-                
+
                 inner_idx = len(modified_materials) - 2
                 outer_idx = len(modified_materials) - 1
                 nonlocal_mapping[i] = (inner_idx, outer_idx)
-                
+
                 if self.verbose:
-                    print(f"  - {mat}: inner (Drude) index {inner_idx}, outer (nonlocal) index {outer_idx}")
+                    print(f"  - {mat}: inner (Drude) index {inner_idx}, outer (nonlocal) index {outer_idx} [OUTERMOST]")
             else:
-                # Non-metal: keep as is
+                # All other materials (including inner metals): keep as is
                 modified_materials.append(mat)
-        
+                if self.verbose:
+                    print(f"  - {mat}: standard index {len(modified_materials) - 1}")
+
         return modified_materials, nonlocal_mapping
     
     def generate_bem_options(self):

@@ -17,7 +17,10 @@ from .nonlocal_generator import NonlocalGenerator
 
 class MaterialManager:
     """Manages material definitions and dielectric functions."""
-    
+
+    # List of recognized metal names
+    METALS = ['gold', 'silver', 'au', 'ag', 'aluminum', 'al', 'copper', 'cu']
+
     def __init__(self, config, verbose=False):
         self.config = config
         self.verbose = verbose
@@ -25,6 +28,29 @@ class MaterialManager:
         self.nonlocal_gen = NonlocalGenerator(config, verbose)
         self.complete_materials = self._build_complete_material_list()
         self.table_materials_data = {}
+
+    def _is_metal(self, material):
+        """Check if a material is a metal."""
+        if isinstance(material, str):
+            mat_lower = material.lower()
+            return any(metal in mat_lower for metal in self.METALS)
+        return False
+
+    def _find_outermost_metal(self, materials):
+        """
+        Find the outermost metal in the materials list.
+
+        In core-shell structures, materials are ordered from core to shell,
+        so the outermost is the LAST item in the list.
+
+        Returns:
+            tuple: (index, material_name) or (None, None) if no metal found
+        """
+        # Check from the outermost (last) to innermost (first)
+        for i in range(len(materials) - 1, -1, -1):
+            if self._is_metal(materials[i]):
+                return i, materials[i]
+        return None, None
     
     def _build_complete_material_list(self):
         """
@@ -100,138 +126,203 @@ class MaterialManager:
         return code
     
     def _generate_nonlocal_epstab(self):
-        """Generate dielectric function table with nonlocal corrections."""
+        """Generate dielectric function table with nonlocal corrections.
+
+        IMPORTANT: Nonlocal corrections are applied ONLY to the outermost metal.
+        Examples:
+          - Au nanocube dimer: Au gets nonlocal
+          - Au@Ag nanocube dimer: Only Ag (shell) gets nonlocal
+          - Au@Ag@AgCl nanocube dimer: AgCl is not metal, no nonlocal applied
+        """
         if not self.nonlocal_gen.is_needed():
             return self._generate_epstab()
-        
+
+        materials_list = self.complete_materials
+        particle_materials = self.config.get('materials', [])
+
+        # Find the outermost metal in particle materials
+        outermost_idx, outermost_metal = self._find_outermost_metal(particle_materials)
+
         if self.verbose:
             print("\n=== Generating Nonlocal Materials ===")
-        
-        materials_list = self.complete_materials
-        metals = ['gold', 'silver', 'au', 'ag', 'aluminum', 'al']
-        
+            if outermost_metal:
+                print(f"  Outermost metal: {outermost_metal} (index {outermost_idx} in particle materials)")
+            else:
+                print("  No metal found in outermost layer - nonlocal will NOT be applied")
+
+        # If no outermost metal, fall back to standard generation
+        if outermost_metal is None:
+            if self.verbose:
+                print("  → Falling back to standard (non-nonlocal) material generation")
+            return self._generate_epstab()
+
         epstab_entries = []
         material_descriptions = []
-        
-        for i, mat in enumerate(materials_list, 1):
-            mat_lower = mat.lower() if isinstance(mat, str) else 'custom'
-            is_metal = any(metal in mat_lower for metal in metals)
-            
-            if is_metal and i > 1:  # Skip medium (index 1)
-                material_descriptions.append(f"% Material {i}: {mat} (Drude + Nonlocal)")
+
+        # complete_materials = [medium, particle_mat1, particle_mat2, ..., (substrate)]
+        # outermost_idx is relative to particle_materials, so in complete_materials it's outermost_idx + 1
+        outermost_complete_idx = outermost_idx + 1  # +1 because medium is at index 0
+
+        for i, mat in enumerate(materials_list):
+            mat_idx_display = i + 1  # 1-based for display
+
+            if i == outermost_complete_idx:
+                # This is the outermost metal - apply nonlocal
+                material_descriptions.append(f"% Material {mat_idx_display}: {mat} (Drude + Nonlocal) [OUTERMOST]")
                 epstab_entries.append(f"eps_{mat}_drude")
                 epstab_entries.append(f"eps_{mat}_nonlocal")
-                
+
                 if self.verbose:
-                    print(f"  Material {i}: {mat} → Drude + Nonlocal")
+                    print(f"  Material {mat_idx_display}: {mat} → Drude + Nonlocal (outermost)")
             else:
-                material_descriptions.append(f"% Material {i}: {mat}")
-                # 🔥 FIX: 변수명만 추출 (세미콜론 제거)
-                mat_code = self._generate_single_material(mat, i)
-                # epsconst(1) 같은 함수 호출을 변수로 만들기
-                var_name = f"eps_mat{i}"
+                # All other materials (including inner metals) - standard treatment
+                material_descriptions.append(f"% Material {mat_idx_display}: {mat}")
+                var_name = f"eps_mat{mat_idx_display}"
                 epstab_entries.append(var_name)
-                
+
                 if self.verbose:
-                    print(f"  Material {i}: {mat} → Standard")
-        
+                    print(f"  Material {mat_idx_display}: {mat} → Standard")
+
         materials_code = "\n".join(material_descriptions)
         epstab_code = "epstab = { " + ", ".join(epstab_entries) + " };"
-        
+
         full_code = f"""
 %% Dielectric Functions with Nonlocal Corrections
+%% NOTE: Nonlocal applied ONLY to outermost metal: {outermost_metal}
 {materials_code}
 
 % Medium
-eps_mat1 = {self._generate_single_material(materials_list[0], 1)};  % 🔥 세미콜론 추가!
+eps_mat1 = {self._generate_single_material(materials_list[0], 1)};
 
-% Generate artificial nonlocal dielectric functions
+% Generate artificial nonlocal dielectric function for outermost metal only
 """
-        
-        # Add artificial epsilon generation for each metal
-        for i, mat in enumerate(materials_list[1:], start=2):  # 🔥 인덱스 수정
-            mat_lower = mat.lower() if isinstance(mat, str) else ''
-            is_metal = any(metal in mat_lower for metal in metals)
-            
-            if is_metal:
-                full_code += self.nonlocal_gen.generate_artificial_epsilon(mat)
-                full_code += "\n"
-        
-        # Add standard material definitions for non-metals
-        for i, mat in enumerate(materials_list, 1):
-            mat_lower = mat.lower() if isinstance(mat, str) else ''
-            is_metal = any(metal in mat_lower for metal in metals)
-            
-            if not is_metal and i > 1:  # Skip medium (already defined)
-                mat_def = self._generate_single_material(mat, i)
-                full_code += f"eps_mat{i} = {mat_def};  % {mat}\n"
-        
+
+        # Add artificial epsilon ONLY for the outermost metal
+        full_code += self.nonlocal_gen.generate_artificial_epsilon(outermost_metal)
+        full_code += "\n"
+
+        # Add standard material definitions for all other materials
+        for i, mat in enumerate(materials_list):
+            mat_idx_display = i + 1
+
+            # Skip medium (already defined) and outermost metal (has drude+nonlocal)
+            if i == 0:  # medium
+                continue
+            if i == outermost_complete_idx:  # outermost metal
+                continue
+
+            mat_def = self._generate_single_material(mat, mat_idx_display)
+            full_code += f"eps_mat{mat_idx_display} = {mat_def};  % {mat}\n"
+
         full_code += f"\n{epstab_code}\n"
-        
+
         return full_code
     
     def _generate_inout_nonlocal(self):
-        """Generate inout matrix for nonlocal structure (FIXED VERSION)."""
+        """Generate inout matrix for nonlocal structure.
+
+        IMPORTANT: Nonlocal is applied ONLY to the outermost metal.
+        - For core-shell structures: outermost = last in materials list
+        - Only that layer gets Drude+Nonlocal treatment
+        - Inner metals are treated as standard materials
+        """
         structure = self.config.get('structure', '')
         materials = self.config.get('materials', [])
-        metals = ['gold', 'silver', 'au', 'ag', 'aluminum', 'al']
-        
+
+        # Find outermost metal
+        outermost_idx, outermost_metal = self._find_outermost_metal(materials)
+
+        if self.verbose:
+            print(f"\n=== Generating Inout (Nonlocal Mode) ===")
+            if outermost_metal:
+                print(f"  Outermost metal: {outermost_metal} at index {outermost_idx}")
+            else:
+                print(f"  No outermost metal - using standard inout")
+
+        # If no outermost metal, use standard inout
+        if outermost_metal is None:
+            return self._generate_inout()
+
         if 'dimer' in structure:
             n_particles = 2
         else:
             n_particles = 1
-        
-        # Build material index mapping
-        # epstab structure: [medium, material1_drude, material1_nonlocal, material2, ...]
+
+        # Build epstab index mapping
+        # epstab = [medium, mat1, mat2, ..., outermost_drude, outermost_nonlocal, ...]
+        # Only the outermost metal gets drude+nonlocal (2 entries), others get 1 entry
         mat_indices = {}
         epstab_idx = 2  # Start from 2 (1 is medium)
-        
+
         for i, mat in enumerate(materials):
-            mat_lower = mat.lower() if isinstance(mat, str) else ''
-            is_metal = any(metal in mat_lower for metal in metals)
-            
-            if is_metal:
+            if i == outermost_idx:
+                # Outermost metal: drude + nonlocal (2 entries)
                 mat_indices[i] = {
                     'drude': epstab_idx,
-                    'nonlocal': epstab_idx + 1
+                    'nonlocal': epstab_idx + 1,
+                    'is_outermost_metal': True
                 }
                 epstab_idx += 2
             else:
+                # Standard material (1 entry)
                 mat_indices[i] = {
-                    'standard': epstab_idx
+                    'standard': epstab_idx,
+                    'is_outermost_metal': False
                 }
                 epstab_idx += 1
-        
+
         # Generate inout rows
+        # For core-shell: layers are ordered [core, shell1, shell2, ...]
+        # Boundaries go from innermost to outermost
         inout_rows = []
-        
+        n_layers = len(materials)
+
         for particle_idx in range(n_particles):
-            for layer_idx, mat in enumerate(materials):
-                mat_lower = mat.lower() if isinstance(mat, str) else ''
-                is_metal = any(metal in mat_lower for metal in metals)
-                
-                if is_metal:
-                    # Outer boundary: nonlocal inside, medium outside
+            for layer_idx in range(n_layers):
+                is_outermost_layer = (layer_idx == n_layers - 1)
+                is_outermost_metal = mat_indices[layer_idx].get('is_outermost_metal', False)
+
+                if is_outermost_metal:
+                    # This is the outermost metal - has two boundaries (outer + inner)
                     nonlocal_idx = mat_indices[layer_idx]['nonlocal']
-                    inout_rows.append(f"{nonlocal_idx}, 1")
-                    
-                    # Inner boundary: drude inside, nonlocal outside
                     drude_idx = mat_indices[layer_idx]['drude']
+
+                    # Outer boundary: nonlocal inside, medium(1) outside
+                    inout_rows.append(f"{nonlocal_idx}, 1")
+
+                    # Inner boundary: drude inside, nonlocal outside
                     inout_rows.append(f"{drude_idx}, {nonlocal_idx}")
                 else:
-                    # Standard material
+                    # Standard material - single boundary
                     std_idx = mat_indices[layer_idx]['standard']
-                    if layer_idx == 0:
+
+                    if layer_idx == n_layers - 1:
+                        # Outermost layer (but not metal): inside=material, outside=medium
                         inout_rows.append(f"{std_idx}, 1")
+                    elif layer_idx == 0:
+                        # Core: inside=core, outside=next_layer
+                        next_layer_idx = layer_idx + 1
+                        if mat_indices[next_layer_idx].get('is_outermost_metal'):
+                            # Next layer is outermost metal → use its drude index
+                            outside_idx = mat_indices[next_layer_idx]['drude']
+                        else:
+                            outside_idx = mat_indices[next_layer_idx]['standard']
+                        inout_rows.append(f"{std_idx}, {outside_idx}")
                     else:
-                        prev_idx = mat_indices[layer_idx-1].get('nonlocal', mat_indices[layer_idx-1].get('standard'))
-                        inout_rows.append(f"{std_idx}, {prev_idx}")
-        
+                        # Middle layer: inside=this, outside=next
+                        next_layer_idx = layer_idx + 1
+                        if mat_indices[next_layer_idx].get('is_outermost_metal'):
+                            outside_idx = mat_indices[next_layer_idx]['drude']
+                        else:
+                            outside_idx = mat_indices[next_layer_idx]['standard']
+                        inout_rows.append(f"{std_idx}, {outside_idx}")
+
         inout_str = "; ...\n         ".join(inout_rows)
-        
+
         code = f"""
-%% Material Mapping (with Nonlocal)
+%% Material Mapping (with Nonlocal on outermost metal: {outermost_metal})
 % inout(i, :) = [material_inside, material_outside] for boundary i
+% Nonlocal correction applied ONLY to outermost metal layer
 inout = [ {inout_str} ];
 
 fprintf('  Total boundaries: %d\\n', size(inout, 1));
@@ -486,67 +577,124 @@ end
         return code
     
     def _inout_advanced_dimer_cube(self):
-        """Inout for advanced dimer cube with multi-shell structure."""
+        """Inout for advanced dimer cube with multi-shell structure.
+
+        Nonlocal is applied ONLY to the outermost metal layer.
+        """
         shell_layers = self.config.get('shell_layers', [])
+        materials = self.config.get('materials', [])
         n_shells = len(shell_layers)
+        n_layers = len(materials)  # 1 (core) + n_shells
         use_nonlocal = self.nonlocal_gen.is_needed()
 
-        if use_nonlocal and n_shells == 0:
-            # epstab: [medium(1), metal_drude(2), metal_nonlocal(3)]
-            # Particles: [P1-outer, P1-inner, P2-outer, P2-inner]
-            code = """inout = [
-    3, 1;  % P1-Outer: nonlocal(3) inside, medium(1) outside
-    2, 3;  % P1-Inner: drude(2) inside, nonlocal(3) outside
-    3, 1;  % P2-Outer: nonlocal(3) inside, medium(1) outside
-    2, 3   % P2-Inner: drude(2) inside, nonlocal(3) outside
-];"""
-            return code
-        
-        elif use_nonlocal and n_shells > 0:
+        # Find outermost metal
+        outermost_idx, outermost_metal = self._find_outermost_metal(materials)
 
-            raise NotImplementedError(
-                "Nonlocal with shell_layers is not yet implemented. "
-                "Use shell_layers=[] for nonlocal simulations."
-            )        
-        
+        if use_nonlocal:
+            if outermost_metal is None:
+                # No metal in outermost layer - fall back to standard
+                use_nonlocal = False
+                if self.verbose:
+                    print("  No outermost metal - nonlocal disabled for advanced_dimer_cube")
+
+        if not use_nonlocal:
+            # Standard inout (no nonlocal)
+            inout_lines = []
+
+            # Particle 1
+            if n_shells == 0:
+                inout_lines.append(f"    2, 1;  % P1-Core")
+            else:
+                inout_lines.append(f"    2, 3;  % P1-Core: outside=shell1")
+
+            for i in range(n_shells):
+                shell_num = i + 1
+                mat_idx = 2 + shell_num
+
+                if i == n_shells - 1:
+                    inout_lines.append(f"    {mat_idx}, 1;  % P1-Shell{shell_num}: outside=medium")
+                else:
+                    next_shell_mat = mat_idx + 1
+                    inout_lines.append(f"    {mat_idx}, {next_shell_mat};  % P1-Shell{shell_num}")
+
+            # Particle 2
+            if n_shells == 0:
+                inout_lines.append(f"    2, 1;  % P2-Core")
+            else:
+                inout_lines.append(f"    2, 3;  % P2-Core: outside=shell1")
+
+            for i in range(n_shells):
+                shell_num = i + 1
+                mat_idx = 2 + shell_num
+
+                if i == n_shells - 1:
+                    inout_lines.append(f"    {mat_idx}, 1;  % P2-Shell{shell_num}: outside=medium")
+                else:
+                    next_shell_mat = mat_idx + 1
+                    inout_lines.append(f"    {mat_idx}, {next_shell_mat};  % P2-Shell{shell_num}")
+
+            if inout_lines:
+                inout_lines[-1] = inout_lines[-1].rstrip(';')
+
+            code = "inout = [\n" + "\n".join(inout_lines) + "\n];"
+            return code
+
+        # === Nonlocal mode: apply only to outermost metal ===
+        # Build epstab index mapping (only outermost metal gets 2 indices)
+        mat_indices = {}
+        epstab_idx = 2  # 1 is medium
+
+        for i in range(n_layers):
+            if i == outermost_idx:
+                mat_indices[i] = {
+                    'drude': epstab_idx,
+                    'nonlocal': epstab_idx + 1,
+                    'is_outermost_metal': True
+                }
+                epstab_idx += 2
+            else:
+                mat_indices[i] = {
+                    'standard': epstab_idx,
+                    'is_outermost_metal': False
+                }
+                epstab_idx += 1
+
         inout_lines = []
-        
-        # Particle 1
-        if n_shells == 0:
-            inout_lines.append(f"    2, 1;  % P1-Core")
-        else:
-            inout_lines.append(f"    2, 3;  % P1-Core: outside=shell1")
-        
-        for i in range(n_shells):
-            shell_num = i + 1
-            mat_idx = 2 + shell_num
-            
-            if i == n_shells - 1:
-                inout_lines.append(f"    {mat_idx}, 1;  % P1-Shell{shell_num}: outside=medium")
-            else:
-                next_shell_mat = mat_idx + 1
-                inout_lines.append(f"    {mat_idx}, {next_shell_mat};  % P1-Shell{shell_num}")
-        
-        # Particle 2
-        if n_shells == 0:
-            inout_lines.append(f"    2, 1;  % P2-Core")
-        else:
-            inout_lines.append(f"    2, 3;  % P2-Core: outside=shell1")
-        
-        for i in range(n_shells):
-            shell_num = i + 1
-            mat_idx = 2 + shell_num
-            
-            if i == n_shells - 1:
-                inout_lines.append(f"    {mat_idx}, 1;  % P2-Shell{shell_num}: outside=medium")
-            else:
-                next_shell_mat = mat_idx + 1
-                inout_lines.append(f"    {mat_idx}, {next_shell_mat};  % P2-Shell{shell_num}")
-        
+
+        for particle_name in ['P1', 'P2']:
+            for layer_idx in range(n_layers):
+                layer_info = mat_indices[layer_idx]
+                is_outermost_layer = (layer_idx == n_layers - 1)
+
+                if layer_info.get('is_outermost_metal'):
+                    # Outermost metal: 2 boundaries
+                    nonlocal_idx = layer_info['nonlocal']
+                    drude_idx = layer_info['drude']
+                    inout_lines.append(f"    {nonlocal_idx}, 1;  % {particle_name}-Outer: nonlocal inside, medium outside")
+                    inout_lines.append(f"    {drude_idx}, {nonlocal_idx};  % {particle_name}-Inner: drude inside, nonlocal outside")
+                else:
+                    # Standard material: 1 boundary
+                    std_idx = layer_info['standard']
+
+                    if is_outermost_layer:
+                        # Outermost but not metal
+                        inout_lines.append(f"    {std_idx}, 1;  % {particle_name}-Layer{layer_idx}: outside=medium")
+                    else:
+                        # Get next layer's inside index
+                        next_layer = mat_indices[layer_idx + 1]
+                        if next_layer.get('is_outermost_metal'):
+                            outside_idx = next_layer['drude']
+                        else:
+                            outside_idx = next_layer['standard']
+
+                        layer_name = "Core" if layer_idx == 0 else f"Shell{layer_idx}"
+                        inout_lines.append(f"    {std_idx}, {outside_idx};  % {particle_name}-{layer_name}")
+
         if inout_lines:
             inout_lines[-1] = inout_lines[-1].rstrip(';')
-        
-        code = "inout = [\n" + "\n".join(inout_lines) + "\n];"
+
+        code = f"% Nonlocal applied to outermost metal: {outermost_metal}\n"
+        code += "inout = [\n" + "\n".join(inout_lines) + "\n];"
         return code
     
     def _inout_from_shape(self):
@@ -574,8 +722,19 @@ end
         return code
     
     def _generate_closed(self):
-        """Generate closed surfaces specification."""
+        """Generate closed surfaces specification.
+
+        For nonlocal mode, only the outermost metal layer gets an additional boundary.
+        """
         use_nonlocal = self.nonlocal_gen.is_needed()
+        materials = self.config.get('materials', [])
+
+        # Check if outermost layer is a metal
+        outermost_idx, outermost_metal = self._find_outermost_metal(materials)
+
+        # If nonlocal enabled but no outermost metal, disable nonlocal for closed calculation
+        if use_nonlocal and outermost_metal is None:
+            use_nonlocal = False
 
         structure_closed_map = {
             'sphere': "closed = 1;",
@@ -593,51 +752,72 @@ end
             'advanced_dimer_cube': self._closed_advanced_dimer_cube,
             'from_shape': self._closed_from_shape
         }
-        
+
         if self.structure not in structure_closed_map:
             raise ValueError(f"Unknown structure: {self.structure}")
-        
+
         result = structure_closed_map[self.structure]
 
         if use_nonlocal and isinstance(result, str):
-            import re
-            match = re.findall(r'\d+', result)
-            if match:
-                indices = [int(x) for x in match]
-                # 각 입자가 outer + inner 경계를 가지므로 2배
-                doubled = []
-                for idx in indices:
-                    doubled.append(idx * 2 - 1)  # outer
-                    doubled.append(idx * 2)      # inner
-                return f"closed = [{', '.join(map(str, doubled))}];"
-
+            # Calculate closed indices for nonlocal mode
+            # Only the outermost layer gets 2 boundaries, others get 1
+            return self._calculate_closed_for_nonlocal(outermost_idx)
 
         if callable(result):
-
             if self.structure == 'advanced_dimer_cube':
-
-                return result(use_nonlocal=use_nonlocal)
-
+                return result(use_nonlocal=use_nonlocal, outermost_idx=outermost_idx)
             else:
-
                 return result()
         else:
             return result
 
-    
-    def _closed_advanced_dimer_cube(self, use_nonlocal=False):
-        """Closed surfaces for advanced dimer cube."""
-        n_shells = len(self.config.get('shell_layers', []))
-        n_particles_base = 2 * (1 + n_shells)
+    def _calculate_closed_for_nonlocal(self, outermost_idx):
+        """Calculate closed indices when nonlocal is applied to outermost metal only."""
+        materials = self.config.get('materials', [])
+        n_layers = len(materials)
+        structure = self.structure
 
-        if use_nonlocal:
-            n_particles_total = n_particles_base * 2
-            if self.verbose:
-                print(f"  ✓ Advanced dimer with nonlocal: {n_particles_base} base → {n_particles_total} with covers")
+        if 'dimer' in structure:
+            n_particles = 2
         else:
-            n_particles_total = n_particles_base
+            n_particles = 1
 
-        closed_indices = list(range(1, n_particles_total + 1))
+        # Calculate total boundaries per particle:
+        # - Each layer has 1 boundary
+        # - Except outermost metal which has 2 boundaries (outer + inner)
+        boundaries_per_particle = n_layers + 1  # +1 for the extra boundary on outermost metal
+
+        total_boundaries = n_particles * boundaries_per_particle
+        closed_indices = list(range(1, total_boundaries + 1))
+
+        return f"closed = [{', '.join(map(str, closed_indices))}];"
+
+    
+    def _closed_advanced_dimer_cube(self, use_nonlocal=False, outermost_idx=None):
+        """Closed surfaces for advanced dimer cube.
+
+        When nonlocal is enabled, only the outermost metal layer gets an extra boundary.
+        """
+        materials = self.config.get('materials', [])
+        n_layers = len(materials)  # 1 (core) + n_shells
+        n_particles = 2  # dimer
+
+        if use_nonlocal and outermost_idx is not None:
+            # Only outermost metal gets an extra boundary
+            # Total boundaries per particle = n_layers + 1 (for the extra cover layer)
+            boundaries_per_particle = n_layers + 1
+            n_boundaries_total = n_particles * boundaries_per_particle
+
+            if self.verbose:
+                print(f"  ✓ Advanced dimer with nonlocal on outermost metal only:")
+                print(f"    - {n_layers} layers per particle + 1 extra for nonlocal = {boundaries_per_particle}")
+                print(f"    - Total boundaries: {n_boundaries_total}")
+        else:
+            # Standard mode: each layer = 1 boundary
+            boundaries_per_particle = n_layers
+            n_boundaries_total = n_particles * boundaries_per_particle
+
+        closed_indices = list(range(1, n_boundaries_total + 1))
         return f"closed = [{', '.join(map(str, closed_indices))}];"
     
     def _closed_from_shape(self):
