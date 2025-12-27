@@ -353,9 +353,9 @@ class FieldAnalyzer:
     def _integrate_single_field(self, field_data, config, geometry):
         """
         Integrate field values for a single wavelength/polarization.
-        
+
         Calculates integration at multiple depths (10nm, 15nm interior).
-        
+
         Returns
         -------
         dict
@@ -366,12 +366,23 @@ class FieldAnalyzer:
         x_grid = field_data['x_grid']
         y_grid = field_data['y_grid']
         z_grid = field_data['z_grid']
-        
+
+        # Get raw intensities for energy ratio calculation: sum(|E|²)/sum(|E0|²)
+        e_sq = field_data.get('e_sq')        # |E|² (raw)
+        e0_sq = field_data.get('e0_sq')      # |E0|² (reference)
+        e_sq_int = field_data.get('e_sq_int')  # |E|² internal (for chunked version)
+
         # Handle complex data
         if np.iscomplexobj(enhancement):
             enhancement = np.abs(enhancement)
         if intensity is not None and np.iscomplexobj(intensity):
             intensity = np.abs(intensity)
+        if e_sq is not None and np.iscomplexobj(e_sq):
+            e_sq = np.abs(e_sq)
+        if e0_sq is not None and np.iscomplexobj(e0_sq):
+            e0_sq = np.abs(e0_sq)
+        if e_sq_int is not None and np.iscomplexobj(e_sq_int):
+            e_sq_int = np.abs(e_sq_int)
 
         if self.verbose:
             enh_finite = enhancement[np.isfinite(enhancement)]
@@ -402,23 +413,25 @@ class FieldAnalyzer:
         
         # Calculate for each depth
         results_by_depth = {}
-        
+
         for depth in self.near_field_distances:
 
             if self.verbose:
                 print(f"    [DEBUG] Processing depth = {depth:.1f} nm (interior)")
             # Create distance mask for this depth
             distance_mask = self._create_distance_mask(x_grid, y_grid, z_grid, spheres, depth)
-            
+
             # Calculate with two filtering methods
             result_strict = self._calculate_with_filtering(
-                enhancement, intensity, distance_mask, n_spheres, method='strict'
+                enhancement, intensity, distance_mask, n_spheres,
+                e_sq=e_sq, e0_sq=e0_sq, e_sq_int=e_sq_int, method='strict'
             )
-            
+
             result_conservative = self._calculate_with_filtering(
-                enhancement, intensity, distance_mask, n_spheres, method='conservative'
+                enhancement, intensity, distance_mask, n_spheres,
+                e_sq=e_sq, e0_sq=e0_sq, e_sq_int=e_sq_int, method='conservative'
             )
-            
+
             results_by_depth[depth] = {
                 'strict': result_strict,
                 'conservative': result_conservative,
@@ -436,10 +449,11 @@ class FieldAnalyzer:
             'grid_info': grid_info
         }
     
-    def _calculate_with_filtering(self, enhancement, intensity, distance_mask, n_spheres, method='strict'):
+    def _calculate_with_filtering(self, enhancement, intensity, distance_mask, n_spheres,
+                                    e_sq=None, e0_sq=None, e_sq_int=None, method='strict'):
         """
         Calculate sums with specified filtering method.
-        
+
         Parameters
         ----------
         enhancement : ndarray
@@ -450,13 +464,19 @@ class FieldAnalyzer:
             Mask for integration region
         n_spheres : int
             Number of spheres
+        e_sq : ndarray, optional
+            |E|² raw intensity array for energy ratio calculation
+        e0_sq : ndarray, optional
+            |E0|² reference intensity array for energy ratio calculation
+        e_sq_int : ndarray, optional
+            |E|² internal intensity array (for chunked version)
         method : str
             'strict' or 'conservative'
-        
+
         Returns
         -------
         dict
-            Calculated sums and statistics (including per-sphere values)
+            Calculated sums and statistics (including per-sphere values and energy_ratio)
         """
         # Start with distance mask
         final_mask = distance_mask.copy()
@@ -538,7 +558,7 @@ class FieldAnalyzer:
             int_sum = float(np.sum(int_in_region))
             int_mean = float(np.mean(int_in_region))
             int_per_sphere = int_sum / n_spheres if n_spheres > 0 else 0.0
-            
+
             result['intensity_sum'] = int_sum
             result['intensity_mean'] = int_mean
             result['intensity_per_sphere'] = int_per_sphere
@@ -546,10 +566,56 @@ class FieldAnalyzer:
             result['intensity_sum'] = None
             result['intensity_mean'] = None
             result['intensity_per_sphere'] = None
-        
+
+        # Calculate energy ratio: sum(|E|²) / sum(|E0|²)
+        # This is different from intensity_sum which is sum(|E/E0|²)
+        # Use e_sq_int if available (internal field from chunked version), otherwise use e_sq
+        e_sq_to_use = e_sq_int if e_sq_int is not None else e_sq
+
+        if e_sq_to_use is not None and e0_sq is not None:
+            e_sq_in_region = e_sq_to_use[final_mask]
+            e0_sq_in_region = e0_sq[final_mask]
+
+            # Filter out NaN/Inf
+            valid_e_sq = np.isfinite(e_sq_in_region)
+            valid_e0_sq = np.isfinite(e0_sq_in_region)
+            valid_both = valid_e_sq & valid_e0_sq
+
+            if np.sum(valid_both) > 0:
+                e_sq_sum = float(np.sum(e_sq_in_region[valid_both]))
+                e0_sq_sum = float(np.sum(e0_sq_in_region[valid_both]))
+
+                if e0_sq_sum > 1e-20:  # Avoid division by zero
+                    energy_ratio = e_sq_sum / e0_sq_sum
+                    energy_ratio_per_sphere = energy_ratio / n_spheres if n_spheres > 0 else 0.0
+                else:
+                    energy_ratio = None
+                    energy_ratio_per_sphere = None
+                    e_sq_sum = None
+                    e0_sq_sum = None
+
+                result['e_sq_sum'] = e_sq_sum
+                result['e0_sq_sum'] = e0_sq_sum
+                result['energy_ratio'] = energy_ratio
+                result['energy_ratio_per_sphere'] = energy_ratio_per_sphere
+
+                if self.verbose:
+                    print(f"        Energy ratio: sum(|E|²)/sum(|E0|²) = {energy_ratio:.6f}")
+                    print(f"        Per-sphere energy ratio: {energy_ratio_per_sphere:.6f}")
+            else:
+                result['e_sq_sum'] = None
+                result['e0_sq_sum'] = None
+                result['energy_ratio'] = None
+                result['energy_ratio_per_sphere'] = None
+        else:
+            result['e_sq_sum'] = None
+            result['e0_sq_sum'] = None
+            result['energy_ratio'] = None
+            result['energy_ratio_per_sphere'] = None
+
         if method == 'conservative':
             result['excluded_outliers'] = excluded_outliers
-        
+
         return result
     
     def _create_distance_mask(self, x_grid, y_grid, z_grid, spheres, depth):
@@ -703,6 +769,10 @@ class FieldAnalyzer:
             'intensity_sum': 0.0,
             'intensity_mean': 0.0,
             'intensity_per_sphere': 0.0,
+            'e_sq_sum': None,
+            'e0_sq_sum': None,
+            'energy_ratio': None,
+            'energy_ratio_per_sphere': None,
             'valid_points': 0,
         }
         if method == 'conservative':
@@ -803,8 +873,12 @@ class FieldAnalyzer:
                         f.write(f"    Per-sphere enhancement:  {strict['enhancement_per_sphere']:15.3f}\n")
                         if strict['intensity_per_sphere'] is not None:
                             f.write(f"    Per-sphere intensity:    {strict['intensity_per_sphere']:15.3f}\n")
+                        # Energy ratio: sum(|E|²)/sum(|E0|²)
+                        if strict.get('energy_ratio') is not None:
+                            f.write(f"    Energy ratio:            {strict['energy_ratio']:15.6f}  [sum(|E|²)/sum(|E0|²)]\n")
+                            f.write(f"    Per-sphere energy ratio: {strict['energy_ratio_per_sphere']:15.6f}\n")
                         f.write("\n")
-                        
+
                         # Conservative filtering results
                         cons = depth_data['conservative']
                         f.write("  Conservative filtering (Inf + outliers):\n")
@@ -819,46 +893,52 @@ class FieldAnalyzer:
                         f.write(f"    Per-sphere enhancement:  {cons['enhancement_per_sphere']:15.3f}\n")
                         if cons['intensity_per_sphere'] is not None:
                             f.write(f"    Per-sphere intensity:    {cons['intensity_per_sphere']:15.3f}\n")
+                        # Energy ratio: sum(|E|²)/sum(|E0|²)
+                        if cons.get('energy_ratio') is not None:
+                            f.write(f"    Energy ratio:            {cons['energy_ratio']:15.6f}  [sum(|E|²)/sum(|E0|²)]\n")
+                            f.write(f"    Per-sphere energy ratio: {cons['energy_ratio_per_sphere']:15.6f}\n")
                         f.write("\n" + "-" * 80 + "\n")
             
             f.write("\n")
     
     def _write_integration_summary(self, f, results):
         """Write summary table for near-field integration."""
-        f.write("=" * 80 + "\n")
+        f.write("=" * 100 + "\n")
         f.write("Summary (Strict Filtering)\n")
-        f.write("=" * 80 + "\n\n")
-        
+        f.write("=" * 100 + "\n\n")
+
         # Table header
-        f.write(f"{'Wavelength':<12} {'Polarization':<15} {'Depth':<8} {'Enh.Sum':<15} {'Int.Sum':<15} {'Points':<10}\n")
-        f.write("-" * 80 + "\n")
-        
+        f.write(f"{'Wavelength':<12} {'Polarization':<15} {'Depth':<8} {'Enh.Sum':<15} {'Int.Sum':<15} {'Energy Ratio':<15} {'Points':<10}\n")
+        f.write("-" * 100 + "\n")
+
         # Table rows
         for wl in sorted(results.keys()):
             wl_results = results[wl]
-            
+
             for pol_key in sorted(wl_results.keys()):
                 pol_data = wl_results[pol_key]
-                
+
                 # Format polarization
                 if pol_key == 'unpolarized':
                     pol_str = "unpolarized"
                 else:
                     pol_num = pol_key.split('_')[1]
                     pol_str = f"pol{pol_num}"
-                
+
                 # Results for each depth
                 if 'depths' in pol_data:
                     for depth in sorted(pol_data['depths'].keys()):
                         depth_data = pol_data['depths'][depth]
                         strict = depth_data['strict']
-                        
+
                         wl_str = f"{wl:.1f} nm"
                         depth_str = f"{depth:.1f}nm"
                         enh_sum = strict['enhancement_sum']
                         int_sum = strict['intensity_sum'] if strict['intensity_sum'] is not None else 0
+                        energy_ratio = strict.get('energy_ratio')
+                        energy_ratio_str = f"{energy_ratio:.6f}" if energy_ratio is not None else "N/A"
                         points = strict['valid_points']
-                        
-                        f.write(f"{wl_str:<12} {pol_str:<15} {depth_str:<8} {enh_sum:<15.3f} {int_sum:<15.3f} {points:<10d}\n")
-        
-        f.write("\n" + "=" * 80 + "\n")
+
+                        f.write(f"{wl_str:<12} {pol_str:<15} {depth_str:<8} {enh_sum:<15.3f} {int_sum:<15.3f} {energy_ratio_str:<15} {points:<10d}\n")
+
+        f.write("\n" + "=" * 100 + "\n")
