@@ -1563,6 +1563,31 @@ unique_field_wavelength_indices = field_wavelength_idx;
 n_field_wavelengths = 1;
 field_wavelength_indices = repmat(field_wavelength_idx, 1, n_polarizations);
 """
+        elif isinstance(field_wl_idx, list):
+            # List of wavelength values (nm) - map to nearest indices
+            wl_list_str = ', '.join([str(wl) for wl in field_wl_idx])
+            code += f"""% Use specified wavelength list (nm) - map to nearest indices
+target_wavelengths = [{wl_list_str}];  % Target wavelengths in nm
+fprintf('  Mapping %d target wavelengths to nearest indices...\\n', length(target_wavelengths));
+
+% Map each target wavelength to nearest index in enei
+unique_field_wavelength_indices = zeros(1, length(target_wavelengths));
+for iwl = 1:length(target_wavelengths)
+    [~, nearest_idx] = min(abs(enei - target_wavelengths(iwl)));
+    unique_field_wavelength_indices(iwl) = nearest_idx;
+    fprintf('    Target %.1f nm -> index %d (actual %.1f nm)\\n', ...
+            target_wavelengths(iwl), nearest_idx, enei(nearest_idx));
+end
+
+% Remove duplicates and sort
+unique_field_wavelength_indices = unique(unique_field_wavelength_indices);
+n_field_wavelengths = length(unique_field_wavelength_indices);
+
+% For each wavelength, calculate all polarizations
+field_wavelength_indices = unique_field_wavelength_indices;  % All pols at each wavelength
+
+fprintf('  -> %d unique wavelength indices after deduplication\\n', n_field_wavelengths);
+"""
         else:
             code += """% Default: use middle wavelength (single wavelength for all polarizations)
 field_wavelength_idx = round(n_wavelengths / 2);
@@ -1780,12 +1805,16 @@ field_data_idx = 0;  % Counter for field_data entries
                     % Create NaN-filled arrays for scalars and vectors
                     enhancement_full = nan(n_grid_points, 1);
                     e_intensity_full = nan(n_grid_points, 1);
+                    e_mag_sq_full = nan(n_grid_points, 1);    % |E|² for energy ratio
+                    e0_mag_sq_full = nan(n_grid_points, 1);   % |E0|² for energy ratio
                     e_total_full = nan(n_grid_points, 3);  % Vector field (Ex, Ey, Ez)
 
                     % Fill valid points using meshfield indices
                     if exist('emesh_ind', 'var') && ~isempty(emesh_ind)
                         enhancement_full(emesh_ind) = enhancement;
                         e_intensity_full(emesh_ind) = e_intensity;
+                        e_mag_sq_full(emesh_ind) = e_mag_sq;
+                        e0_mag_sq_full(emesh_ind) = e0_mag_sq;
                         e_total_full(emesh_ind, :) = e_total;
                     else
                         % Fallback: match by coordinates using exact axis matching
@@ -1806,6 +1835,8 @@ field_data_idx = 0;  % Counter for field_data entries
                                 idx = sub2ind(grid_shape, iz, ix);
                                 enhancement_full(idx) = enhancement(ii);
                                 e_intensity_full(idx) = e_intensity(ii);
+                                e_mag_sq_full(idx) = e_mag_sq(ii);
+                                e0_mag_sq_full(idx) = e0_mag_sq(ii);
                                 e_total_full(idx, :) = e_total(ii, :);
                             end
                         elseif numel(z_vec) == 1
@@ -1817,6 +1848,8 @@ field_data_idx = 0;  % Counter for field_data entries
                                 idx = sub2ind(grid_shape, iy, ix);
                                 enhancement_full(idx) = enhancement(ii);
                                 e_intensity_full(idx) = e_intensity(ii);
+                                e_mag_sq_full(idx) = e_mag_sq(ii);
+                                e0_mag_sq_full(idx) = e0_mag_sq(ii);
                                 e_total_full(idx, :) = e_total(ii, :);
                             end
                         elseif numel(x_vec) == 1
@@ -1828,6 +1861,8 @@ field_data_idx = 0;  % Counter for field_data entries
                                 idx = sub2ind(grid_shape, iz, iy);
                                 enhancement_full(idx) = enhancement(ii);
                                 e_intensity_full(idx) = e_intensity(ii);
+                                e_mag_sq_full(idx) = e_mag_sq(ii);
+                                e0_mag_sq_full(idx) = e0_mag_sq(ii);
                                 e_total_full(idx, :) = e_total(ii, :);
                             end
                         else
@@ -1843,6 +1878,8 @@ field_data_idx = 0;  % Counter for field_data entries
                                 [~, idx] = min(dx + dy + dz);
                                 enhancement_full(idx) = enhancement(ii);
                                 e_intensity_full(idx) = e_intensity(ii);
+                                e_mag_sq_full(idx) = e_mag_sq(ii);
+                                e0_mag_sq_full(idx) = e0_mag_sq(ii);
                                 e_total_full(idx, :) = e_total(ii, :);
                             end
                         end
@@ -1850,6 +1887,8 @@ field_data_idx = 0;  % Counter for field_data entries
 
                     enhancement = enhancement_full;
                     e_intensity = e_intensity_full;
+                    e_mag_sq = e_mag_sq_full;
+                    e0_mag_sq = e0_mag_sq_full;
                     e_total = e_total_full;
                 end
                 
@@ -1862,6 +1901,10 @@ field_data_idx = 0;  % Counter for field_data entries
                     e_total = reshape(e_total, [grid_shape(1), grid_shape(2), 3]);
                 end
 
+                % Reshape e_sq and e0_sq for energy ratio calculation
+                e_sq_grid = reshape(e_mag_sq, grid_shape);      % |E|² (raw intensity)
+                e0_sq_grid = reshape(e0_mag_sq, grid_shape);    % |E0|² (reference intensity)
+
                 % Store with wavelength and polarization indices
                 field_data_idx = field_data_idx + 1;
                 field_data(field_data_idx).wavelength = enei(ien);
@@ -1871,6 +1914,8 @@ field_data_idx = 0;  % Counter for field_data entries
                 field_data(field_data_idx).e_total = e_total;
                 field_data(field_data_idx).enhancement = enhancement;  % |E/E0| (field enhancement)
                 field_data(field_data_idx).intensity = e_intensity;    % |E|²/|E0|² (intensity enhancement)
+                field_data(field_data_idx).e_sq = e_sq_grid;           % |E|² (raw intensity)
+                field_data(field_data_idx).e0_sq = e0_sq_grid;         % |E0|² (reference intensity)
                 field_data(field_data_idx).x_grid = x_grid;
                 field_data(field_data_idx).y_grid = y_grid;
                 field_data(field_data_idx).z_grid = z_grid;
@@ -2391,47 +2436,74 @@ fprintf('This shows field enhancement relative to "no particle" baseline\\n');
 fprintf('================================================================\\n');
 """
             
-            # Determine peak wavelength
+            # Determine peak wavelength(s)
             field_wl_idx = self.config.get('field_wavelength_idx', 'middle')
-            
+
             if field_wl_idx == 'middle':
                 code += """
 % Use middle wavelength
-field_wavelength_idx = round(n_wavelengths / 2);
+field_wavelength_indices = round(n_wavelengths / 2);
+n_field_wavelengths = 1;
 fprintf('Using middle wavelength: lambda = %.1f nm (index %d)\\n', ...
-        enei(field_wavelength_idx), field_wavelength_idx);
+        enei(field_wavelength_indices(1)), field_wavelength_indices(1));
 """
             elif field_wl_idx == 'peak':
                 code += """
 % Find absorption peak wavelength
 fprintf('Finding absorption peak...\\n');
 abs_avg = mean(abs_cross, 2);
-[max_abs, field_wavelength_idx] = max(abs_avg);
+[max_abs, field_wavelength_indices] = max(abs_avg);
+n_field_wavelengths = 1;
 fprintf('  [OK] Peak absorption: %.2e nm^2 at lambda = %.1f nm (index %d)\\n', ...
-        max_abs, enei(field_wavelength_idx), field_wavelength_idx);
+        max_abs, enei(field_wavelength_indices(1)), field_wavelength_indices(1));
 """
             elif field_wl_idx == 'peak_ext':
                 code += """
 % Find extinction peak wavelength
 fprintf('Finding extinction peak...\\n');
 ext_avg = mean(ext, 2);
-[max_ext, field_wavelength_idx] = max(ext_avg);
+[max_ext, field_wavelength_indices] = max(ext_avg);
+n_field_wavelengths = 1;
 fprintf('  [OK] Peak extinction: %.2e nm^2 at lambda = %.1f nm (index %d)\\n', ...
-        max_ext, enei(field_wavelength_idx), field_wavelength_idx);
+        max_ext, enei(field_wavelength_indices(1)), field_wavelength_indices(1));
 """
             elif isinstance(field_wl_idx, int):
                 code += f"""
 % Use specified wavelength index
-field_wavelength_idx = {field_wl_idx};
+field_wavelength_indices = {field_wl_idx};
+n_field_wavelengths = 1;
 fprintf('Using specified wavelength: lambda = %.1f nm (index %d)\\n', ...
-        enei(field_wavelength_idx), field_wavelength_idx);
+        enei(field_wavelength_indices(1)), field_wavelength_indices(1));
+"""
+            elif isinstance(field_wl_idx, list):
+                # List of wavelength values (nm) - map to nearest indices
+                wl_list_str = ', '.join([str(wl) for wl in field_wl_idx])
+                code += f"""
+% Use specified wavelength list (nm) - map to nearest indices
+target_wavelengths = [{wl_list_str}];  % Target wavelengths in nm
+fprintf('Mapping %d target wavelengths to nearest indices...\\n', length(target_wavelengths));
+
+% Map each target wavelength to nearest index in enei
+field_wavelength_indices = zeros(1, length(target_wavelengths));
+for iwl = 1:length(target_wavelengths)
+    [~, nearest_idx] = min(abs(enei - target_wavelengths(iwl)));
+    field_wavelength_indices(iwl) = nearest_idx;
+    fprintf('  Target %.1f nm -> index %d (actual %.1f nm)\\n', ...
+            target_wavelengths(iwl), nearest_idx, enei(nearest_idx));
+end
+
+% Remove duplicates and sort
+field_wavelength_indices = unique(field_wavelength_indices);
+n_field_wavelengths = length(field_wavelength_indices);
+fprintf('-> %d unique wavelength(s) for field calculation\\n', n_field_wavelengths);
 """
             else:
                 code += """
 % Default: use middle wavelength
-field_wavelength_idx = round(n_wavelengths / 2);
+field_wavelength_indices = round(n_wavelengths / 2);
+n_field_wavelengths = 1;
 fprintf('Using middle wavelength: lambda = %.1f nm (index %d)\\n', ...
-        enei(field_wavelength_idx), field_wavelength_idx);
+        enei(field_wavelength_indices(1)), field_wavelength_indices(1));
 """
             
             # Create field grid
@@ -2532,23 +2604,30 @@ else
 end
 
 %% ========================================
-%% STEP 3: Calculate BEM Solution at Peak Wavelength
-%% ========================================
-fprintf('\\nCalculating BEM solution at peak wavelength...\\n');
-field_calc_start = tic;
-
-% Clear BEM and recalculate
-bem = clear(bem);
-sig_peak = bem \\ exc(p, enei(field_wavelength_idx));
-fprintf('  [OK] BEM solution ready\\n');
-
-%% ========================================
-%% STEP 4: Calculate Fields for Each Polarization
+%% STEP 3-4: Calculate Fields for Each Wavelength and Polarization
 %% ========================================
 field_data = struct();
+field_data_idx = 0;
+field_calc_start = tic;
+
+fprintf('\\n================================================================\\n');
+fprintf('  Processing %d wavelength(s) x %d polarization(s) = %d field calculations\\n', ...
+        n_field_wavelengths, n_polarizations, n_field_wavelengths * n_polarizations);
+fprintf('================================================================\\n');
+
+for iwl = 1:n_field_wavelengths
+    field_wavelength_idx = field_wavelength_indices(iwl);
+    fprintf('\\n[%d/%d] Wavelength: lambda = %.1f nm (index %d)\\n', ...
+            iwl, n_field_wavelengths, enei(field_wavelength_idx), field_wavelength_idx);
+
+    % Clear BEM and recalculate for this wavelength
+    bem = clear(bem);
+    sig_peak = bem \\ exc(p, enei(field_wavelength_idx));
+    fprintf('  [OK] BEM solution ready\\n');
 
 for ipol = 1:n_polarizations
-    fprintf('\\n  Processing polarization %d/%d...\\n', ipol, n_polarizations);
+    field_data_idx = field_data_idx + 1;
+    fprintf('\\n  Processing polarization %d/%d (field_data index: %d)...\\n', ipol, n_polarizations, field_data_idx);
     
 """
             
@@ -2987,6 +3066,12 @@ for ipol = 1:n_polarizations
     e_total_ext_grid = reshape(e_total_ext_grid, [grid_shape, 3]);
     e_total_int_grid = reshape(e_total_int_grid, [grid_shape, 3]);
 
+    % Reshape raw intensities for energy ratio calculation: sum(|E|²)/sum(|E0|²)
+    e_sq = reshape(e_intensity, grid_shape);              % |E|² (merged)
+    e_sq_ext = reshape(e_intensity_ext, grid_shape);      % |E|² (external)
+    e_sq_int = reshape(e_intensity_int, grid_shape);      % |E|² (internal)
+    e0_sq = reshape(e0_reference_intensity, grid_shape);  % |E0|² (reference)
+
     fprintf('      Intensity_enh valid (universal ref - direct calc):\\n');
     fprintf('        Merged: %d/%d\\n', sum(isfinite(intensity_enhancement(:))), numel(intensity_enhancement));
     fprintf('        External: %d/%d\\n', sum(isfinite(intensity_enhancement_ext(:))), numel(intensity_enhancement_ext));
@@ -3002,37 +3087,44 @@ for ipol = 1:n_polarizations
     end
     
     %% STORE FIELD DATA
-    field_data(ipol).wavelength = enei(field_wavelength_idx);
-    field_data(ipol).wavelength_idx = field_wavelength_idx;
-    field_data(ipol).polarization = pol(ipol, :);
-    field_data(ipol).polarization_idx = ipol;
-    
+    field_data(field_data_idx).wavelength = enei(field_wavelength_idx);
+    field_data(field_data_idx).wavelength_idx = field_wavelength_idx;
+    field_data(field_data_idx).polarization = pol(ipol, :);
+    field_data(field_data_idx).polarization_idx = ipol;
+
     % Combined (merged) - field and intensity enhancement
-    field_data(ipol).e_total = e_total_grid;
-    field_data(ipol).enhancement = field_enhancement;          % |E/E0| (field enhancement)
-    field_data(ipol).intensity = intensity_enhancement;        % |E|²/|E0|² (intensity enhancement)
+    field_data(field_data_idx).e_total = e_total_grid;
+    field_data(field_data_idx).enhancement = field_enhancement;          % |E/E0| (field enhancement)
+    field_data(field_data_idx).intensity = intensity_enhancement;        % |E|²/|E0|² (intensity enhancement)
+    field_data(field_data_idx).e_sq = e_sq;                              % |E|² (raw intensity for energy ratio)
+    field_data(field_data_idx).e0_sq = e0_sq;                            % |E0|² (reference intensity for energy ratio)
 
     % Separate fields
-    field_data(ipol).e_total_ext = e_total_ext_grid;
-    field_data(ipol).e_total_int = e_total_int_grid;
-    field_data(ipol).enhancement_ext = field_enhancement_ext;      % |E/E0| (field enhancement)
-    field_data(ipol).enhancement_int = field_enhancement_int;      % |E/E0| (field enhancement)
-    field_data(ipol).intensity_ext = intensity_enhancement_ext;    % |E|²/|E0|² (intensity enhancement)
-    field_data(ipol).intensity_int = intensity_enhancement_int;    % |E|²/|E0|² (intensity enhancement)
-    
+    field_data(field_data_idx).e_total_ext = e_total_ext_grid;
+    field_data(field_data_idx).e_total_int = e_total_int_grid;
+    field_data(field_data_idx).enhancement_ext = field_enhancement_ext;      % |E/E0| (field enhancement)
+    field_data(field_data_idx).enhancement_int = field_enhancement_int;      % |E/E0| (field enhancement)
+    field_data(field_data_idx).intensity_ext = intensity_enhancement_ext;    % |E|²/|E0|² (intensity enhancement)
+    field_data(field_data_idx).intensity_int = intensity_enhancement_int;    % |E|²/|E0|² (intensity enhancement)
+    field_data(field_data_idx).e_sq_ext = e_sq_ext;                          % |E|² external (raw)
+    field_data(field_data_idx).e_sq_int = e_sq_int;                          % |E|² internal (raw)
+
     % Grid coordinates
-    field_data(ipol).x_grid = x_grid;
-    field_data(ipol).y_grid = y_grid;
-    field_data(ipol).z_grid = z_grid;
-    
-    fprintf('    → Stored field_data(%d) [UNIVERSAL REFERENCE METHOD]\\n', ipol);
+    field_data(field_data_idx).x_grid = x_grid;
+    field_data(field_data_idx).y_grid = y_grid;
+    field_data(field_data_idx).z_grid = z_grid;
+
+    fprintf('    → Stored field_data(%d) [UNIVERSAL REFERENCE METHOD]\\n', field_data_idx);
+    fprintf('      Wavelength: %.1f nm, Polarization: %d\\n', enei(field_wavelength_idx), ipol);
     fprintf('      Valid points (merged): %d/%d\\n', sum(isfinite(intensity_enhancement(:))), numel(intensity_enhancement));
     fprintf('      Valid points (external): %d/%d\\n', sum(isfinite(intensity_enhancement_ext(:))), numel(intensity_enhancement_ext));
     fprintf('      Valid points (internal): %d/%d\\n', sum(isfinite(intensity_enhancement_int(:))), numel(intensity_enhancement_int));
-end
+end  % for ipol
+end  % for iwl
 
 field_calc_time = toc(field_calc_start);
 fprintf('\\n[OK] Field calculation completed in %.1f seconds\\n', field_calc_time);
+fprintf('  Total field_data entries: %d\\n', field_data_idx);
 fprintf('================================================================\\n');
 fprintf('ENHANCEMENT METHOD: Universal Reference (Direct Calculation)\\n');
 fprintf('Reference field: Plane wave E0 = pol * exp(i*k·r)\\n');

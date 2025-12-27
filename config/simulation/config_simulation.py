@@ -171,8 +171,17 @@ args['field_region'] = {
 # Field calculation options
 args['field_mindist'] = 0.5     # Minimum distance from particle surface (nm)
 args['field_nmax'] = 2000       # Work off calculation in portions (for large grids)
-args['field_wavelength_idx'] = 'peak'  # Which wavelength to calculate fields: 'middle', 'peak', 'peak_ext', 'peak_sca', or integer index
-                                        # 'peak' now finds absorption max for EACH polarization separately
+args['field_wavelength_idx'] = 'peak'  # Which wavelength(s) to calculate fields
+# Options:
+#   - 'middle'      : Middle wavelength of range
+#   - 'peak'        : Absorption peak (finds max for EACH polarization)
+#   - 'peak_ext'    : Extinction peak
+#   - 'peak_sca'    : Scattering peak
+#   - integer (50)  : Specific wavelength index
+#   - list [400, 500, 600, ...]  : List of wavelengths (nm), mapped to nearest indices
+#
+# Example for multiple wavelengths (20 wavelengths from 400-1000nm):
+# args['field_wavelength_idx'] = list(range(400, 1001, 30))  # [400, 430, 460, ..., 970, 1000]
 
 # ============================================================================
 # FIELD DATA EXPORT OPTIONS (NEW)
