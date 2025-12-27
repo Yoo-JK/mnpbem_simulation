@@ -128,10 +128,23 @@ class DataLoader:
             # Enhancement and intensity
             if hasattr(field_item, 'enhancement'):
                 field_dict['enhancement'] = self._extract_array(field_item.enhancement)
-            
+
             if hasattr(field_item, 'intensity'):
                 field_dict['intensity'] = self._extract_array(field_item.intensity)
-            
+
+            # Raw intensity fields for energy ratio calculation: sum(|E|²)/sum(|E0|²)
+            if hasattr(field_item, 'e_sq'):
+                field_dict['e_sq'] = self._extract_array(field_item.e_sq)
+
+            if hasattr(field_item, 'e0_sq'):
+                field_dict['e0_sq'] = self._extract_array(field_item.e0_sq)
+
+            if hasattr(field_item, 'e_sq_ext'):
+                field_dict['e_sq_ext'] = self._extract_array(field_item.e_sq_ext)
+
+            if hasattr(field_item, 'e_sq_int'):
+                field_dict['e_sq_int'] = self._extract_array(field_item.e_sq_int)
+
             field_data_list.append(field_dict)
         
         return field_data_list
