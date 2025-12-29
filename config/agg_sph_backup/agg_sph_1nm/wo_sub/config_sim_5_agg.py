@@ -7,7 +7,7 @@ args = {}
 # PARALLEL COMPUTING
 # ============================================================================
 args['use_parallel'] = False
-args['num_workers'] = 2 # Adjust: N=1-3: 8-16, N=4-5: 16-32, N=6-7: 32-64
+args['num_workers'] = 2  # Adjust: N=1-3: 8-16, N=4-5: 16-32, N=6-7: 32-64
 args['wavelength_chunk_size'] = 10
 
 # ============================================================================
@@ -19,7 +19,7 @@ args['output_dir'] = os.path.join(Path.home(), 'research/mnpbem/sphere_cluster')
 # ============================================================================
 # SIMULATION SETTINGS
 # ============================================================================
-args['simulation_name'] = 'wo_sub/7_agg'
+args['simulation_name'] = 'wo_sub/5_agg'
 args['simulation_type'] = 'ret'  # 'ret' for 50nm spheres
 args['interp'] = 'curv'
 args['waitbar'] = 0
@@ -64,7 +64,7 @@ args['field_region'] = {
     'z_range': [0, 0, 1],  # 5nm above cluster
 }
 
-args['field_wavelength_idx'] = list(range(400, 1001, 30))
+args['field_wavelength_idx'] = 'peak'  # Auto-detect absorption peak
 args['field_mindist'] = 0.5
 args['field_nmax'] = 2000
 

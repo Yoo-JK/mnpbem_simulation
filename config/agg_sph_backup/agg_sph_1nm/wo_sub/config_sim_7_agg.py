@@ -64,7 +64,7 @@ args['field_region'] = {
     'z_range': [0, 0, 1],  # 5nm above cluster
 }
 
-args['field_wavelength_idx'] = list(range(400, 1001, 30))
+args['field_wavelength_idx'] = 'peak'  # Auto-detect absorption peak
 args['field_mindist'] = 0.5
 args['field_nmax'] = 2000
 
