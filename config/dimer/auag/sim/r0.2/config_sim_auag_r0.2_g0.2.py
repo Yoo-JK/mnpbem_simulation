@@ -17,8 +17,8 @@ args['use_parallel'] = True  # Set to False to disable parallel computing
 # args['num_workers'] = 'env'  # Recommended for Slurm clusters
 
 # Alternative: specify exact number
-args['num_workers'] = 2
-args['max_comp_threads'] = 64
+args['num_workers'] = 4
+args['max_comp_threads'] = 1
 args['wavelength_chunk_size'] = 10
 
 # ============================================================================
