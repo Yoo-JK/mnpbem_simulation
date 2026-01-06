@@ -4,8 +4,8 @@
 #SBATCH --partition=IllinoisComputes
 #SBATCH --time=72:00:00
 #SBATCH --nodes=1
-#SBATCH --ntasks=2
-#SBATCH --cpus-per-task=64
+#SBATCH --ntasks=128
+#SBATCH --cpus-per-task=1
 #SBATCH --export=NONE
 
 module purge
