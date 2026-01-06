@@ -17,8 +17,8 @@ args['use_parallel'] = True  # Set to False to disable parallel computing
 # args['num_workers'] = 'env'  # Recommended for Slurm clusters
 
 # Alternative: specify exact number
-args['num_workers'] = 2
-args['max_comp_threads'] = 64
+args['num_workers'] = 8
+args['max_comp_threads'] = 1
 args['wavelength_chunk_size'] = 10
 
 # ============================================================================
@@ -107,7 +107,7 @@ args['propagation_dirs'] = [
 # Wavelength range for spectrum calculation
 # Format: [start_nm, end_nm, num_points]
 
-args['wavelength_range'] = [400, 800, 100]  # 400-800 nm, 100 points
+args['wavelength_range'] = [500, 1000, 100]  # 400-800 nm, 100 points
 
 # Examples:
 # args['wavelength_range'] = [300, 1500, 240]  # Broad UV to NIR

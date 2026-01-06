@@ -106,7 +106,7 @@ args['propagation_dirs'] = [
 # Wavelength range for spectrum calculation
 # Format: [start_nm, end_nm, num_points]
 
-args['wavelength_range'] = [400, 800, 100]  # 400-800 nm, 100 points
+args['wavelength_range'] = [500, 1000, 100]  # 400-800 nm, 100 points
 
 # Examples:
 # args['wavelength_range'] = [300, 1500, 240]  # Broad UV to NIR
