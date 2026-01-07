@@ -1927,26 +1927,74 @@ surface_charge = struct();
                         field_data_idx, enei(ien), ipol);
 
                 %% SAVE SURFACE CHARGE (for plasmon mode analysis)
-                % Extract surface charge from BEM solution (safe extraction with try-catch)
+                % Extract surface charge from BEM solution
                 charge_values_all = [];
-                try
-                    % Method 1: Try .sig field
-                    charge_values_all = sig.sig;
-                catch
+                extraction_method = '';
+
+                % Method 1: Check if it's already numeric
+                if isnumeric(sig)
+                    charge_values_all = sig;
+                    extraction_method = 'numeric';
+
+                % Method 2: Try .sig field (MNPBEM bemsolve object)
+                elseif (isobject(sig) || isstruct(sig)) && (isfield(sig, 'sig') || isprop(sig, 'sig'))
                     try
-                        % Method 2: Try .val field
-                        charge_values_all = sig.val;
+                        charge_values_all = sig.sig;
+                        extraction_method = '.sig';
                     catch
+                    end
+
+                % Method 3: Try .val field (alternative MNPBEM format)
+                elseif (isobject(sig) || isstruct(sig)) && (isfield(sig, 'val') || isprop(sig, 'val'))
+                    try
+                        charge_values_all = sig.val;
+                        extraction_method = '.val';
+                    catch
+                    end
+
+                % Method 4: Try full() for sparse matrices
+                elseif issparse(sig)
+                    try
+                        charge_values_all = full(sig);
+                        extraction_method = 'full()';
+                    catch
+                    end
+
+                % Method 5: Try double() conversion
+                else
+                    try
+                        charge_values_all = double(sig);
+                        extraction_method = 'double()';
+                    catch
+                    end
+                end
+
+                % Method 6: Try subsref (:) if still empty
+                if isempty(charge_values_all)
+                    try
+                        charge_values_all = sig(:);
+                        if isnumeric(charge_values_all) && ~isempty(charge_values_all)
+                            extraction_method = 'subsref(:)';
+                        else
+                            charge_values_all = [];
+                        end
+                    catch
+                    end
+                end
+
+                % Log extraction result
+                if ~isempty(charge_values_all)
+                    fprintf('      → Surface charge extracted via %s: size [%s]\\n', extraction_method, num2str(size(charge_values_all)));
+                else
+                    fprintf('      [WARNING] Could not extract surface charge from sig\\n');
+                    fprintf('      [DEBUG] class=%s, size=[%s], isobj=%d, struct=%d, numeric=%d, sparse=%d\\n', ...
+                            class(sig), num2str(size(sig)), ...
+                            isobject(sig), isstruct(sig), isnumeric(sig), issparse(sig));
+                    if isobject(sig) || isstruct(sig)
                         try
-                            % Method 3: Try direct conversion
-                            charge_values_all = double(sig);
+                            fn = fieldnames(sig);
+                            fprintf('      [DEBUG] Available fields (%d): %s\\n', length(fn), strjoin(fn(1:min(10,end)), ', '));
                         catch
-                            % Method 4: sig might already be numeric
-                            if isnumeric(sig)
-                                charge_values_all = sig;
-                            else
-                                fprintf('      [WARNING] Could not extract surface charge from sig\\n');
-                            end
                         end
                     end
                 end
@@ -3235,26 +3283,74 @@ for ipol = pols_at_this_wl
     fprintf('      Valid points (internal): %d/%d\\n', sum(isfinite(intensity_enhancement_int(:))), numel(intensity_enhancement_int));
 
     %% SAVE SURFACE CHARGE (for plasmon mode analysis)
-    % Extract surface charge from BEM solution (safe extraction with try-catch)
+    % Extract surface charge from BEM solution
     charge_values_all = [];
-    try
-        % Method 1: Try .sig field
-        charge_values_all = sig_peak.sig;
-    catch
+    extraction_method = '';
+
+    % Method 1: Check if it's already numeric
+    if isnumeric(sig_peak)
+        charge_values_all = sig_peak;
+        extraction_method = 'numeric';
+
+    % Method 2: Try .sig field (MNPBEM bemsolve object)
+    elseif (isobject(sig_peak) || isstruct(sig_peak)) && (isfield(sig_peak, 'sig') || isprop(sig_peak, 'sig'))
         try
-            % Method 2: Try .val field
-            charge_values_all = sig_peak.val;
+            charge_values_all = sig_peak.sig;
+            extraction_method = '.sig';
         catch
+        end
+
+    % Method 3: Try .val field (alternative MNPBEM format)
+    elseif (isobject(sig_peak) || isstruct(sig_peak)) && (isfield(sig_peak, 'val') || isprop(sig_peak, 'val'))
+        try
+            charge_values_all = sig_peak.val;
+            extraction_method = '.val';
+        catch
+        end
+
+    % Method 4: Try full() for sparse matrices
+    elseif issparse(sig_peak)
+        try
+            charge_values_all = full(sig_peak);
+            extraction_method = 'full()';
+        catch
+        end
+
+    % Method 5: Try double() conversion
+    else
+        try
+            charge_values_all = double(sig_peak);
+            extraction_method = 'double()';
+        catch
+        end
+    end
+
+    % Method 6: Try subsref (:) if still empty
+    if isempty(charge_values_all)
+        try
+            charge_values_all = sig_peak(:);
+            if isnumeric(charge_values_all) && ~isempty(charge_values_all)
+                extraction_method = 'subsref(:)';
+            else
+                charge_values_all = [];
+            end
+        catch
+        end
+    end
+
+    % Log extraction result
+    if ~isempty(charge_values_all)
+        fprintf('    → Surface charge extracted via %s: size [%s]\\n', extraction_method, num2str(size(charge_values_all)));
+    else
+        fprintf('    [WARNING] Could not extract surface charge from sig_peak\\n');
+        fprintf('    [DEBUG] class=%s, size=[%s], isobj=%d, struct=%d, numeric=%d, sparse=%d\\n', ...
+                class(sig_peak), num2str(size(sig_peak)), ...
+                isobject(sig_peak), isstruct(sig_peak), isnumeric(sig_peak), issparse(sig_peak));
+        if isobject(sig_peak) || isstruct(sig_peak)
             try
-                % Method 3: Try direct conversion
-                charge_values_all = double(sig_peak);
+                fn = fieldnames(sig_peak);
+                fprintf('    [DEBUG] Available fields (%d): %s\\n', length(fn), strjoin(fn(1:min(10,end)), ', '));
             catch
-                % Method 4: sig_peak might already be numeric
-                if isnumeric(sig_peak)
-                    charge_values_all = sig_peak;
-                else
-                    fprintf('    [WARNING] Could not extract surface charge from sig_peak\\n');
-                end
             end
         end
     end
