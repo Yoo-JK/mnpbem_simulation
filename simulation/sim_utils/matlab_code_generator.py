@@ -1962,6 +1962,11 @@ if exist('field_data', 'var') && ~isempty(field_data)
     results.fields = field_data;
     fprintf('Field data included in results\\n');
 end
+
+if exist('surface_charge', 'var') && ~isempty(surface_charge)
+    results.surface_charge = surface_charge;
+    fprintf('Surface charge data included in results\\n');
+end
 """
         
         code += """
@@ -2441,39 +2446,83 @@ fprintf('================================================================\\n');
 
             if field_wl_idx == 'middle':
                 code += """
-% Use middle wavelength
-field_wavelength_indices = round(n_wavelengths / 2);
+% Use middle wavelength (single wavelength for all polarizations)
+field_wavelength_idx = round(n_wavelengths / 2);
+unique_field_wavelength_indices = field_wavelength_idx;
 n_field_wavelengths = 1;
+field_wavelength_indices = repmat(field_wavelength_idx, 1, n_polarizations);
 fprintf('Using middle wavelength: lambda = %.1f nm (index %d)\\n', ...
-        enei(field_wavelength_indices(1)), field_wavelength_indices(1));
+        enei(field_wavelength_idx), field_wavelength_idx);
 """
             elif field_wl_idx == 'peak':
                 code += """
-% Find absorption peak wavelength
-fprintf('Finding absorption peak...\\n');
-abs_avg = mean(abs_cross, 2);
-[max_abs, field_wavelength_indices] = max(abs_avg);
-n_field_wavelengths = 1;
-fprintf('  [OK] Peak absorption: %.2e nm^2 at lambda = %.1f nm (index %d)\\n', ...
-        max_abs, enei(field_wavelength_indices(1)), field_wavelength_indices(1));
+% Find absorption peak wavelength for EACH polarization
+fprintf('Finding absorption peak for each polarization...\\n');
+
+% Find max absorption wavelength index for each polarization
+field_wavelength_indices = zeros(1, n_polarizations);
+for ipol = 1:n_polarizations
+    [max_abs_pol, idx] = max(abs_cross(:, ipol));
+    field_wavelength_indices(ipol) = idx;
+    fprintf('  Pol %d: Peak absorption %.2e nm^2 at lambda = %.1f nm (index %d)\\n', ...
+            ipol, max_abs_pol, enei(idx), idx);
+end
+
+% Get unique wavelength indices (remove duplicates)
+unique_field_wavelength_indices = unique(field_wavelength_indices);
+n_field_wavelengths = length(unique_field_wavelength_indices);
+
+fprintf('  -> Total %d unique wavelength(s) for field calculation\\n', n_field_wavelengths);
 """
             elif field_wl_idx == 'peak_ext':
                 code += """
-% Find extinction peak wavelength
-fprintf('Finding extinction peak...\\n');
-ext_avg = mean(ext, 2);
-[max_ext, field_wavelength_indices] = max(ext_avg);
-n_field_wavelengths = 1;
-fprintf('  [OK] Peak extinction: %.2e nm^2 at lambda = %.1f nm (index %d)\\n', ...
-        max_ext, enei(field_wavelength_indices(1)), field_wavelength_indices(1));
+% Find extinction peak wavelength for EACH polarization
+fprintf('Finding extinction peak for each polarization...\\n');
+
+% Find max extinction wavelength index for each polarization
+field_wavelength_indices = zeros(1, n_polarizations);
+for ipol = 1:n_polarizations
+    [max_ext_pol, idx] = max(ext(:, ipol));
+    field_wavelength_indices(ipol) = idx;
+    fprintf('  Pol %d: Peak extinction %.2e nm^2 at lambda = %.1f nm (index %d)\\n', ...
+            ipol, max_ext_pol, enei(idx), idx);
+end
+
+% Get unique wavelength indices (remove duplicates)
+unique_field_wavelength_indices = unique(field_wavelength_indices);
+n_field_wavelengths = length(unique_field_wavelength_indices);
+
+fprintf('  -> Total %d unique wavelength(s) for field calculation\\n', n_field_wavelengths);
+"""
+            elif field_wl_idx == 'peak_sca':
+                code += """
+% Find scattering peak wavelength for EACH polarization
+fprintf('Finding scattering peak for each polarization...\\n');
+
+% Find max scattering wavelength index for each polarization
+field_wavelength_indices = zeros(1, n_polarizations);
+for ipol = 1:n_polarizations
+    [max_sca_pol, idx] = max(sca(:, ipol));
+    field_wavelength_indices(ipol) = idx;
+    fprintf('  Pol %d: Peak scattering %.2e nm^2 at lambda = %.1f nm (index %d)\\n', ...
+            ipol, max_sca_pol, enei(idx), idx);
+end
+
+% Get unique wavelength indices (remove duplicates)
+unique_field_wavelength_indices = unique(field_wavelength_indices);
+n_field_wavelengths = length(unique_field_wavelength_indices);
+
+fprintf('  -> Total %d unique wavelength(s) for field calculation\\n', n_field_wavelengths);
 """
             elif isinstance(field_wl_idx, int):
                 code += f"""
-% Use specified wavelength index
-field_wavelength_indices = {field_wl_idx};
+% Use specified wavelength index (single wavelength for all polarizations)
+field_wavelength_idx = {field_wl_idx};
+unique_field_wavelength_indices = field_wavelength_idx;
 n_field_wavelengths = 1;
+field_wavelength_indices = repmat(field_wavelength_idx, 1, n_polarizations);
 fprintf('Using specified wavelength: lambda = %.1f nm (index %d)\\n', ...
-        enei(field_wavelength_indices(1)), field_wavelength_indices(1));
+        enei(field_wavelength_idx), field_wavelength_idx);
 """
             elif isinstance(field_wl_idx, list):
                 # List of wavelength values (nm) - map to nearest indices
@@ -2484,26 +2533,31 @@ target_wavelengths = [{wl_list_str}];  % Target wavelengths in nm
 fprintf('Mapping %d target wavelengths to nearest indices...\\n', length(target_wavelengths));
 
 % Map each target wavelength to nearest index in enei
-field_wavelength_indices = zeros(1, length(target_wavelengths));
+temp_indices = zeros(1, length(target_wavelengths));
 for iwl = 1:length(target_wavelengths)
     [~, nearest_idx] = min(abs(enei - target_wavelengths(iwl)));
-    field_wavelength_indices(iwl) = nearest_idx;
+    temp_indices(iwl) = nearest_idx;
     fprintf('  Target %.1f nm -> index %d (actual %.1f nm)\\n', ...
             target_wavelengths(iwl), nearest_idx, enei(nearest_idx));
 end
 
 % Remove duplicates and sort
-field_wavelength_indices = unique(field_wavelength_indices);
-n_field_wavelengths = length(field_wavelength_indices);
+unique_field_wavelength_indices = unique(temp_indices);
+n_field_wavelengths = length(unique_field_wavelength_indices);
+
+% Map to per-polarization (all polarizations use same wavelength list)
+field_wavelength_indices = repmat(unique_field_wavelength_indices(1), 1, n_polarizations);
 fprintf('-> %d unique wavelength(s) for field calculation\\n', n_field_wavelengths);
 """
             else:
                 code += """
-% Default: use middle wavelength
-field_wavelength_indices = round(n_wavelengths / 2);
+% Default: use middle wavelength (single wavelength for all polarizations)
+field_wavelength_idx = round(n_wavelengths / 2);
+unique_field_wavelength_indices = field_wavelength_idx;
 n_field_wavelengths = 1;
+field_wavelength_indices = repmat(field_wavelength_idx, 1, n_polarizations);
 fprintf('Using middle wavelength: lambda = %.1f nm (index %d)\\n', ...
-        enei(field_wavelength_indices(1)), field_wavelength_indices(1));
+        enei(field_wavelength_idx), field_wavelength_idx);
 """
             
             # Create field grid
@@ -2607,6 +2661,7 @@ end
 %% STEP 3-4: Calculate Fields for Each Wavelength and Polarization
 %% ========================================
 field_data = struct();
+surface_charge = struct();  % Initialize surface charge storage
 field_data_idx = 0;
 field_calc_start = tic;
 
@@ -2616,18 +2671,22 @@ fprintf('  Processing %d wavelength(s) x %d polarization(s) = %d field calculati
 fprintf('================================================================\\n');
 
 for iwl = 1:n_field_wavelengths
-    field_wavelength_idx = field_wavelength_indices(iwl);
+    field_wavelength_idx = unique_field_wavelength_indices(iwl);
     fprintf('\\n[%d/%d] Wavelength: lambda = %.1f nm (index %d)\\n', ...
             iwl, n_field_wavelengths, enei(field_wavelength_idx), field_wavelength_idx);
+
+    % Find which polarizations have their peak at this wavelength
+    pols_at_this_wl = find(field_wavelength_indices == field_wavelength_idx);
+    fprintf('  Polarizations with peak at this wavelength: [%s]\\n', num2str(pols_at_this_wl));
 
     % Clear BEM and recalculate for this wavelength
     bem = clear(bem);
     sig_peak = bem \\ exc(p, enei(field_wavelength_idx));
     fprintf('  [OK] BEM solution ready\\n');
 
-for ipol = 1:n_polarizations
+for ipol = pols_at_this_wl
     field_data_idx = field_data_idx + 1;
-    fprintf('\\n  Processing polarization %d/%d (field_data index: %d)...\\n', ipol, n_polarizations, field_data_idx);
+    fprintf('\\n  Processing polarization %d (field_data index: %d)...\\n', ipol, field_data_idx);
     
 """
             
@@ -3119,6 +3178,30 @@ for ipol = 1:n_polarizations
     fprintf('      Valid points (merged): %d/%d\\n', sum(isfinite(intensity_enhancement(:))), numel(intensity_enhancement));
     fprintf('      Valid points (external): %d/%d\\n', sum(isfinite(intensity_enhancement_ext(:))), numel(intensity_enhancement_ext));
     fprintf('      Valid points (internal): %d/%d\\n', sum(isfinite(intensity_enhancement_int(:))), numel(intensity_enhancement_int));
+
+    %% SAVE SURFACE CHARGE (for plasmon mode analysis)
+    % Extract surface charge from BEM solution
+    if size(sig_peak.sig, 2) >= ipol
+        charge_values = sig_peak.sig(:, ipol);
+    else
+        charge_values = sig_peak.sig(:, 1);
+    end
+
+    % Store surface charge data (same index as field_data for consistency)
+    surface_charge(field_data_idx).wavelength = enei(field_wavelength_idx);
+    surface_charge(field_data_idx).wavelength_idx = field_wavelength_idx;
+    surface_charge(field_data_idx).polarization = pol(ipol, :);
+    surface_charge(field_data_idx).polarization_idx = ipol;
+    surface_charge(field_data_idx).vertices = p.verts;      % Vertex coordinates
+    surface_charge(field_data_idx).faces = p.faces;         % Face connectivity
+    surface_charge(field_data_idx).centroids = p.pos;       % Face centers
+    surface_charge(field_data_idx).normals = p.nvec;        % Face normals
+    surface_charge(field_data_idx).areas = p.area;          % Face areas
+    surface_charge(field_data_idx).charge = charge_values;  % Surface charge values
+
+    fprintf('    → Stored surface_charge(%d): %d faces, %d vertices\\n', ...
+            field_data_idx, size(p.faces, 1), size(p.verts, 1));
+
 end  % for ipol
 end  % for iwl
 

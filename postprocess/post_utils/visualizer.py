@@ -66,6 +66,13 @@ class Visualizer:
                 unpol_field_files = self.plot_unpolarized_fields(data, analysis_results)
                 plots_created.extend(unpol_field_files)
 
+        # Surface charge plots
+        if 'surface_charge' in data and data['surface_charge']:
+            if self.verbose:
+                print("\n  Creating surface charge plots...")
+            sc_files = self.plot_surface_charge(data)
+            plots_created.extend(sc_files)
+
         return plots_created
     
     def plot_spectrum(self, data):
@@ -1687,4 +1694,283 @@ class Visualizer:
         plt.close(fig)
 
         return saved_files
+
+    # ========================================================================
+    # SURFACE CHARGE VISUALIZATION
+    # ========================================================================
+
+    def plot_surface_charge(self, data):
+        """
+        Create surface charge distribution plots for plasmon mode analysis.
+
+        Generates:
+        - 3D surface mesh with charge colormap
+        - 6-view 2D projections (+x, -x, +y, -y, +z, -z)
+        - Moments analysis (dipole, quadrupole)
+        """
+        if 'surface_charge' not in data or not data['surface_charge']:
+            if self.verbose:
+                print("  No surface charge data available")
+            return []
+
+        saved_files = []
+
+        for sc_data in data['surface_charge']:
+            # Extract data
+            wavelength = sc_data['wavelength']
+            polarization = sc_data['polarization']
+            pol_idx = sc_data.get('polarization_idx', 1)
+            vertices = sc_data['vertices']
+            faces = sc_data['faces']
+            centroids = sc_data['centroids']
+            charge = sc_data['charge']
+
+            if self.verbose:
+                print(f"  Processing surface charge: λ={wavelength:.1f}nm, pol={pol_idx}")
+
+            # Calculate moments
+            moments = self._calculate_moments(centroids, charge, sc_data.get('areas'))
+
+            # Create 3D plot
+            files_3d = self._plot_surface_charge_3d(
+                vertices, faces, charge, wavelength, polarization, pol_idx, moments
+            )
+            saved_files.extend(files_3d)
+
+            # Create 6-view 2D projections
+            files_2d = self._plot_surface_charge_2d_6views(
+                centroids, charge, wavelength, polarization, pol_idx, moments
+            )
+            saved_files.extend(files_2d)
+
+        return saved_files
+
+    def _calculate_moments(self, centroids, charge, areas=None):
+        """
+        Calculate dipole and quadrupole moments from surface charge distribution.
+
+        Returns:
+            dict: {'dipole': [px, py, pz], 'dipole_mag': |p|, 'quadrupole_trace': Q_trace}
+        """
+        # Center of charge (weighted average)
+        if areas is not None:
+            weights = np.abs(charge) * areas
+        else:
+            weights = np.abs(charge)
+
+        total_weight = np.sum(weights) + 1e-30  # Avoid division by zero
+        center = np.sum(centroids * weights[:, None], axis=0) / total_weight
+
+        # Dipole moment: p = ∫ r * σ dS
+        if areas is not None:
+            dipole = np.sum(centroids * (charge * areas)[:, None], axis=0)
+        else:
+            dipole = np.sum(centroids * charge[:, None], axis=0)
+
+        dipole_mag = np.linalg.norm(dipole)
+
+        # Quadrupole trace (simplified): Tr(Q) = ∫ (3z² - r²) σ dS
+        r_from_center = centroids - center
+        r_sq = np.sum(r_from_center**2, axis=1)
+        z_sq = r_from_center[:, 2]**2
+
+        if areas is not None:
+            q_trace = np.sum((3 * z_sq - r_sq) * charge * areas)
+        else:
+            q_trace = np.sum((3 * z_sq - r_sq) * charge)
+
+        return {
+            'dipole': dipole,
+            'dipole_mag': dipole_mag,
+            'quadrupole_trace': q_trace,
+            'center': center,
+        }
+
+    def _plot_surface_charge_3d(self, vertices, faces, charge, wavelength, polarization, pol_idx, moments):
+        """Create 3D surface mesh plot with charge colormap."""
+        from mpl_toolkits.mplot3d import Axes3D
+        from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+
+        fig = plt.figure(figsize=(12, 10))
+        ax = fig.add_subplot(111, projection='3d')
+
+        # Handle mixed triangular/quadrilateral mesh
+        faces_clean = self._process_faces_for_plotting(faces)
+
+        # Get triangle vertices
+        verts_tri = vertices[faces_clean]
+
+        # Replicate charge values for split faces if needed
+        charge_plot = self._replicate_charge_for_split_faces(faces, charge, faces_clean)
+
+        # Normalize charge for colormap
+        charge_max = np.max(np.abs(charge_plot))
+        charge_normalized = charge_plot / (charge_max + 1e-10)
+
+        # Create 3D polygon collection
+        poly = Poly3DCollection(verts_tri, alpha=0.9, edgecolor='k', linewidth=0.3)
+        poly.set_array(charge_normalized)
+        poly.set_cmap('RdBu_r')  # Red = positive, Blue = negative
+        poly.set_clim(-1, 1)
+
+        ax.add_collection3d(poly)
+
+        # Set axis limits
+        ax.set_xlim(vertices[:, 0].min(), vertices[:, 0].max())
+        ax.set_ylim(vertices[:, 1].min(), vertices[:, 1].max())
+        ax.set_zlim(vertices[:, 2].min(), vertices[:, 2].max())
+
+        ax.set_xlabel('x (nm)', fontsize=11)
+        ax.set_ylabel('y (nm)', fontsize=11)
+        ax.set_zlabel('z (nm)', fontsize=11)
+
+        # Format polarization label
+        pol_str = self._format_vector_label(polarization)
+        ax.set_title(f'Surface Charge Distribution (Plasmon Mode)\n'
+                     f'λ = {wavelength:.1f} nm, Polarization = {pol_str}',
+                     fontsize=12, fontweight='bold')
+
+        # Add colorbar
+        cbar = plt.colorbar(poly, ax=ax, pad=0.1, shrink=0.8)
+        cbar.set_label('Normalized Surface Charge', fontsize=11)
+
+        # Add moments info as text
+        moment_text = f"Dipole: |p| = {moments['dipole_mag']:.2e} e·nm\n"
+        moment_text += f"Q trace: {moments['quadrupole_trace']:.2e}"
+        ax.text2D(0.02, 0.98, moment_text, transform=ax.transAxes,
+                 fontsize=10, verticalalignment='top',
+                 bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+
+        # Equal aspect ratio
+        ax.set_box_aspect([1, 1, 1])
+
+        plt.tight_layout()
+
+        # Save
+        base_filename = f'surface_charge_3d_pol{pol_idx}_lambda{wavelength:.0f}nm'
+        saved = self._save_figure(fig, base_filename)
+        plt.close(fig)
+
+        return saved
+
+    def _plot_surface_charge_2d_6views(self, centroids, charge, wavelength, polarization, pol_idx, moments):
+        """Create 6-view 2D projections (+x, -x, +y, -y, +z, -z)."""
+        fig, axes = plt.subplots(2, 3, figsize=(18, 12))
+
+        # Normalize charge for colormap
+        charge_max = np.max(np.abs(charge))
+        charge_normalized = charge / (charge_max + 1e-10)
+
+        # Define views: (view_name, axis_indices for projection, view_angle)
+        views = [
+            ('+X view', (1, 2), centroids[:, 0].max()),  # Looking from +x
+            ('-X view', (1, 2), centroids[:, 0].min()),  # Looking from -x
+            ('+Y view', (0, 2), centroids[:, 1].max()),  # Looking from +y
+            ('-Y view', (0, 2), centroids[:, 1].min()),  # Looking from -y
+            ('+Z view', (0, 1), centroids[:, 2].max()),  # Looking from +z (top)
+            ('-Z view', (0, 1), centroids[:, 2].min()),  # Looking from -z (bottom)
+        ]
+
+        axis_labels = [
+            ('y (nm)', 'z (nm)'),
+            ('y (nm)', 'z (nm)'),
+            ('x (nm)', 'z (nm)'),
+            ('x (nm)', 'z (nm)'),
+            ('x (nm)', 'y (nm)'),
+            ('x (nm)', 'y (nm)'),
+        ]
+
+        for idx, ((view_name, axes_idx, _), (xlabel, ylabel)) in enumerate(zip(views, axis_labels)):
+            ax = axes.flat[idx]
+
+            # Project to 2D
+            x_proj = centroids[:, axes_idx[0]]
+            y_proj = centroids[:, axes_idx[1]]
+
+            # Scatter plot with charge colormap
+            scatter = ax.scatter(x_proj, y_proj, c=charge_normalized, cmap='RdBu_r',
+                                s=50, vmin=-1, vmax=1, edgecolors='k', linewidth=0.3)
+
+            ax.set_xlabel(xlabel, fontsize=10)
+            ax.set_ylabel(ylabel, fontsize=10)
+            ax.set_title(view_name, fontsize=11, fontweight='bold')
+            ax.set_aspect('equal')
+            ax.grid(True, alpha=0.3)
+
+        # Add colorbar
+        fig.subplots_adjust(right=0.92)
+        cbar_ax = fig.add_axes([0.94, 0.15, 0.015, 0.7])
+        cbar = fig.colorbar(scatter, cax=cbar_ax)
+        cbar.set_label('Normalized Charge', fontsize=11)
+
+        # Overall title
+        pol_str = self._format_vector_label(polarization)
+        fig.suptitle(f'Surface Charge Distribution - 6 Views\n'
+                     f'λ = {wavelength:.1f} nm, Pol = {pol_str}',
+                     fontsize=13, fontweight='bold')
+
+        # Add moments info
+        moment_text = f"Dipole: p = [{moments['dipole'][0]:.2e}, {moments['dipole'][1]:.2e}, {moments['dipole'][2]:.2e}] e·nm\n"
+        moment_text += f"|p| = {moments['dipole_mag']:.2e} e·nm\n"
+        moment_text += f"Quadrupole trace: {moments['quadrupole_trace']:.2e}"
+        fig.text(0.02, 0.02, moment_text, fontsize=10,
+                bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.7))
+
+        plt.tight_layout(rect=[0, 0.05, 0.92, 0.96])
+
+        # Save
+        base_filename = f'surface_charge_6views_pol{pol_idx}_lambda{wavelength:.0f}nm'
+        saved = self._save_figure(fig, base_filename)
+        plt.close(fig)
+
+        return saved
+
+    def _process_faces_for_plotting(self, faces):
+        """
+        Process MNPBEM faces (triangular or quadrilateral) for matplotlib plotting.
+
+        MNPBEM uses NaN to indicate triangular faces in a quadrilateral array.
+        This function converts all faces to triangles.
+        """
+        faces_clean = []
+
+        # MATLAB uses 1-based indexing, convert to 0-based
+        faces_0based = faces - 1
+
+        for face in faces_0based:
+            if faces.shape[1] == 4:
+                # Check if quadrilateral or triangle (NaN in 4th position)
+                if not np.isnan(face[3]):
+                    # Quadrilateral - split into two triangles
+                    faces_clean.append([int(face[0]), int(face[1]), int(face[2])])
+                    faces_clean.append([int(face[0]), int(face[2]), int(face[3])])
+                else:
+                    # Triangle
+                    faces_clean.append([int(face[0]), int(face[1]), int(face[2])])
+            else:
+                # Pure triangular mesh
+                faces_clean.append([int(face[0]), int(face[1]), int(face[2])])
+
+        return np.array(faces_clean)
+
+    def _replicate_charge_for_split_faces(self, faces, charge, faces_clean):
+        """Replicate charge values for faces that were split from quads to triangles."""
+        if len(faces_clean) == len(charge):
+            # No splitting occurred
+            return charge
+
+        # Some faces were split
+        charge_plot = []
+        face_idx = 0
+
+        for orig_face in faces:
+            charge_plot.append(charge[face_idx])
+
+            # If quad, duplicate charge for second triangle
+            if faces.shape[1] == 4 and not np.isnan(orig_face[3]):
+                charge_plot.append(charge[face_idx])
+
+            face_idx += 1
+
+        return np.array(charge_plot)
 
