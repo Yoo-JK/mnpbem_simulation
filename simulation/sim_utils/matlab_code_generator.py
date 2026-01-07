@@ -2794,9 +2794,17 @@ for iwl = 1:n_field_wavelengths
     fprintf('\\n[%d/%d] Wavelength: lambda = %.1f nm (index %d)\\n', ...
             iwl, n_field_wavelengths, enei(field_wavelength_idx), field_wavelength_idx);
 
-    % Find which polarizations have their peak at this wavelength
+    % Find which polarizations to calculate at this wavelength
+    % If using wavelength list or empty result, calculate ALL polarizations
     pols_at_this_wl = find(field_wavelength_indices == field_wavelength_idx);
-    fprintf('  Polarizations with peak at this wavelength: [%s]\\n', num2str(pols_at_this_wl));
+    if isempty(pols_at_this_wl)
+        % No peak match - this happens with wavelength list mode
+        % Calculate all polarizations at this wavelength
+        pols_at_this_wl = 1:n_polarizations;
+        fprintf('  Calculating ALL polarizations: [%s]\\n', num2str(pols_at_this_wl));
+    else
+        fprintf('  Polarizations with peak at this wavelength: [%s]\\n', num2str(pols_at_this_wl));
+    end
 
     % Clear BEM and recalculate for this wavelength
     bem = clear(bem);
