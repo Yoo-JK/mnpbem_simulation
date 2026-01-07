@@ -1936,7 +1936,23 @@ surface_charge = struct();
                     charge_values_all = sig;
                     extraction_method = 'numeric';
 
-                % Method 2: Try .sig field (MNPBEM bemsolve object)
+                % Method 2: Try .sig1 field (MNPBEM compstruct object - particle 1)
+                elseif (isobject(sig) || isstruct(sig)) && (isfield(sig, 'sig1') || isprop(sig, 'sig1'))
+                    try
+                        charge_values_all = sig.sig1;
+                        extraction_method = '.sig1 (compstruct)';
+                    catch
+                    end
+
+                % Method 3: Try .sig2 field (MNPBEM compstruct object - particle 2)
+                elseif isempty(charge_values_all) && (isobject(sig) || isstruct(sig)) && (isfield(sig, 'sig2') || isprop(sig, 'sig2'))
+                    try
+                        charge_values_all = sig.sig2;
+                        extraction_method = '.sig2 (compstruct)';
+                    catch
+                    end
+
+                % Method 4: Try .sig field (older MNPBEM bemsolve object)
                 elseif (isobject(sig) || isstruct(sig)) && (isfield(sig, 'sig') || isprop(sig, 'sig'))
                     try
                         charge_values_all = sig.sig;
@@ -1944,7 +1960,7 @@ surface_charge = struct();
                     catch
                     end
 
-                % Method 3: Try .val field (alternative MNPBEM format)
+                % Method 5: Try .val field (alternative MNPBEM format)
                 elseif (isobject(sig) || isstruct(sig)) && (isfield(sig, 'val') || isprop(sig, 'val'))
                     try
                         charge_values_all = sig.val;
@@ -1952,7 +1968,7 @@ surface_charge = struct();
                     catch
                     end
 
-                % Method 4: Try full() for sparse matrices
+                % Method 6: Try full() for sparse matrices
                 elseif issparse(sig)
                     try
                         charge_values_all = full(sig);
@@ -1960,7 +1976,7 @@ surface_charge = struct();
                     catch
                     end
 
-                % Method 5: Try double() conversion
+                % Method 7: Try double() conversion
                 else
                     try
                         charge_values_all = double(sig);
@@ -1969,7 +1985,7 @@ surface_charge = struct();
                     end
                 end
 
-                % Method 6: Try subsref (:) if still empty
+                % Method 8: Try subsref (:) if still empty
                 if isempty(charge_values_all)
                     try
                         charge_values_all = sig(:);
@@ -3292,7 +3308,23 @@ for ipol = pols_at_this_wl
         charge_values_all = sig_peak;
         extraction_method = 'numeric';
 
-    % Method 2: Try .sig field (MNPBEM bemsolve object)
+    % Method 2: Try .sig1 field (MNPBEM compstruct object - particle 1)
+    elseif (isobject(sig_peak) || isstruct(sig_peak)) && (isfield(sig_peak, 'sig1') || isprop(sig_peak, 'sig1'))
+        try
+            charge_values_all = sig_peak.sig1;
+            extraction_method = '.sig1 (compstruct)';
+        catch
+        end
+
+    % Method 3: Try .sig2 field (MNPBEM compstruct object - particle 2)
+    elseif isempty(charge_values_all) && (isobject(sig_peak) || isstruct(sig_peak)) && (isfield(sig_peak, 'sig2') || isprop(sig_peak, 'sig2'))
+        try
+            charge_values_all = sig_peak.sig2;
+            extraction_method = '.sig2 (compstruct)';
+        catch
+        end
+
+    % Method 4: Try .sig field (older MNPBEM bemsolve object)
     elseif (isobject(sig_peak) || isstruct(sig_peak)) && (isfield(sig_peak, 'sig') || isprop(sig_peak, 'sig'))
         try
             charge_values_all = sig_peak.sig;
@@ -3300,7 +3332,7 @@ for ipol = pols_at_this_wl
         catch
         end
 
-    % Method 3: Try .val field (alternative MNPBEM format)
+    % Method 5: Try .val field (alternative MNPBEM format)
     elseif (isobject(sig_peak) || isstruct(sig_peak)) && (isfield(sig_peak, 'val') || isprop(sig_peak, 'val'))
         try
             charge_values_all = sig_peak.val;
@@ -3308,7 +3340,7 @@ for ipol = pols_at_this_wl
         catch
         end
 
-    % Method 4: Try full() for sparse matrices
+    % Method 6: Try full() for sparse matrices
     elseif issparse(sig_peak)
         try
             charge_values_all = full(sig_peak);
@@ -3316,7 +3348,7 @@ for ipol = pols_at_this_wl
         catch
         end
 
-    % Method 5: Try double() conversion
+    % Method 7: Try double() conversion
     else
         try
             charge_values_all = double(sig_peak);
@@ -3325,7 +3357,7 @@ for ipol = pols_at_this_wl
         end
     end
 
-    % Method 6: Try subsref (:) if still empty
+    % Method 8: Try subsref (:) if still empty
     if isempty(charge_values_all)
         try
             charge_values_all = sig_peak(:);

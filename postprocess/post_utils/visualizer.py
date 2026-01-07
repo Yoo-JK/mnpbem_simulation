@@ -1725,6 +1725,12 @@ class Visualizer:
             centroids = sc_data['centroids']
             charge = sc_data['charge']
 
+            # Skip if critical data is missing
+            if wavelength is None or charge is None or centroids is None:
+                if self.verbose:
+                    print(f"  Skipping incomplete surface charge data (pol={pol_idx})")
+                continue
+
             if self.verbose:
                 print(f"  Processing surface charge: λ={wavelength:.1f}nm, pol={pol_idx}")
 
