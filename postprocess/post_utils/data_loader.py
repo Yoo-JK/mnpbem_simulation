@@ -79,7 +79,13 @@ class DataLoader:
                 unique_pols = set(f.get('polarization_idx', 0) for f in data['fields'])
                 print(f"  Field data loaded: {len(data['fields'])} entries "
                       f"({len(unique_wls)} wavelength(s), {len(unique_pols)} polarization(s))")
-        
+
+        # Load surface charge data if available
+        if hasattr(results, 'surface_charge'):
+            data['surface_charge'] = self._load_surface_charge_data(results.surface_charge)
+            if self.verbose and data['surface_charge']:
+                print(f"  Surface charge loaded: {len(data['surface_charge'])} entries")
+
         return data
     
     def _load_field_data(self, fields_struct):
@@ -149,18 +155,52 @@ class DataLoader:
         
         return field_data_list
     
+    def _load_surface_charge_data(self, sc_struct):
+        """
+        Load surface charge data from MATLAB structure.
+
+        Returns:
+            list: List of surface charge dictionaries, one per entry
+        """
+        if sc_struct is None:
+            return []
+
+        # Handle both single struct and array of structs
+        if not isinstance(sc_struct, np.ndarray):
+            sc_struct = [sc_struct]
+
+        surface_charge_list = []
+
+        for sc in sc_struct:
+            sc_data = {
+                'wavelength': float(sc.wavelength) if hasattr(sc, 'wavelength') else None,
+                'wavelength_idx': int(sc.wavelength_idx) if hasattr(sc, 'wavelength_idx') else None,
+                'polarization': self._extract_array(sc.polarization) if hasattr(sc, 'polarization') else None,
+                'polarization_idx': int(sc.polarization_idx) if hasattr(sc, 'polarization_idx') else None,
+                'vertices': self._extract_array(sc.vertices) if hasattr(sc, 'vertices') else None,
+                'faces': self._extract_array(sc.faces) if hasattr(sc, 'faces') else None,
+                'centroids': self._extract_array(sc.centroids) if hasattr(sc, 'centroids') else None,
+                'normals': self._extract_array(sc.normals) if hasattr(sc, 'normals') else None,
+                'areas': self._extract_array(sc.areas) if hasattr(sc, 'areas') else None,
+                'charge': self._extract_array(sc.charge) if hasattr(sc, 'charge') else None,
+            }
+
+            surface_charge_list.append(sc_data)
+
+        return surface_charge_list
+
     def _extract_array(self, matlab_array):
         """Extract numpy array from MATLAB data."""
         if matlab_array is None:
             return np.array([])
-        
+
         # Convert to numpy array if not already
         arr = np.array(matlab_array)
-        
+
         # Handle scalar
         if arr.ndim == 0:
             return arr.item()
-        
+
         return arr
     
     def load_text_results(self):
