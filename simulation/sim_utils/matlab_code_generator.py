@@ -2664,8 +2664,9 @@ end
 unique_field_wavelength_indices = unique(temp_indices);
 n_field_wavelengths = length(unique_field_wavelength_indices);
 
-% Map to per-polarization (all polarizations use same wavelength list)
-field_wavelength_indices = repmat(unique_field_wavelength_indices(1), 1, n_polarizations);
+% For wavelength list mode: don't use per-polarization mapping
+% All wavelengths will calculate all polarizations
+field_wavelength_indices = [];  % Empty - will trigger "calculate all polarizations" mode
 fprintf('-> %d unique wavelength(s) for field calculation\\n', n_field_wavelengths);
 """
             else:
