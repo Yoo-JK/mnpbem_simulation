@@ -1927,41 +1927,56 @@ surface_charge = struct();
                         field_data_idx, enei(ien), ipol);
 
                 %% SAVE SURFACE CHARGE (for plasmon mode analysis)
-                % Extract surface charge from BEM solution (safe extraction)
-                if isobject(sig) || isstruct(sig)
-                    if isfield(sig, 'sig') || isprop(sig, 'sig')
-                        charge_values_all = sig.sig;
-                    elseif isfield(sig, 'val') || isprop(sig, 'val')
+                % Extract surface charge from BEM solution (safe extraction with try-catch)
+                charge_values_all = [];
+                try
+                    % Method 1: Try .sig field
+                    charge_values_all = sig.sig;
+                catch
+                    try
+                        % Method 2: Try .val field
                         charge_values_all = sig.val;
-                    else
-                        % sig itself might be the charge array
-                        charge_values_all = double(sig);
+                    catch
+                        try
+                            % Method 3: Try direct conversion
+                            charge_values_all = double(sig);
+                        catch
+                            % Method 4: sig might already be numeric
+                            if isnumeric(sig)
+                                charge_values_all = sig;
+                            else
+                                fprintf('      [WARNING] Could not extract surface charge from sig\\n');
+                            end
+                        end
                     end
-                else
-                    charge_values_all = sig;
                 end
 
-                % Select polarization column
-                if size(charge_values_all, 2) >= ipol
-                    charge_values = charge_values_all(:, ipol);
+                % Only save if charge extraction succeeded
+                if ~isempty(charge_values_all)
+                    % Select polarization column
+                    if size(charge_values_all, 2) >= ipol
+                        charge_values = charge_values_all(:, ipol);
+                    else
+                        charge_values = charge_values_all(:, 1);
+                    end
+
+                    % Store surface charge data (same index as field_data for consistency)
+                    surface_charge(field_data_idx).wavelength = enei(ien);
+                    surface_charge(field_data_idx).wavelength_idx = ien;
+                    surface_charge(field_data_idx).polarization = pol(ipol, :);
+                    surface_charge(field_data_idx).polarization_idx = ipol;
+                    surface_charge(field_data_idx).vertices = p.verts;      % Vertex coordinates
+                    surface_charge(field_data_idx).faces = p.faces;         % Face connectivity
+                    surface_charge(field_data_idx).centroids = p.pos;       % Face centers
+                    surface_charge(field_data_idx).normals = p.nvec;        % Face normals
+                    surface_charge(field_data_idx).areas = p.area;          % Face areas
+                    surface_charge(field_data_idx).charge = charge_values;  % Surface charge values
+
+                    fprintf('      -> Stored surface_charge(%d): %d faces, %d vertices\\n', ...
+                            field_data_idx, size(p.faces, 1), size(p.verts, 1));
                 else
-                    charge_values = charge_values_all(:, 1);
+                    fprintf('      -> Surface charge extraction failed, skipping...\\n');
                 end
-
-                % Store surface charge data (same index as field_data for consistency)
-                surface_charge(field_data_idx).wavelength = enei(ien);
-                surface_charge(field_data_idx).wavelength_idx = ien;
-                surface_charge(field_data_idx).polarization = pol(ipol, :);
-                surface_charge(field_data_idx).polarization_idx = ipol;
-                surface_charge(field_data_idx).vertices = p.verts;      % Vertex coordinates
-                surface_charge(field_data_idx).faces = p.faces;         % Face connectivity
-                surface_charge(field_data_idx).centroids = p.pos;       % Face centers
-                surface_charge(field_data_idx).normals = p.nvec;        % Face normals
-                surface_charge(field_data_idx).areas = p.area;          % Face areas
-                surface_charge(field_data_idx).charge = charge_values;  % Surface charge values
-
-                fprintf('      -> Stored surface_charge(%d): %d faces, %d vertices\\n', ...
-                        field_data_idx, size(p.faces, 1), size(p.verts, 1));
             end
 
             field_calc_time = toc(field_calc_start);
@@ -3220,41 +3235,56 @@ for ipol = pols_at_this_wl
     fprintf('      Valid points (internal): %d/%d\\n', sum(isfinite(intensity_enhancement_int(:))), numel(intensity_enhancement_int));
 
     %% SAVE SURFACE CHARGE (for plasmon mode analysis)
-    % Extract surface charge from BEM solution (safe extraction)
-    if isobject(sig_peak) || isstruct(sig_peak)
-        if isfield(sig_peak, 'sig') || isprop(sig_peak, 'sig')
-            charge_values_all = sig_peak.sig;
-        elseif isfield(sig_peak, 'val') || isprop(sig_peak, 'val')
+    % Extract surface charge from BEM solution (safe extraction with try-catch)
+    charge_values_all = [];
+    try
+        % Method 1: Try .sig field
+        charge_values_all = sig_peak.sig;
+    catch
+        try
+            % Method 2: Try .val field
             charge_values_all = sig_peak.val;
-        else
-            % sig_peak itself might be the charge array
-            charge_values_all = double(sig_peak);
+        catch
+            try
+                % Method 3: Try direct conversion
+                charge_values_all = double(sig_peak);
+            catch
+                % Method 4: sig_peak might already be numeric
+                if isnumeric(sig_peak)
+                    charge_values_all = sig_peak;
+                else
+                    fprintf('    [WARNING] Could not extract surface charge from sig_peak\\n');
+                end
+            end
         end
-    else
-        charge_values_all = sig_peak;
     end
 
-    % Select polarization column
-    if size(charge_values_all, 2) >= ipol
-        charge_values = charge_values_all(:, ipol);
+    % Only save if charge extraction succeeded
+    if ~isempty(charge_values_all)
+        % Select polarization column
+        if size(charge_values_all, 2) >= ipol
+            charge_values = charge_values_all(:, ipol);
+        else
+            charge_values = charge_values_all(:, 1);
+        end
+
+        % Store surface charge data (same index as field_data for consistency)
+        surface_charge(field_data_idx).wavelength = enei(field_wavelength_idx);
+        surface_charge(field_data_idx).wavelength_idx = field_wavelength_idx;
+        surface_charge(field_data_idx).polarization = pol(ipol, :);
+        surface_charge(field_data_idx).polarization_idx = ipol;
+        surface_charge(field_data_idx).vertices = p.verts;      % Vertex coordinates
+        surface_charge(field_data_idx).faces = p.faces;         % Face connectivity
+        surface_charge(field_data_idx).centroids = p.pos;       % Face centers
+        surface_charge(field_data_idx).normals = p.nvec;        % Face normals
+        surface_charge(field_data_idx).areas = p.area;          % Face areas
+        surface_charge(field_data_idx).charge = charge_values;  % Surface charge values
+
+        fprintf('    → Stored surface_charge(%d): %d faces, %d vertices\\n', ...
+                field_data_idx, size(p.faces, 1), size(p.verts, 1));
     else
-        charge_values = charge_values_all(:, 1);
+        fprintf('    → Surface charge extraction failed, skipping...\\n');
     end
-
-    % Store surface charge data (same index as field_data for consistency)
-    surface_charge(field_data_idx).wavelength = enei(field_wavelength_idx);
-    surface_charge(field_data_idx).wavelength_idx = field_wavelength_idx;
-    surface_charge(field_data_idx).polarization = pol(ipol, :);
-    surface_charge(field_data_idx).polarization_idx = ipol;
-    surface_charge(field_data_idx).vertices = p.verts;      % Vertex coordinates
-    surface_charge(field_data_idx).faces = p.faces;         % Face connectivity
-    surface_charge(field_data_idx).centroids = p.pos;       % Face centers
-    surface_charge(field_data_idx).normals = p.nvec;        % Face normals
-    surface_charge(field_data_idx).areas = p.area;          % Face areas
-    surface_charge(field_data_idx).charge = charge_values;  % Surface charge values
-
-    fprintf('    → Stored surface_charge(%d): %d faces, %d vertices\\n', ...
-            field_data_idx, size(p.faces, 1), size(p.verts, 1));
 
 end  % for ipol
 end  % for iwl
