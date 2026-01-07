@@ -1758,20 +1758,26 @@ class Visualizer:
         Returns:
             dict: {'dipole': [px, py, pz], 'dipole_mag': |p|, 'quadrupole_trace': Q_trace}
         """
+        # Convert complex charge to real (MNPBEM returns complex surface charge)
+        if np.iscomplexobj(charge):
+            charge_real = np.real(charge)
+        else:
+            charge_real = charge
+
         # Center of charge (weighted average)
         if areas is not None:
-            weights = np.abs(charge) * areas
+            weights = np.abs(charge_real) * areas
         else:
-            weights = np.abs(charge)
+            weights = np.abs(charge_real)
 
         total_weight = np.sum(weights) + 1e-30  # Avoid division by zero
         center = np.sum(centroids * weights[:, None], axis=0) / total_weight
 
         # Dipole moment: p = ∫ r * σ dS
         if areas is not None:
-            dipole = np.sum(centroids * (charge * areas)[:, None], axis=0)
+            dipole = np.sum(centroids * (charge_real * areas)[:, None], axis=0)
         else:
-            dipole = np.sum(centroids * charge[:, None], axis=0)
+            dipole = np.sum(centroids * charge_real[:, None], axis=0)
 
         dipole_mag = np.linalg.norm(dipole)
 
@@ -1781,9 +1787,9 @@ class Visualizer:
         z_sq = r_from_center[:, 2]**2
 
         if areas is not None:
-            q_trace = np.sum((3 * z_sq - r_sq) * charge * areas)
+            q_trace = np.sum((3 * z_sq - r_sq) * charge_real * areas)
         else:
-            q_trace = np.sum((3 * z_sq - r_sq) * charge)
+            q_trace = np.sum((3 * z_sq - r_sq) * charge_real)
 
         return {
             'dipole': dipole,
@@ -1808,6 +1814,10 @@ class Visualizer:
 
         # Replicate charge values for split faces if needed
         charge_plot = self._replicate_charge_for_split_faces(faces, charge, faces_clean)
+
+        # Convert complex charge to real (MNPBEM returns complex surface charge)
+        if np.iscomplexobj(charge_plot):
+            charge_plot = np.real(charge_plot)
 
         # Normalize charge for colormap
         charge_max = np.max(np.abs(charge_plot))
@@ -1862,6 +1872,10 @@ class Visualizer:
     def _plot_surface_charge_2d_6views(self, centroids, charge, wavelength, polarization, pol_idx, moments):
         """Create 6-view 2D projections (+x, -x, +y, -y, +z, -z)."""
         fig, axes = plt.subplots(2, 3, figsize=(18, 12))
+
+        # Convert complex charge to real (MNPBEM returns complex surface charge)
+        if np.iscomplexobj(charge):
+            charge = np.real(charge)
 
         # Normalize charge for colormap
         charge_max = np.max(np.abs(charge))
