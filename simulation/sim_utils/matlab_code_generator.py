@@ -3235,25 +3235,40 @@ for ipol = pols_at_this_wl
     fprintf('      Valid points (internal): %d/%d\\n', sum(isfinite(intensity_enhancement_int(:))), numel(intensity_enhancement_int));
 
     %% SAVE SURFACE CHARGE (for plasmon mode analysis)
+    % Debug: Print sig_peak object info
+    fprintf('    [DEBUG] sig_peak class: %s, size: [%s]\\n', class(sig_peak), num2str(size(sig_peak)));
+    if isobject(sig_peak) || isstruct(sig_peak)
+        try
+            fn = fieldnames(sig_peak);
+            fprintf('    [DEBUG] sig_peak has %d fields: %s\\n', length(fn), strjoin(fn(1:min(5,end)), ', '));
+        catch
+        end
+    end
+
     % Extract surface charge from BEM solution (safe extraction with try-catch)
     charge_values_all = [];
     try
         % Method 1: Try .sig field
         charge_values_all = sig_peak.sig;
+        fprintf('    [DEBUG] ✓ Extracted via .sig\\n');
     catch
         try
             % Method 2: Try .val field
             charge_values_all = sig_peak.val;
+            fprintf('    [DEBUG] ✓ Extracted via .val\\n');
         catch
             try
                 % Method 3: Try direct conversion
                 charge_values_all = double(sig_peak);
+                fprintf('    [DEBUG] ✓ Extracted via double()\\n');
             catch
                 % Method 4: sig_peak might already be numeric
                 if isnumeric(sig_peak)
                     charge_values_all = sig_peak;
+                    fprintf('    [DEBUG] ✓ sig_peak is already numeric\\n');
                 else
-                    fprintf('    [WARNING] Could not extract surface charge from sig_peak\\n');
+                    fprintf('    [WARNING] Could not extract surface charge\\n');
+                    fprintf('    [DEBUG] isobj:%d struct:%d numeric:%d\\n', isobject(sig_peak), isstruct(sig_peak), isnumeric(sig_peak));
                 end
             end
         end
