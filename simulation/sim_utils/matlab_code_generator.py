@@ -456,7 +456,7 @@ end
         # Select comparticle or comparticlemirror based on mirror symmetry
         if use_mirror:
             comparticle_func = "comparticlemirror"
-            comparticle_msg = f"Comparticlemirror created with mirror symmetry '{use_mirror}'"
+            comparticle_msg = f"Comparticlemirror created with mirror symmetry ''{use_mirror}''"
         else:
             comparticle_func = "comparticle"
             comparticle_msg = "Comparticle created"
