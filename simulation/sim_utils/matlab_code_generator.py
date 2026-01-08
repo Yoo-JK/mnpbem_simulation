@@ -436,22 +436,33 @@ end
     
     def _generate_comparticle(self):
         """Generate comparticle object creation with visualization."""
-        
+
         # Get closed indices from material manager
         closed_args = self._closed_args
-        
+
         # Check if substrate is used
         use_substrate = self.config.get('use_substrate', False)
+
+        # Check if mirror symmetry is used
+        use_mirror = self.config.get('use_mirror_symmetry', False)
 
         if use_substrate:
             substrate = self.config.get('substrate', {})
             substrate_position = substrate.get('position', 0)
-        
-        code = """
+
+        # Select comparticle or comparticlemirror based on mirror symmetry
+        if use_mirror:
+            comparticle_func = "comparticlemirror"
+            comparticle_msg = f"Comparticlemirror created with mirror symmetry '{use_mirror}'"
+        else:
+            comparticle_func = "comparticle"
+            comparticle_msg = "Comparticle created"
+
+        code = f"""
 %% Create Comparticle Object
 fprintf('\\nCreating comparticle object...\\n');
-p = comparticle(epstab, particles, inout, """ + closed_args + """, op);
-fprintf('Comparticle created with %d boundary elements\\n', p.n);
+p = {comparticle_func}(epstab, particles, inout, """ + closed_args + f""", op);
+fprintf('{comparticle_msg} with %d boundary elements\\n', p.n);
 
 %% Visualize and Save Structure
 fprintf('\\nGenerating structure visualizations...\\n');
@@ -1127,7 +1138,15 @@ end
     def _generate_excitation(self):
         """Generate excitation configuration."""
         excitation_type = self.config['excitation_type']
-        
+        use_mirror = self.config.get('use_mirror_symmetry', False)
+
+        # Check EELS + mirror incompatibility
+        if excitation_type == 'eels' and use_mirror:
+            raise ValueError(
+                "EELS excitation is NOT compatible with mirror symmetry. "
+                "Please set use_mirror_symmetry = False for EELS simulations."
+            )
+
         if excitation_type == 'planewave':
             code = self._generate_planewave_excitation()
         elif excitation_type == 'dipole':
@@ -1136,7 +1155,7 @@ end
             code = self._generate_eels_excitation()
         else:
             raise ValueError(f"Unknown excitation type: {excitation_type}")
-        
+
         return code
     
     def _generate_planewave_excitation(self):

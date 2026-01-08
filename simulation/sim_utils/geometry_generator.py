@@ -362,12 +362,54 @@ class GeometryGenerator:
         
         # Generate base geometry
         base_code = structure_map[self.structure]()
-        
+
+        # Apply mirror symmetry selection if enabled
+        mirror_code = self._get_mirror_selection_code()
+        if mirror_code:
+            base_code = base_code + mirror_code
+
         # Apply nonlocal cover layers if enabled
         if self.nonlocal_gen.is_needed():
             base_code = self._apply_nonlocal_coverlayer(base_code)
-        
+
         return base_code
+
+    def _get_mirror_selection_code(self):
+        """
+        Generate MATLAB code for mirror symmetry selection.
+
+        Returns MATLAB code that applies select() to each particle
+        to keep only the portion needed for mirror symmetry.
+        """
+        sym = self.config.get('use_mirror_symmetry', False)
+        if not sym:
+            return ""
+
+        if sym == 'xy':
+            condition = "@(x,y,z) x >= 0 & y >= 0"
+            description = "xy-symmetry (x>=0, y>=0 quadrant)"
+        elif sym == 'x':
+            condition = "@(x,y,z) y >= 0"
+            description = "x-symmetry (y>=0 half)"
+        elif sym == 'y':
+            condition = "@(x,y,z) x >= 0"
+            description = "y-symmetry (x>=0 half)"
+        else:
+            return ""
+
+        code = f"""
+%% Apply Mirror Symmetry Selection
+% Selecting {description} for mirror symmetry
+fprintf('Applying mirror symmetry selection ({sym})...\\n');
+
+% Apply selection to each particle
+for i = 1:length(particles)
+    particles{{i}} = select(particles{{i}}, 'carfun', {condition});
+end
+
+fprintf('  [OK] Mirror selection applied to %d particles\\n', length(particles));
+"""
+        return code
 
     def _mesh_density_to_n_rod(self, mesh_density):
         """
