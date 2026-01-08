@@ -2446,15 +2446,21 @@ for ichunk = 1:n_chunks
     fprintf('================================================================\\n');
     
     chunk_start = tic;
-    
+
     % CRITICAL: Clear BEM solver between chunks for memory efficiency
     % Use MNPBEM's clear method to release H-matrices while keeping structure
     if ichunk > 1
         fprintf('  -> Clearing BEM auxiliary matrices...\\n');
-        bem = clear(bem);
+        % Note: bemretmirror.clear() doesn't return output, so reinitialize
+        if use_mirror
+            clear(bem);
+            bem = bemsolver(p, op);
+        else
+            bem = clear(bem);
+        end
         fprintf('  [OK] Memory released\\n');
     end
-    
+
 """
 
         if use_parallel:
@@ -2864,7 +2870,13 @@ for iwl = 1:n_field_wavelengths
     end
 
     % Clear BEM and recalculate for this wavelength
-    bem = clear(bem);
+    % Note: bemretmirror.clear() doesn't return output, so reinitialize
+    if use_mirror
+        clear(bem);
+        bem = bemsolver(p, op);
+    else
+        bem = clear(bem);
+    end
     sig_peak = bem \\ exc(p, enei(field_wavelength_idx));
     fprintf('  [OK] BEM solution ready\\n');
 
