@@ -172,7 +172,10 @@ fprintf('  [!] Green function tabulation will be required\\n');
             else:
                 sym = 'xy'
             code += f"op.sym = '{sym}';\n"
+            code += "use_mirror = true;  % Flag for field calculation\n"
             code += f"fprintf('  [OK] Mirror symmetry: {sym}\\n');\n"
+        else:
+            code += "use_mirror = false;  % No mirror symmetry\n"
         
         # Nonlocal options (high precision integration)
         if use_nonlocal:
@@ -1437,11 +1440,28 @@ fprintf('================================================================\\n');
     def _generate_field_setup(self):
         """Generate field mesh setup - AFTER greentab."""
         use_substrate = self.config.get('use_substrate', False)
-        
+        use_mirror = self.config.get('use_mirror_symmetry', False)
+
         code = """
 %% Field Calculation Setup
 fprintf('\\nSetting up field calculation mesh...\\n');
+"""
 
+        # Add mirror expansion for field calculation
+        if use_mirror:
+            code += """
+% Mirror symmetry: Expand to full particle for field calculation
+fprintf('  Expanding mirror particle to full size for field calculation...\\n');
+p_field = full(p);
+fprintf('  [OK] Full particle: %d boundary elements\\n', p_field.n);
+"""
+        else:
+            code += """
+% Use particle as-is for field calculation
+p_field = p;
+"""
+
+        code += """
 % Select wavelength for field calculation
 """
 
@@ -1631,13 +1651,13 @@ end
             code += f"""% Substrate mode: meshfield with pre-computed greentab
 % Reshape grids back to original shape
 x_grid = reshape(x_grid, grid_shape);
-y_grid = reshape(y_grid, grid_shape);  
+y_grid = reshape(y_grid, grid_shape);
 z_grid = reshape(z_grid, grid_shape);
 
 % Create meshfield using op with greentab
 fprintf('  Creating meshfield...\\n');
 field_mindist = {mindist};  % Store mindist for later use
-emesh = meshfield(p, x_grid, y_grid, z_grid, op, ...
+emesh = meshfield(p_field, x_grid, y_grid, z_grid, op, ...
                   'mindist', field_mindist, 'nmax', {nmax});
 fprintf('  [OK] Meshfield ready with %d points\\n', emesh.pt.n);
 """
@@ -1668,7 +1688,7 @@ z_grid = {z_range[0]} * ones(size(x_grid));
             code += f"""
 % Create meshfield
 field_mindist = {mindist};  % Store mindist for later use
-emesh = meshfield(p, x_grid, y_grid, z_grid, op, ...
+emesh = meshfield(p_field, x_grid, y_grid, z_grid, op, ...
                   'mindist', field_mindist, 'nmax', {nmax});
 fprintf('  [OK] Meshfield created: %d points\\n', numel(x_grid));
 """
@@ -1710,7 +1730,13 @@ surface_charge = struct();
             end
 
             fprintf('  Computing induced fields...\\n');
-            e_induced_obj = emesh(sig);
+            % Mirror symmetry: expand surface charges to full particle
+            if use_mirror
+                sig_field = full(sig);
+            else
+                sig_field = sig;
+            end
+            e_induced_obj = emesh(sig_field);
 
             % Extract numeric array from field object
             if isobject(e_induced_obj) || isstruct(e_induced_obj)
@@ -1947,50 +1973,51 @@ surface_charge = struct();
 
                 %% SAVE SURFACE CHARGE (for plasmon mode analysis)
                 % Extract surface charge from BEM solution
+                % Note: sig_field contains full particle data (expanded if mirror symmetry)
                 charge_values_all = [];
                 extraction_method = '';
 
                 % Method 1: Check if it's already numeric
-                if isnumeric(sig)
-                    charge_values_all = sig;
+                if isnumeric(sig_field)
+                    charge_values_all = sig_field;
                     extraction_method = 'numeric';
 
                 % Method 2: Try .sig1 field (MNPBEM compstruct object - particle 1)
-                elseif (isobject(sig) || isstruct(sig)) && (isfield(sig, 'sig1') || isprop(sig, 'sig1'))
+                elseif (isobject(sig_field) || isstruct(sig_field)) && (isfield(sig_field, 'sig1') || isprop(sig_field, 'sig1'))
                     try
-                        charge_values_all = sig.sig1;
+                        charge_values_all = sig_field.sig1;
                         extraction_method = '.sig1 (compstruct)';
                     catch
                     end
 
                 % Method 3: Try .sig2 field (MNPBEM compstruct object - particle 2)
-                elseif isempty(charge_values_all) && (isobject(sig) || isstruct(sig)) && (isfield(sig, 'sig2') || isprop(sig, 'sig2'))
+                elseif isempty(charge_values_all) && (isobject(sig_field) || isstruct(sig_field)) && (isfield(sig_field, 'sig2') || isprop(sig_field, 'sig2'))
                     try
-                        charge_values_all = sig.sig2;
+                        charge_values_all = sig_field.sig2;
                         extraction_method = '.sig2 (compstruct)';
                     catch
                     end
 
                 % Method 4: Try .sig field (older MNPBEM bemsolve object)
-                elseif (isobject(sig) || isstruct(sig)) && (isfield(sig, 'sig') || isprop(sig, 'sig'))
+                elseif (isobject(sig_field) || isstruct(sig_field)) && (isfield(sig_field, 'sig') || isprop(sig_field, 'sig'))
                     try
-                        charge_values_all = sig.sig;
+                        charge_values_all = sig_field.sig;
                         extraction_method = '.sig';
                     catch
                     end
 
                 % Method 5: Try .val field (alternative MNPBEM format)
-                elseif (isobject(sig) || isstruct(sig)) && (isfield(sig, 'val') || isprop(sig, 'val'))
+                elseif (isobject(sig_field) || isstruct(sig_field)) && (isfield(sig_field, 'val') || isprop(sig_field, 'val'))
                     try
-                        charge_values_all = sig.val;
+                        charge_values_all = sig_field.val;
                         extraction_method = '.val';
                     catch
                     end
 
                 % Method 6: Try full() for sparse matrices
-                elseif issparse(sig)
+                elseif issparse(sig_field)
                     try
-                        charge_values_all = full(sig);
+                        charge_values_all = full(sig_field);
                         extraction_method = 'full()';
                     catch
                     end
@@ -1998,7 +2025,7 @@ surface_charge = struct();
                 % Method 7: Try double() conversion
                 else
                     try
-                        charge_values_all = double(sig);
+                        charge_values_all = double(sig_field);
                         extraction_method = 'double()';
                     catch
                     end
@@ -2007,7 +2034,7 @@ surface_charge = struct();
                 % Method 8: Try subsref (:) if still empty
                 if isempty(charge_values_all)
                     try
-                        charge_values_all = sig(:);
+                        charge_values_all = sig_field(:);
                         if isnumeric(charge_values_all) && ~isempty(charge_values_all)
                             extraction_method = 'subsref(:)';
                         else
@@ -2021,13 +2048,13 @@ surface_charge = struct();
                 if ~isempty(charge_values_all)
                     fprintf('      → Surface charge extracted via %s: size [%s]\\n', extraction_method, num2str(size(charge_values_all)));
                 else
-                    fprintf('      [WARNING] Could not extract surface charge from sig\\n');
+                    fprintf('      [WARNING] Could not extract surface charge from sig_field\\n');
                     fprintf('      [DEBUG] class=%s, size=[%s], isobj=%d, struct=%d, numeric=%d, sparse=%d\\n', ...
-                            class(sig), num2str(size(sig)), ...
-                            isobject(sig), isstruct(sig), isnumeric(sig), issparse(sig));
-                    if isobject(sig) || isstruct(sig)
+                            class(sig_field), num2str(size(sig_field)), ...
+                            isobject(sig_field), isstruct(sig_field), isnumeric(sig_field), issparse(sig_field));
+                    if isobject(sig_field) || isstruct(sig_field)
                         try
-                            fn = fieldnames(sig);
+                            fn = fieldnames(sig_field);
                             fprintf('      [DEBUG] Available fields (%d): %s\\n', length(fn), strjoin(fn(1:min(10,end)), ', '));
                         catch
                         end
@@ -2044,19 +2071,20 @@ surface_charge = struct();
                     end
 
                     % Store surface charge data (same index as field_data for consistency)
+                    % Note: p_field contains full particle geometry (expanded if mirror symmetry)
                     surface_charge(field_data_idx).wavelength = enei(ien);
                     surface_charge(field_data_idx).wavelength_idx = ien;
                     surface_charge(field_data_idx).polarization = pol(ipol, :);
                     surface_charge(field_data_idx).polarization_idx = ipol;
-                    surface_charge(field_data_idx).vertices = p.verts;      % Vertex coordinates
-                    surface_charge(field_data_idx).faces = p.faces;         % Face connectivity
-                    surface_charge(field_data_idx).centroids = p.pos;       % Face centers
-                    surface_charge(field_data_idx).normals = p.nvec;        % Face normals
-                    surface_charge(field_data_idx).areas = p.area;          % Face areas
+                    surface_charge(field_data_idx).vertices = p_field.verts;      % Vertex coordinates
+                    surface_charge(field_data_idx).faces = p_field.faces;         % Face connectivity
+                    surface_charge(field_data_idx).centroids = p_field.pos;       % Face centers
+                    surface_charge(field_data_idx).normals = p_field.nvec;        % Face normals
+                    surface_charge(field_data_idx).areas = p_field.area;          % Face areas
                     surface_charge(field_data_idx).charge = charge_values;  % Surface charge values
 
                     fprintf('      -> Stored surface_charge(%d): %d faces, %d vertices\\n', ...
-                            field_data_idx, size(p.faces, 1), size(p.verts, 1));
+                            field_data_idx, size(p_field.faces, 1), size(p_field.verts, 1));
                 else
                     fprintf('      -> Surface charge extraction failed, skipping...\\n');
                 end
@@ -2743,12 +2771,21 @@ z_grid = reshape(z_grid, grid_shape);
 grid_shape = size(x_grid);
 n_grid_points = numel(x_grid);
 
+%% Mirror symmetry: Expand to full particle for field calculation
+if use_mirror
+    fprintf('\\nExpanding mirror particle to full size for field calculation...\\n');
+    p_field = full(p);
+    fprintf('  [OK] Full particle: %d boundary elements\\n', p_field.n);
+else
+    p_field = p;
+end
+
 %% ========================================
 %% STEP 1: External Field Setup (meshfield)
 %% ========================================
 fprintf('\\n[1/2] Setting up EXTERNAL field calculation...\\n');
 field_mindist_external = {mindist_external};
-emesh_external = meshfield(p, x_grid, y_grid, z_grid, op, ...
+emesh_external = meshfield(p_field, x_grid, y_grid, z_grid, op, ...
                            'mindist', field_mindist_external, 'nmax', {nmax});
 fprintf('  → External meshfield: %d points\\n', emesh_external.pt.n);
 
@@ -2770,12 +2807,12 @@ fprintf('  Creating compoint (medium=%d, mindist={mindist_internal})...\\n', int
 
 try
     % FIX 1: compoint returns point object directly (not .pc)
-    pt_internal = compoint(p, [x_grid(:), y_grid(:), z_grid(:)], op, ...
+    pt_internal = compoint(p_field, [x_grid(:), y_grid(:), z_grid(:)], op, ...
                            'medium', internal_medium_idx, ...
                            'mindist', {mindist_internal});
-    
+
     fprintf('  Creating Green function...\\n');
-    g_internal = greenfunction(pt_internal, p, op);
+    g_internal = greenfunction(pt_internal, p_field, op);
     
     % FIX 1: Use pt_internal.n (not pt_internal.pc.n)
     fprintf('  → Internal field setup: %d points\\n', pt_internal.n);
@@ -2831,6 +2868,14 @@ for iwl = 1:n_field_wavelengths
     sig_peak = bem \\ exc(p, enei(field_wavelength_idx));
     fprintf('  [OK] BEM solution ready\\n');
 
+    % Mirror symmetry: expand surface charges to full particle
+    if use_mirror
+        fprintf('  Expanding surface charges to full particle...\\n');
+        sig_field = full(sig_peak);
+    else
+        sig_field = sig_peak;
+    end
+
 for ipol = pols_at_this_wl
     field_data_idx = field_data_idx + 1;
     fprintf('\\n  Processing polarization %d (field_data index: %d)...\\n', ipol, field_data_idx);
@@ -2859,8 +2904,8 @@ for ipol = pols_at_this_wl
     %% EXTERNAL FIELD
     fprintf('    → External field...\\n');
 
-    % Induced field from BEM solution
-    e_induced_ext_all = emesh_external(sig_peak);
+    % Induced field from BEM solution (use sig_field for mirror symmetry)
+    e_induced_ext_all = emesh_external(sig_field);
 
     % Track whether field is grid-based (4D) or point-based (2D)
     ext_is_grid_based = (ndims(e_induced_ext_all) == 4);
@@ -2937,8 +2982,8 @@ for ipol = pols_at_this_wl
     if has_internal_field
         fprintf('    → Internal field...\\n');
         
-        % Induced field using Green function
-        f_induced_int = field(g_internal, sig_peak);
+        % Induced field using Green function (use sig_field for mirror symmetry)
+        f_induced_int = field(g_internal, sig_field);
         e_induced_int_all = f_induced_int.e;
         
         fprintf('      Raw internal induced field size: [%s]\\n', num2str(size(e_induced_int_all)));
@@ -3327,51 +3372,51 @@ for ipol = pols_at_this_wl
     fprintf('      Valid points (internal): %d/%d\\n', sum(isfinite(intensity_enhancement_int(:))), numel(intensity_enhancement_int));
 
     %% SAVE SURFACE CHARGE (for plasmon mode analysis)
-    % Extract surface charge from BEM solution
+    % Extract surface charge from BEM solution (use sig_field for mirror symmetry)
     charge_values_all = [];
     extraction_method = '';
 
     % Method 1: Check if it's already numeric
-    if isnumeric(sig_peak)
-        charge_values_all = sig_peak;
+    if isnumeric(sig_field)
+        charge_values_all = sig_field;
         extraction_method = 'numeric';
 
     % Method 2: Try .sig1 field (MNPBEM compstruct object - particle 1)
-    elseif (isobject(sig_peak) || isstruct(sig_peak)) && (isfield(sig_peak, 'sig1') || isprop(sig_peak, 'sig1'))
+    elseif (isobject(sig_field) || isstruct(sig_field)) && (isfield(sig_field, 'sig1') || isprop(sig_field, 'sig1'))
         try
-            charge_values_all = sig_peak.sig1;
+            charge_values_all = sig_field.sig1;
             extraction_method = '.sig1 (compstruct)';
         catch
         end
 
     % Method 3: Try .sig2 field (MNPBEM compstruct object - particle 2)
-    elseif isempty(charge_values_all) && (isobject(sig_peak) || isstruct(sig_peak)) && (isfield(sig_peak, 'sig2') || isprop(sig_peak, 'sig2'))
+    elseif isempty(charge_values_all) && (isobject(sig_field) || isstruct(sig_field)) && (isfield(sig_field, 'sig2') || isprop(sig_field, 'sig2'))
         try
-            charge_values_all = sig_peak.sig2;
+            charge_values_all = sig_field.sig2;
             extraction_method = '.sig2 (compstruct)';
         catch
         end
 
     % Method 4: Try .sig field (older MNPBEM bemsolve object)
-    elseif (isobject(sig_peak) || isstruct(sig_peak)) && (isfield(sig_peak, 'sig') || isprop(sig_peak, 'sig'))
+    elseif (isobject(sig_field) || isstruct(sig_field)) && (isfield(sig_field, 'sig') || isprop(sig_field, 'sig'))
         try
-            charge_values_all = sig_peak.sig;
+            charge_values_all = sig_field.sig;
             extraction_method = '.sig';
         catch
         end
 
     % Method 5: Try .val field (alternative MNPBEM format)
-    elseif (isobject(sig_peak) || isstruct(sig_peak)) && (isfield(sig_peak, 'val') || isprop(sig_peak, 'val'))
+    elseif (isobject(sig_field) || isstruct(sig_field)) && (isfield(sig_field, 'val') || isprop(sig_field, 'val'))
         try
-            charge_values_all = sig_peak.val;
+            charge_values_all = sig_field.val;
             extraction_method = '.val';
         catch
         end
 
     % Method 6: Try full() for sparse matrices
-    elseif issparse(sig_peak)
+    elseif issparse(sig_field)
         try
-            charge_values_all = full(sig_peak);
+            charge_values_all = full(sig_field);
             extraction_method = 'full()';
         catch
         end
@@ -3379,7 +3424,7 @@ for ipol = pols_at_this_wl
     % Method 7: Try double() conversion
     else
         try
-            charge_values_all = double(sig_peak);
+            charge_values_all = double(sig_field);
             extraction_method = 'double()';
         catch
         end
@@ -3388,7 +3433,7 @@ for ipol = pols_at_this_wl
     % Method 8: Try subsref (:) if still empty
     if isempty(charge_values_all)
         try
-            charge_values_all = sig_peak(:);
+            charge_values_all = sig_field(:);
             if isnumeric(charge_values_all) && ~isempty(charge_values_all)
                 extraction_method = 'subsref(:)';
             else
@@ -3402,13 +3447,13 @@ for ipol = pols_at_this_wl
     if ~isempty(charge_values_all)
         fprintf('    → Surface charge extracted via %s: size [%s]\\n', extraction_method, num2str(size(charge_values_all)));
     else
-        fprintf('    [WARNING] Could not extract surface charge from sig_peak\\n');
+        fprintf('    [WARNING] Could not extract surface charge from sig_field\\n');
         fprintf('    [DEBUG] class=%s, size=[%s], isobj=%d, struct=%d, numeric=%d, sparse=%d\\n', ...
-                class(sig_peak), num2str(size(sig_peak)), ...
-                isobject(sig_peak), isstruct(sig_peak), isnumeric(sig_peak), issparse(sig_peak));
-        if isobject(sig_peak) || isstruct(sig_peak)
+                class(sig_field), num2str(size(sig_field)), ...
+                isobject(sig_field), isstruct(sig_field), isnumeric(sig_field), issparse(sig_field));
+        if isobject(sig_field) || isstruct(sig_field)
             try
-                fn = fieldnames(sig_peak);
+                fn = fieldnames(sig_field);
                 fprintf('    [DEBUG] Available fields (%d): %s\\n', length(fn), strjoin(fn(1:min(10,end)), ', '));
             catch
             end
@@ -3425,19 +3470,20 @@ for ipol = pols_at_this_wl
         end
 
         % Store surface charge data (same index as field_data for consistency)
+        % Use p_field for mirror symmetry (full particle geometry)
         surface_charge(field_data_idx).wavelength = enei(field_wavelength_idx);
         surface_charge(field_data_idx).wavelength_idx = field_wavelength_idx;
         surface_charge(field_data_idx).polarization = pol(ipol, :);
         surface_charge(field_data_idx).polarization_idx = ipol;
-        surface_charge(field_data_idx).vertices = p.verts;      % Vertex coordinates
-        surface_charge(field_data_idx).faces = p.faces;         % Face connectivity
-        surface_charge(field_data_idx).centroids = p.pos;       % Face centers
-        surface_charge(field_data_idx).normals = p.nvec;        % Face normals
-        surface_charge(field_data_idx).areas = p.area;          % Face areas
+        surface_charge(field_data_idx).vertices = p_field.verts;      % Vertex coordinates
+        surface_charge(field_data_idx).faces = p_field.faces;         % Face connectivity
+        surface_charge(field_data_idx).centroids = p_field.pos;       % Face centers
+        surface_charge(field_data_idx).normals = p_field.nvec;        % Face normals
+        surface_charge(field_data_idx).areas = p_field.area;          % Face areas
         surface_charge(field_data_idx).charge = charge_values;  % Surface charge values
 
         fprintf('    → Stored surface_charge(%d): %d faces, %d vertices\\n', ...
-                field_data_idx, size(p.faces, 1), size(p.verts, 1));
+                field_data_idx, size(p_field.faces, 1), size(p_field.verts, 1));
     else
         fprintf('    → Surface charge extraction failed, skipping...\\n');
     end
