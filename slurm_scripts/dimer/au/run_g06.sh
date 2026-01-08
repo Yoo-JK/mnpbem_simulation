@@ -4,7 +4,7 @@
 #SBATCH --partition=IllinoisComputes
 #SBATCH --time=72:00:00
 #SBATCH --nodes=1
-#SBATCH --ntasks=128
+#SBATCH --ntasks=24
 #SBATCH --cpus-per-task=1
 #SBATCH --export=NONE
 
