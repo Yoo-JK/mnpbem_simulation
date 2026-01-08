@@ -378,38 +378,23 @@ class GeometryGenerator:
         """
         Generate MATLAB code for mirror symmetry selection.
 
-        Returns MATLAB code that applies select() to each particle
-        to keep only the portion needed for mirror symmetry.
+        NOTE: This function now returns empty string because comparticlemirror
+        handles mirror symmetry internally. Pre-selecting particles with select()
+        before passing to comparticlemirror causes errors because:
+
+        1. comparticlemirror expects FULL particles
+        2. It internally uses flip() to create mirror copies
+        3. It builds symtable based on the full geometry
+
+        If we pre-select (e.g., y >= 0), comparticlemirror receives half-particles
+        and cannot properly initialize pfull, causing "Dot indexing not supported"
+        errors in the closed() method.
+
+        The op.sym parameter tells comparticlemirror which symmetry to use,
+        and it handles everything internally.
         """
-        sym = self.config.get('use_mirror_symmetry', False)
-        if not sym:
-            return ""
-
-        if sym == 'xy':
-            condition = "@(x,y,z) x >= 0 & y >= 0"
-            description = "xy-symmetry (x>=0, y>=0 quadrant)"
-        elif sym == 'x':
-            condition = "@(x,y,z) y >= 0"
-            description = "x-symmetry (y>=0 half)"
-        elif sym == 'y':
-            condition = "@(x,y,z) x >= 0"
-            description = "y-symmetry (x>=0 half)"
-        else:
-            return ""
-
-        code = f"""
-%% Apply Mirror Symmetry Selection
-% Selecting {description} for mirror symmetry
-fprintf('Applying mirror symmetry selection ({sym})...\\n');
-
-% Apply selection to each particle
-for i = 1:length(particles)
-    particles{{i}} = select(particles{{i}}, 'carfun', {condition});
-end
-
-fprintf('  [OK] Mirror selection applied to %d particles\\n', length(particles));
-"""
-        return code
+        # Do NOT generate pre-selection code - comparticlemirror handles this internally
+        return ""
 
     def _mesh_density_to_n_rod(self, mesh_density):
         """
