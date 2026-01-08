@@ -223,13 +223,31 @@ args['spectrum_xaxis'] = 'energy'
 # ADVANCED OPTIONS
 # ============================================================================
 
-# Mirror symmetry (for reducing computation time)
-# Options: False, 'x', 'y', 'z', 'xy', 'xz', 'yz'
-# Only use if your structure and excitation have the appropriate symmetry
+# ============================================================================
+# MIRROR SYMMETRY (for reducing computation time)
+# ============================================================================
+# Options:
+#   - False : Disabled (default)
+#   - 'xy'  : x=0 and y=0 plane symmetry (1/4 mesh, ~16x faster)
+#   - 'x'   : y=0 plane symmetry only (1/2 mesh, ~4x faster)
+#   - 'y'   : x=0 plane symmetry only (1/2 mesh, ~4x faster)
+#
+# Requirements:
+#   1. Structure must have the corresponding symmetry
+#   2. Excitation must be compatible:
+#      - Planewave: x/y polarization with z propagation only
+#      - Dipole: Supported
+#      - EELS: NOT supported
+#
+# Homodimer (identical particles):
+#   - Any arrangement → 'xy' available
+#
+# Heterodimer (different particles):
+#   - x-axis arrangement → 'x' only (y=0 symmetry)
+#   - z-axis arrangement → 'xy' available (both on x=0, y=0 planes)
+#
+# Note: 'z', 'xz', 'yz' are NOT supported by MNPBEM
 args['use_mirror_symmetry'] = False
-
-# Example: Use x-symmetry for symmetric dimer with x-polarization
-# args['use_mirror_symmetry'] = 'x'
 
 # Iterative solver (for very large structures with >10,000 elements)
 # Uses less memory but may be slower
