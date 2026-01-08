@@ -2664,8 +2664,9 @@ end
 unique_field_wavelength_indices = unique(temp_indices);
 n_field_wavelengths = length(unique_field_wavelength_indices);
 
-% Map to per-polarization (all polarizations use same wavelength list)
-field_wavelength_indices = repmat(unique_field_wavelength_indices(1), 1, n_polarizations);
+% For wavelength list mode: don't use per-polarization mapping
+% All wavelengths will calculate all polarizations
+field_wavelength_indices = [];  % Empty - will trigger "calculate all polarizations" mode
 fprintf('-> %d unique wavelength(s) for field calculation\\n', n_field_wavelengths);
 """
             else:
@@ -2794,9 +2795,17 @@ for iwl = 1:n_field_wavelengths
     fprintf('\\n[%d/%d] Wavelength: lambda = %.1f nm (index %d)\\n', ...
             iwl, n_field_wavelengths, enei(field_wavelength_idx), field_wavelength_idx);
 
-    % Find which polarizations have their peak at this wavelength
+    % Find which polarizations to calculate at this wavelength
+    % If using wavelength list or empty result, calculate ALL polarizations
     pols_at_this_wl = find(field_wavelength_indices == field_wavelength_idx);
-    fprintf('  Polarizations with peak at this wavelength: [%s]\\n', num2str(pols_at_this_wl));
+    if isempty(pols_at_this_wl)
+        % No peak match - this happens with wavelength list mode
+        % Calculate all polarizations at this wavelength
+        pols_at_this_wl = 1:n_polarizations;
+        fprintf('  Calculating ALL polarizations: [%s]\\n', num2str(pols_at_this_wl));
+    else
+        fprintf('  Polarizations with peak at this wavelength: [%s]\\n', num2str(pols_at_this_wl));
+    end
 
     % Clear BEM and recalculate for this wavelength
     bem = clear(bem);
