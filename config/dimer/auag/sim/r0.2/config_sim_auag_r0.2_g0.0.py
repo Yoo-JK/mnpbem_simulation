@@ -17,7 +17,7 @@ args['use_parallel'] = True  # Set to False to disable parallel computing
 # args['num_workers'] = 'env'  # Recommended for Slurm clusters
 
 # Alternative: specify exact number
-args['num_workers'] = 12
+args['num_workers'] = 8
 args['max_comp_threads'] = 1
 
 args['wavelength_chunk_size'] = 10
@@ -194,7 +194,7 @@ args['spectrum_xaxis'] = 'energy'
 # Mirror symmetry (for reducing computation time)
 # Options: False, 'x', 'y', 'z', 'xy', 'xz', 'yz'
 # Only use if your structure and excitation have the appropriate symmetry
-args['use_mirror_symmetry'] = 'xy'
+args['use_mirror_symmetry'] = 'x'
 
 # Example: Use x-symmetry for symmetric dimer with x-polarization
 # args['use_mirror_symmetry'] = 'x'
