@@ -193,7 +193,7 @@ args['spectrum_xaxis'] = 'energy'
 # Mirror symmetry (for reducing computation time)
 # Options: False, 'x', 'y', 'z', 'xy', 'xz', 'yz'
 # Only use if your structure and excitation have the appropriate symmetry
-args['use_mirror_symmetry'] = False
+args['use_mirror_symmetry'] = 'xy'
 
 # Example: Use x-symmetry for symmetric dimer with x-polarization
 # args['use_mirror_symmetry'] = 'x'
