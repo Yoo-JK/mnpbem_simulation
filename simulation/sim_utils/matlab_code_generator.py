@@ -2776,8 +2776,14 @@ if use_mirror
     fprintf('\\nExpanding mirror particle to full size for field calculation...\\n');
     p_field = full(p);
     fprintf('  [OK] Full particle: %d boundary elements\\n', p_field.n);
+
+    % Create field options without mirror symmetry (since we use full particle)
+    op_field = op;
+    op_field.sym = [];
+    fprintf('  [OK] Field options: mirror symmetry disabled for full particle\\n');
 else
     p_field = p;
+    op_field = op;
 end
 
 %% ========================================
@@ -2785,7 +2791,7 @@ end
 %% ========================================
 fprintf('\\n[1/2] Setting up EXTERNAL field calculation...\\n');
 field_mindist_external = {mindist_external};
-emesh_external = meshfield(p_field, x_grid, y_grid, z_grid, op, ...
+emesh_external = meshfield(p_field, x_grid, y_grid, z_grid, op_field, ...
                            'mindist', field_mindist_external, 'nmax', {nmax});
 fprintf('  → External meshfield: %d points\\n', emesh_external.pt.n);
 
@@ -2807,12 +2813,12 @@ fprintf('  Creating compoint (medium=%d, mindist={mindist_internal})...\\n', int
 
 try
     % FIX 1: compoint returns point object directly (not .pc)
-    pt_internal = compoint(p_field, [x_grid(:), y_grid(:), z_grid(:)], op, ...
+    pt_internal = compoint(p_field, [x_grid(:), y_grid(:), z_grid(:)], op_field, ...
                            'medium', internal_medium_idx, ...
                            'mindist', {mindist_internal});
 
     fprintf('  Creating Green function...\\n');
-    g_internal = greenfunction(pt_internal, p_field, op);
+    g_internal = greenfunction(pt_internal, p_field, op_field);
     
     % FIX 1: Use pt_internal.n (not pt_internal.pc.n)
     fprintf('  → Internal field setup: %d points\\n', pt_internal.n);
