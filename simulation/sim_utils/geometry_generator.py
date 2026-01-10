@@ -1084,17 +1084,41 @@ class AdaptiveCubeMesh:
         # Merge duplicate vertices
         vertices, faces = self._merge_vertices(vertices, faces)
 
-        # Remove degenerate triangles
+        # Remove degenerate and zero-area triangles
         valid_mask = []
-        for face in faces:
-            v1, v2, v3 = int(face[0]), int(face[1]), int(face[2])
-            valid_mask.append((v1 != v2) and (v2 != v3) and (v1 != v3))
+        n_degenerate = 0
+        n_zero_area = 0
+        min_area = 1e-8  # Minimum valid triangle area
 
-        n_degenerate = sum(1 for v in valid_mask if not v)
-        if n_degenerate > 0:
+        for face in faces:
+            v1_idx, v2_idx, v3_idx = int(face[0]), int(face[1]), int(face[2])
+
+            # Check for duplicate vertex indices
+            if v1_idx == v2_idx or v2_idx == v3_idx or v1_idx == v3_idx:
+                valid_mask.append(False)
+                n_degenerate += 1
+                continue
+
+            # Check for zero-area triangles
+            v1 = vertices[v1_idx - 1]  # 1-indexed to 0-indexed
+            v2 = vertices[v2_idx - 1]
+            v3 = vertices[v3_idx - 1]
+            e1 = v2 - v1
+            e2 = v3 - v1
+            area = 0.5 * np.linalg.norm(np.cross(e1, e2))
+
+            if area < min_area:
+                valid_mask.append(False)
+                n_zero_area += 1
+                continue
+
+            valid_mask.append(True)
+
+        n_removed = n_degenerate + n_zero_area
+        if n_removed > 0:
             faces = faces[valid_mask]
             if self.verbose:
-                print(f"  Removed {n_degenerate} degenerate triangles")
+                print(f"  Removed {n_degenerate} degenerate + {n_zero_area} zero-area triangles")
 
         if self.verbose:
             print(f"  Proper rounded mesh: {len(vertices)} vertices, {len(faces)} faces")
