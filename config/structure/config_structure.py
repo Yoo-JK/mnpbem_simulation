@@ -147,6 +147,17 @@ args['roundings'] = [0.25, 0.2, 0.15]  # [core, inner, outer]
 args['mesh_density'] = 12
 # Recommended: 12-16 for cubes
 
+# --- Adaptive Mesh (Optional) ---
+# Reduces memory by using fine mesh only where needed (gap region)
+# args['use_adaptive_mesh'] = True
+# args['adaptive_mesh'] = {
+#     'gap_density': 36,   # Gap-facing faces (fine, same as mesh_density)
+#     'back_density': 12,  # Opposite faces (coarse, ~1/3 of gap)
+#     'side_density': 18,  # Side faces (medium, ~1/2 of gap)
+# }
+# Memory reduction: ~50-65% compared to uniform mesh
+# Note: Only works with advanced_dimer_cube structure
+
 # --- Dimer Configuration ---
 args['gap'] = 5  # surface-to-surface distance (nm)
 # Can be < 1 nm for strong coupling, or negative for overlap
