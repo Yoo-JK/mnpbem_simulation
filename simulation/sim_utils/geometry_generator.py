@@ -333,8 +333,8 @@ class AdaptiveCubeMesh:
     """
     Generate adaptive mesh for rounded cube with per-face density control.
 
-    For dimer structures, gap-facing faces need fine mesh while
-    opposite faces can use coarser mesh to reduce total element count.
+    Uses edge-unified approach: all edges share the same density (max of adjacent faces),
+    while face interiors can have different densities with proper transition triangles.
     """
 
     def __init__(self, size, rounding=0.2, verbose=False):
@@ -350,29 +350,38 @@ class AdaptiveCubeMesh:
         self.rounding = rounding
         self.verbose = verbose
         self.half_size = size / 2
-        # Rounding radius as fraction of half-size
-        self.r = rounding * self.half_size * 0.5  # Scale factor for rounding
+        self.r = rounding * self.half_size * 0.5
 
     def generate(self, densities):
         """
-        Generate cube mesh with per-face densities.
+        Generate cube mesh with per-face densities using edge-unified approach.
+
+        All 12 edges use the maximum density to ensure mesh connectivity.
+        Face interiors use their specified density with transition triangles.
 
         Args:
             densities: dict with keys '+x', '-x', '+y', '-y', '+z', '-z'
-                      Each value is the mesh density for that face.
-                      Example: {'+x': 36, '-x': 12, '+y': 18, '-y': 18, '+z': 18, '-z': 18}
 
         Returns:
             vertices: (N, 3) array of vertex coordinates
-            faces: (M, 4) array of face indices (1-indexed, 4th column is NaN for triangles)
+            faces: (M, 4) array of face indices (1-indexed, 4th column is NaN)
         """
+        # Find max density for edges
+        edge_density = max(densities.values())
+
+        if self.verbose:
+            print(f"  Edge-unified adaptive mesh:")
+            print(f"    Edge density (unified): {edge_density}")
+            for face_name, d in densities.items():
+                print(f"    {face_name}: interior density={d}")
+
         all_vertices = []
         all_faces = []
         vertex_offset = 0
 
-        # Face definitions: (normal direction, axis index, sign)
+        # Face definitions
         face_defs = {
-            '+x': (0, +1),  # axis=0 (x), positive direction
+            '+x': (0, +1),
             '-x': (0, -1),
             '+y': (1, +1),
             '-y': (1, -1),
@@ -381,11 +390,14 @@ class AdaptiveCubeMesh:
         }
 
         for face_name, (axis, sign) in face_defs.items():
-            n = densities.get(face_name, 12)  # Default density
+            inner_density = densities.get(face_name, edge_density)
 
-            verts, faces = self._generate_face(axis, sign, n)
+            # Generate face with edge-unified approach
+            verts, faces = self._generate_face_adaptive(
+                axis, sign, edge_density, inner_density
+            )
 
-            # Apply rounding to vertices near edges/corners
+            # Apply rounding
             verts = self._apply_rounding(verts)
 
             # Offset face indices
@@ -396,73 +408,270 @@ class AdaptiveCubeMesh:
 
             vertex_offset += len(verts)
 
-        # Concatenate all
+        # Concatenate
         vertices = np.vstack(all_vertices)
         faces = np.vstack(all_faces)
 
-        # Merge duplicate vertices (from shared edges)
+        # Merge duplicate vertices at shared edges
         vertices, faces = self._merge_vertices(vertices, faces)
 
         if self.verbose:
-            print(f"  Adaptive cube mesh: {len(vertices)} vertices, {len(faces)} faces")
-            for face_name in densities:
-                print(f"    {face_name}: density={densities[face_name]}")
+            print(f"  Total: {len(vertices)} vertices, {len(faces)} faces")
 
         return vertices, faces
 
-    def _generate_face(self, axis, sign, n):
+    def _generate_face_adaptive(self, axis, sign, edge_n, inner_n):
         """
-        Generate triangular mesh for one face of the cube.
+        Generate a face with unified edge density and different interior density.
+
+        Structure:
+        - Boundary ring: edge_n vertices on each edge
+        - Interior grid: inner_n x inner_n
+        - Transition layer: connects boundary to interior
 
         Args:
             axis: 0=x, 1=y, 2=z (normal axis)
             sign: +1 or -1 (direction of normal)
-            n: mesh density (grid divisions per edge)
+            edge_n: density for all edges (unified)
+            inner_n: density for face interior
 
         Returns:
-            vertices: (n+1)^2 x 3 array
-            faces: 2*n^2 x 4 array (triangles, 4th col = NaN)
+            vertices, faces arrays
         """
         h = self.half_size
 
-        # Create grid on the face
-        # The face is perpendicular to 'axis' at position sign * h
+        # If edge and inner density are the same, use simple grid
+        if edge_n == inner_n:
+            return self._generate_face_simple(axis, sign, edge_n)
+
+        vertices = []
+        faces = []
+
+        # === 1. Generate boundary vertices (edge ring) ===
+        # Four edges of the face, each with edge_n+1 vertices
+        # We need to avoid duplicating corner vertices
+
+        # Get the two axes that span this face
+        if axis == 0:  # x-face, spans y and z
+            ax1, ax2 = 1, 2
+        elif axis == 1:  # y-face, spans x and z
+            ax1, ax2 = 0, 2
+        else:  # z-face, spans x and y
+            ax1, ax2 = 0, 1
+
+        # Edge vertices (going around the boundary)
+        # Bottom edge: ax2 = -h, ax1 varies from -h to +h
+        # Right edge: ax1 = +h, ax2 varies from -h to +h
+        # Top edge: ax2 = +h, ax1 varies from +h to -h
+        # Left edge: ax1 = -h, ax2 varies from +h to -h
+
+        boundary_verts = []
+        edge_coords = np.linspace(-h, h, edge_n + 1)
+
+        # Bottom edge (excluding last point to avoid duplicate corner)
+        for i in range(edge_n):
+            v = [0, 0, 0]
+            v[axis] = sign * h
+            v[ax1] = edge_coords[i]
+            v[ax2] = -h
+            boundary_verts.append(v)
+
+        # Right edge
+        for i in range(edge_n):
+            v = [0, 0, 0]
+            v[axis] = sign * h
+            v[ax1] = h
+            v[ax2] = edge_coords[i]
+            boundary_verts.append(v)
+
+        # Top edge (reverse direction)
+        for i in range(edge_n):
+            v = [0, 0, 0]
+            v[axis] = sign * h
+            v[ax1] = edge_coords[edge_n - i]
+            v[ax2] = h
+            boundary_verts.append(v)
+
+        # Left edge (reverse direction)
+        for i in range(edge_n):
+            v = [0, 0, 0]
+            v[axis] = sign * h
+            v[ax1] = -h
+            v[ax2] = edge_coords[edge_n - i]
+            boundary_verts.append(v)
+
+        n_boundary = len(boundary_verts)  # Should be 4 * edge_n
+
+        # === 2. Generate interior vertices ===
+        # Interior grid excluding boundary
+        inner_coords = np.linspace(-h, h, inner_n + 1)
+        # Shrink slightly to create room for transition
+        margin = h / edge_n  # One edge cell width
+        inner_h = h - margin
+        inner_coords_shrunk = np.linspace(-inner_h, inner_h, inner_n + 1)
+
+        interior_verts = []
+        for i in range(inner_n + 1):
+            for j in range(inner_n + 1):
+                v = [0, 0, 0]
+                v[axis] = sign * h
+                v[ax1] = inner_coords_shrunk[i]
+                v[ax2] = inner_coords_shrunk[j]
+                interior_verts.append(v)
+
+        n_interior = len(interior_verts)
+
+        # Combine vertices
+        vertices = boundary_verts + interior_verts
+        n_verts = len(vertices)
+
+        # === 3. Generate faces ===
+        # Interior grid faces
+        for i in range(inner_n):
+            for j in range(inner_n):
+                # Four corners of grid cell
+                v00 = n_boundary + i * (inner_n + 1) + j
+                v10 = n_boundary + (i + 1) * (inner_n + 1) + j
+                v01 = n_boundary + i * (inner_n + 1) + (j + 1)
+                v11 = n_boundary + (i + 1) * (inner_n + 1) + (j + 1)
+
+                # Two triangles (1-indexed)
+                if sign > 0:
+                    faces.append([v00 + 1, v10 + 1, v11 + 1, np.nan])
+                    faces.append([v00 + 1, v11 + 1, v01 + 1, np.nan])
+                else:
+                    faces.append([v00 + 1, v11 + 1, v10 + 1, np.nan])
+                    faces.append([v00 + 1, v01 + 1, v11 + 1, np.nan])
+
+        # === 4. Transition triangles (connect boundary to interior) ===
+        # This is the tricky part - we need to connect boundary ring to interior grid edges
+
+        # Interior grid has 4 edges (each with inner_n segments)
+        # Boundary ring has 4 edges (each with edge_n segments)
+        # We need to triangulate between them
+
+        # For each side of the face, create transition triangles
+        self._add_transition_triangles(
+            faces, n_boundary, inner_n, edge_n, sign,
+            'bottom', 0, inner_n + 1
+        )
+        self._add_transition_triangles(
+            faces, n_boundary, inner_n, edge_n, sign,
+            'right', inner_n, 1
+        )
+        self._add_transition_triangles(
+            faces, n_boundary, inner_n, edge_n, sign,
+            'top', (inner_n + 1) * inner_n, -(inner_n + 1)
+        )
+        self._add_transition_triangles(
+            faces, n_boundary, inner_n, edge_n, sign,
+            'left', 0, inner_n + 1
+        )
+
+        return np.array(vertices), np.array(faces)
+
+    def _add_transition_triangles(self, faces, n_boundary, inner_n, edge_n, sign,
+                                   side, inner_start, inner_step):
+        """Add transition triangles between boundary edge and interior grid edge."""
+        # Boundary indices for this side
+        if side == 'bottom':
+            b_start, b_end = 0, edge_n
+            i_indices = [n_boundary + j for j in range(inner_n + 1)]
+        elif side == 'right':
+            b_start, b_end = edge_n, 2 * edge_n
+            i_indices = [n_boundary + inner_n + j * (inner_n + 1) for j in range(inner_n + 1)]
+        elif side == 'top':
+            b_start, b_end = 2 * edge_n, 3 * edge_n
+            i_indices = [n_boundary + (inner_n + 1) * (inner_n + 1) - 1 - j for j in range(inner_n + 1)]
+        else:  # left
+            b_start, b_end = 3 * edge_n, 4 * edge_n
+            i_indices = [n_boundary + (inner_n - j) * (inner_n + 1) for j in range(inner_n + 1)]
+
+        b_indices = list(range(b_start, b_end + 1))
+        if b_indices[-1] >= n_boundary:
+            b_indices[-1] = b_indices[-1] % n_boundary
+
+        # Create triangles using ear-clipping style approach
+        # Walk along both edges and create triangles
+        n_b = len(b_indices)
+        n_i = len(i_indices)
+
+        bi, ii = 0, 0
+        while bi < n_b - 1 or ii < n_i - 1:
+            if bi >= n_b - 1:
+                # Only interior vertices left
+                if ii < n_i - 1:
+                    v1, v2, v3 = b_indices[-1], i_indices[ii], i_indices[ii + 1]
+                    if sign > 0:
+                        faces.append([v1 + 1, v2 + 1, v3 + 1, np.nan])
+                    else:
+                        faces.append([v1 + 1, v3 + 1, v2 + 1, np.nan])
+                    ii += 1
+            elif ii >= n_i - 1:
+                # Only boundary vertices left
+                if bi < n_b - 1:
+                    v1, v2, v3 = b_indices[bi], b_indices[bi + 1], i_indices[-1]
+                    if sign > 0:
+                        faces.append([v1 + 1, v2 + 1, v3 + 1, np.nan])
+                    else:
+                        faces.append([v1 + 1, v3 + 1, v2 + 1, np.nan])
+                    bi += 1
+            else:
+                # Both have vertices left - choose based on ratio
+                b_ratio = bi / (n_b - 1)
+                i_ratio = ii / (n_i - 1)
+
+                if b_ratio <= i_ratio:
+                    # Advance boundary
+                    v1, v2, v3 = b_indices[bi], b_indices[bi + 1], i_indices[ii]
+                    if sign > 0:
+                        faces.append([v1 + 1, v2 + 1, v3 + 1, np.nan])
+                    else:
+                        faces.append([v1 + 1, v3 + 1, v2 + 1, np.nan])
+                    bi += 1
+                else:
+                    # Advance interior
+                    v1, v2, v3 = b_indices[bi], i_indices[ii], i_indices[ii + 1]
+                    if sign > 0:
+                        faces.append([v1 + 1, v2 + 1, v3 + 1, np.nan])
+                    else:
+                        faces.append([v1 + 1, v3 + 1, v2 + 1, np.nan])
+                    ii += 1
+
+    def _generate_face_simple(self, axis, sign, n):
+        """Generate a simple uniform-density face (original method)."""
+        h = self.half_size
+
         u = np.linspace(-h, h, n + 1)
         v = np.linspace(-h, h, n + 1)
         uu, vv = np.meshgrid(u, v)
 
-        # Flatten
         uu = uu.flatten()
         vv = vv.flatten()
 
-        # Build 3D coordinates
         vertices = np.zeros((len(uu), 3))
 
-        if axis == 0:  # x-face: y and z vary
+        if axis == 0:
             vertices[:, 0] = sign * h
             vertices[:, 1] = uu
             vertices[:, 2] = vv
-        elif axis == 1:  # y-face: x and z vary
+        elif axis == 1:
             vertices[:, 0] = uu
             vertices[:, 1] = sign * h
             vertices[:, 2] = vv
-        else:  # z-face: x and y vary
+        else:
             vertices[:, 0] = uu
             vertices[:, 1] = vv
             vertices[:, 2] = sign * h
 
-        # Generate triangular faces
         faces = []
         for i in range(n):
             for j in range(n):
-                # Vertex indices in the grid (0-indexed)
                 v00 = i * (n + 1) + j
                 v10 = (i + 1) * (n + 1) + j
                 v01 = i * (n + 1) + (j + 1)
                 v11 = (i + 1) * (n + 1) + (j + 1)
 
-                # Two triangles per grid cell (1-indexed for MATLAB)
-                # Orientation depends on face direction for consistent normals
                 if sign > 0:
                     faces.append([v00 + 1, v10 + 1, v11 + 1, np.nan])
                     faces.append([v00 + 1, v11 + 1, v01 + 1, np.nan])
