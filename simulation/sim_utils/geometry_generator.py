@@ -2023,7 +2023,8 @@ fprintf('  {p2_name}: %d vertices, %d faces\\n', size(mesh_data.vertices, 1), si
             particles_list.append(p2_name)
 
         # Print summary
-        total_elements_uniform = 2 * len(sizes) * 6 * 2 * base_mesh * base_mesh
+        # Compare: uniform mesh at gap_density (required for accuracy) vs adaptive
+        total_elements_uniform = 2 * len(sizes) * 6 * 2 * gap_density * gap_density
         total_elements_adaptive = 2 * len(sizes) * (
             2 * 2 * gap_density * gap_density +  # 2 gap faces
             2 * 2 * back_density * back_density +  # 2 back faces
@@ -2033,7 +2034,7 @@ fprintf('  {p2_name}: %d vertices, %d faces\\n', size(mesh_data.vertices, 1), si
 
         if self.verbose:
             print(f"  Element reduction: {reduction:.1f}%")
-            print(f"    Uniform: ~{total_elements_uniform} elements")
+            print(f"    Uniform (all at {gap_density}): ~{total_elements_uniform} elements")
             print(f"    Adaptive: ~{total_elements_adaptive} elements")
 
         code += f"""
