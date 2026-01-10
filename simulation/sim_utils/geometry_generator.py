@@ -1697,7 +1697,7 @@ fprintf('Loading adaptive mesh geometry...\\n');
             code += f"""
 % Particle 1, Layer {layer_idx}: {material}
 mesh_data = load('{mat_file1}');
-{p1_name} = particle(mesh_data.vertices, mesh_data.faces, op);
+{p1_name} = particle(mesh_data.vertices, mesh_data.faces, op, 'interp', 'flat');
 fprintf('  {p1_name}: %d vertices, %d faces\\n', size(mesh_data.vertices, 1), size(mesh_data.faces, 1));
 """
             particles_list.append(p1_name)
@@ -1751,7 +1751,7 @@ fprintf('  {p1_name}: %d vertices, %d faces\\n', size(mesh_data.vertices, 1), si
             code += f"""
 % Particle 2, Layer {layer_idx}: {material}
 mesh_data = load('{mat_file2}');
-{p2_name} = particle(mesh_data.vertices, mesh_data.faces, op);
+{p2_name} = particle(mesh_data.vertices, mesh_data.faces, op, 'interp', 'flat');
 fprintf('  {p2_name}: %d vertices, %d faces\\n', size(mesh_data.vertices, 1), size(mesh_data.faces, 1));
 """
             particles_list.append(p2_name)
