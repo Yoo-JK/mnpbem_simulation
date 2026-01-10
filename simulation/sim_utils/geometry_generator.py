@@ -354,26 +354,64 @@ class AdaptiveCubeMesh:
 
     def generate(self, densities):
         """
-        Generate cube mesh with per-face densities using edge-unified approach.
+        Generate cube mesh with per-face densities using gradual adaptive approach.
 
-        All 12 edges use the maximum density to ensure mesh connectivity.
-        Face interiors use their specified density with transition triangles.
+        Each face has its own edge density, and shared edges use max of adjacent faces.
+        This allows gradual transition from gap (fine) to back (coarse).
 
         Args:
             densities: dict with keys '+x', '-x', '+y', '-y', '+z', '-z'
+                      Each value is the density for that face (both edge and interior)
 
         Returns:
             vertices: (N, 3) array of vertex coordinates
             faces: (M, 4) array of face indices (1-indexed, 4th column is NaN)
         """
-        # Find max density for edges
-        edge_density = max(densities.values())
+        # Define which faces share each edge
+        # Each edge is shared by exactly 2 faces
+        # Format: edge_key -> (face1, face2)
+        edge_adjacency = {
+            # Edges along x-axis (at corners of y-z plane)
+            'x_pp': ('+y', '+z'),  # y=+h, z=+h
+            'x_pm': ('+y', '-z'),  # y=+h, z=-h
+            'x_mp': ('-y', '+z'),  # y=-h, z=+h
+            'x_mm': ('-y', '-z'),  # y=-h, z=-h
+            # Edges along y-axis (at corners of x-z plane)
+            'y_pp': ('+x', '+z'),  # x=+h, z=+h
+            'y_pm': ('+x', '-z'),  # x=+h, z=-h
+            'y_mp': ('-x', '+z'),  # x=-h, z=+h
+            'y_mm': ('-x', '-z'),  # x=-h, z=-h
+            # Edges along z-axis (at corners of x-y plane)
+            'z_pp': ('+x', '+y'),  # x=+h, y=+h
+            'z_pm': ('+x', '-y'),  # x=+h, y=-h
+            'z_mp': ('-x', '+y'),  # x=-h, y=+h
+            'z_mm': ('-x', '-y'),  # x=-h, y=-h
+        }
+
+        # Calculate density for each edge (max of two adjacent faces)
+        edge_densities = {}
+        for edge_key, (face1, face2) in edge_adjacency.items():
+            d1 = densities.get(face1, 12)
+            d2 = densities.get(face2, 12)
+            edge_densities[edge_key] = max(d1, d2)
+
+        # Map each face to its 4 edges
+        # Order: bottom, right, top, left (going around the face)
+        face_edges = {
+            '+x': ['z_pm', 'y_pp', 'z_pp', 'y_pm'],  # x=+h face, spans y,z
+            '-x': ['z_mm', 'y_mp', 'z_mp', 'y_mm'],  # x=-h face
+            '+y': ['z_pp', 'x_pp', 'z_mp', 'x_pm'],  # y=+h face, spans x,z
+            '-y': ['z_pm', 'x_mp', 'z_mm', 'x_mm'],  # y=-h face
+            '+z': ['y_pp', 'x_pp', 'y_mp', 'x_pm'],  # z=+h face, spans x,y (note: corrected)
+            '-z': ['y_pm', 'x_mp', 'y_mm', 'x_mm'],  # z=-h face
+        }
 
         if self.verbose:
-            print(f"  Edge-unified adaptive mesh:")
-            print(f"    Edge density (unified): {edge_density}")
+            print(f"  Gradual adaptive mesh:")
             for face_name, d in densities.items():
-                print(f"    {face_name}: interior density={d}")
+                edges = face_edges[face_name]
+                edge_d = [edge_densities[e] for e in edges]
+                print(f"    {face_name}: interior={d}, edges={edge_d}")
 
         all_vertices = []
         all_faces = []
@@ -390,11 +428,15 @@ class AdaptiveCubeMesh:
         }
 
         for face_name, (axis, sign) in face_defs.items():
-            inner_density = densities.get(face_name, edge_density)
+            inner_density = densities.get(face_name, 12)
 
-            # Generate face with edge-unified approach
-            verts, faces = self._generate_face_adaptive(
-                axis, sign, edge_density, inner_density
+            # Get edge densities for this face's 4 edges
+            edges = face_edges[face_name]
+            face_edge_densities = [edge_densities[e] for e in edges]
+
+            # Generate face with gradual approach
+            verts, faces = self._generate_face_gradual(
+                axis, sign, face_edge_densities, inner_density
             )
 
             # Apply rounding
@@ -420,19 +462,14 @@ class AdaptiveCubeMesh:
 
         return vertices, faces
 
-    def _generate_face_adaptive(self, axis, sign, edge_n, inner_n):
+    def _generate_face_gradual(self, axis, sign, edge_densities, inner_n):
         """
-        Generate a face with unified edge density and different interior density.
-
-        Structure:
-        - Boundary ring: edge_n vertices on each edge
-        - Interior grid: inner_n x inner_n
-        - Transition layer: connects boundary to interior
+        Generate a face with per-edge densities and interior density.
 
         Args:
             axis: 0=x, 1=y, 2=z (normal axis)
             sign: +1 or -1 (direction of normal)
-            edge_n: density for all edges (unified)
+            edge_densities: [bottom, right, top, left] densities for 4 edges
             inner_n: density for face interior
 
         Returns:
@@ -440,16 +477,9 @@ class AdaptiveCubeMesh:
         """
         h = self.half_size
 
-        # If edge and inner density are the same, use simple grid
-        if edge_n == inner_n:
-            return self._generate_face_simple(axis, sign, edge_n)
-
-        vertices = []
-        faces = []
-
-        # === 1. Generate boundary vertices (edge ring) ===
-        # Four edges of the face, each with edge_n+1 vertices
-        # We need to avoid duplicating corner vertices
+        # Check if all edges and interior have same density
+        if all(d == inner_n for d in edge_densities):
+            return self._generate_face_simple(axis, sign, inner_n)
 
         # Get the two axes that span this face
         if axis == 0:  # x-face, spans y and z
@@ -459,147 +489,154 @@ class AdaptiveCubeMesh:
         else:  # z-face, spans x and y
             ax1, ax2 = 0, 1
 
-        # Edge vertices (going around the boundary)
-        # Bottom edge: ax2 = -h, ax1 varies from -h to +h
-        # Right edge: ax1 = +h, ax2 varies from -h to +h
-        # Top edge: ax2 = +h, ax1 varies from +h to -h
-        # Left edge: ax1 = -h, ax2 varies from +h to -h
+        vertices = []
+        faces_list = []
 
+        # Edge densities: [bottom, right, top, left]
+        n_bottom, n_right, n_top, n_left = edge_densities
+
+        # === 1. Generate boundary vertices for each edge ===
         boundary_verts = []
-        edge_coords = np.linspace(-h, h, edge_n + 1)
 
-        # Bottom edge (excluding last point to avoid duplicate corner)
-        for i in range(edge_n):
+        # Bottom edge: ax2 = -h, ax1 varies from -h to +h
+        bottom_coords = np.linspace(-h, h, n_bottom + 1)
+        for i in range(n_bottom):  # Exclude last to avoid duplicate corner
             v = [0, 0, 0]
             v[axis] = sign * h
-            v[ax1] = edge_coords[i]
+            v[ax1] = bottom_coords[i]
             v[ax2] = -h
             boundary_verts.append(v)
+        bottom_start = 0
+        bottom_count = n_bottom
 
-        # Right edge
-        for i in range(edge_n):
+        # Right edge: ax1 = +h, ax2 varies from -h to +h
+        right_coords = np.linspace(-h, h, n_right + 1)
+        for i in range(n_right):
             v = [0, 0, 0]
             v[axis] = sign * h
             v[ax1] = h
-            v[ax2] = edge_coords[i]
+            v[ax2] = right_coords[i]
             boundary_verts.append(v)
+        right_start = bottom_count
+        right_count = n_right
 
-        # Top edge (reverse direction)
-        for i in range(edge_n):
+        # Top edge: ax2 = +h, ax1 varies from +h to -h
+        top_coords = np.linspace(h, -h, n_top + 1)
+        for i in range(n_top):
             v = [0, 0, 0]
             v[axis] = sign * h
-            v[ax1] = edge_coords[edge_n - i]
+            v[ax1] = top_coords[i]
             v[ax2] = h
             boundary_verts.append(v)
+        top_start = right_start + right_count
+        top_count = n_top
 
-        # Left edge (reverse direction)
-        for i in range(edge_n):
+        # Left edge: ax1 = -h, ax2 varies from +h to -h
+        left_coords = np.linspace(h, -h, n_left + 1)
+        for i in range(n_left):
             v = [0, 0, 0]
             v[axis] = sign * h
             v[ax1] = -h
-            v[ax2] = edge_coords[edge_n - i]
+            v[ax2] = left_coords[i]
             boundary_verts.append(v)
+        left_start = top_start + top_count
+        left_count = n_left
 
-        n_boundary = len(boundary_verts)  # Should be 4 * edge_n
+        n_boundary = len(boundary_verts)
 
-        # === 2. Generate interior vertices ===
-        # Interior grid excluding boundary
-        inner_coords = np.linspace(-h, h, inner_n + 1)
-        # Shrink slightly to create room for transition
-        margin = h / edge_n  # One edge cell width
+        # === 2. Generate interior grid ===
+        # Shrink interior to create transition zone
+        margin = h * 0.15  # 15% margin for transition
         inner_h = h - margin
-        inner_coords_shrunk = np.linspace(-inner_h, inner_h, inner_n + 1)
+        inner_coords = np.linspace(-inner_h, inner_h, inner_n + 1)
 
         interior_verts = []
         for i in range(inner_n + 1):
             for j in range(inner_n + 1):
                 v = [0, 0, 0]
                 v[axis] = sign * h
-                v[ax1] = inner_coords_shrunk[i]
-                v[ax2] = inner_coords_shrunk[j]
+                v[ax1] = inner_coords[i]
+                v[ax2] = inner_coords[j]
                 interior_verts.append(v)
 
-        n_interior = len(interior_verts)
+        n_interior = (inner_n + 1) ** 2
 
-        # Combine vertices
+        # Combine all vertices
         vertices = boundary_verts + interior_verts
-        n_verts = len(vertices)
 
-        # === 3. Generate faces ===
-        # Interior grid faces
+        # === 3. Generate interior grid faces ===
         for i in range(inner_n):
             for j in range(inner_n):
-                # Four corners of grid cell
                 v00 = n_boundary + i * (inner_n + 1) + j
                 v10 = n_boundary + (i + 1) * (inner_n + 1) + j
                 v01 = n_boundary + i * (inner_n + 1) + (j + 1)
                 v11 = n_boundary + (i + 1) * (inner_n + 1) + (j + 1)
 
-                # Two triangles (1-indexed)
                 if sign > 0:
-                    faces.append([v00 + 1, v10 + 1, v11 + 1, np.nan])
-                    faces.append([v00 + 1, v11 + 1, v01 + 1, np.nan])
+                    faces_list.append([v00 + 1, v10 + 1, v11 + 1, np.nan])
+                    faces_list.append([v00 + 1, v11 + 1, v01 + 1, np.nan])
                 else:
-                    faces.append([v00 + 1, v11 + 1, v10 + 1, np.nan])
-                    faces.append([v00 + 1, v01 + 1, v11 + 1, np.nan])
+                    faces_list.append([v00 + 1, v11 + 1, v10 + 1, np.nan])
+                    faces_list.append([v00 + 1, v01 + 1, v11 + 1, np.nan])
 
-        # === 4. Transition triangles (connect boundary to interior) ===
-        # This is the tricky part - we need to connect boundary ring to interior grid edges
-
-        # Interior grid has 4 edges (each with inner_n segments)
-        # Boundary ring has 4 edges (each with edge_n segments)
-        # We need to triangulate between them
-
-        # For each side of the face, create transition triangles
-        self._add_transition_triangles(
-            faces, n_boundary, inner_n, edge_n, sign,
-            'bottom', 0, inner_n + 1
+        # === 4. Generate transition triangles for each edge ===
+        # Bottom edge to interior bottom
+        self._add_transition_gradual(
+            faces_list, boundary_verts, n_boundary, inner_n, sign,
+            bottom_start, bottom_count, 'bottom'
         )
-        self._add_transition_triangles(
-            faces, n_boundary, inner_n, edge_n, sign,
-            'right', inner_n, 1
+        # Right edge to interior right
+        self._add_transition_gradual(
+            faces_list, boundary_verts, n_boundary, inner_n, sign,
+            right_start, right_count, 'right'
         )
-        self._add_transition_triangles(
-            faces, n_boundary, inner_n, edge_n, sign,
-            'top', (inner_n + 1) * inner_n, -(inner_n + 1)
+        # Top edge to interior top
+        self._add_transition_gradual(
+            faces_list, boundary_verts, n_boundary, inner_n, sign,
+            top_start, top_count, 'top'
         )
-        self._add_transition_triangles(
-            faces, n_boundary, inner_n, edge_n, sign,
-            'left', 0, inner_n + 1
+        # Left edge to interior left
+        self._add_transition_gradual(
+            faces_list, boundary_verts, n_boundary, inner_n, sign,
+            left_start, left_count, 'left'
         )
 
-        return np.array(vertices), np.array(faces)
+        return np.array(vertices), np.array(faces_list)
 
-    def _add_transition_triangles(self, faces, n_boundary, inner_n, edge_n, sign,
-                                   side, inner_start, inner_step):
-        """Add transition triangles between boundary edge and interior grid edge."""
-        # Boundary indices for this side
+    def _add_transition_gradual(self, faces, boundary_verts, n_boundary, inner_n, sign,
+                                 edge_start, edge_count, side):
+        """Add transition triangles between a boundary edge and interior grid edge."""
+        # Get boundary indices for this edge
+        b_indices = [(edge_start + i) % n_boundary for i in range(edge_count + 1)]
+        if b_indices[-1] == 0:
+            b_indices[-1] = n_boundary  # Wrap around
+
+        # Actually, we need edge_count + 1 indices, but we only stored edge_count vertices
+        # The last vertex is the first vertex of the next edge
+        b_indices = []
+        for i in range(edge_count):
+            b_indices.append(edge_start + i)
+        # Add the first vertex of the next edge (or wrap to 0)
+        next_start = (edge_start + edge_count) % n_boundary
+        b_indices.append(next_start)
+
+        # Get interior indices for this side
         if side == 'bottom':
-            b_start, b_end = 0, edge_n
             i_indices = [n_boundary + j for j in range(inner_n + 1)]
         elif side == 'right':
-            b_start, b_end = edge_n, 2 * edge_n
             i_indices = [n_boundary + inner_n + j * (inner_n + 1) for j in range(inner_n + 1)]
         elif side == 'top':
-            b_start, b_end = 2 * edge_n, 3 * edge_n
-            i_indices = [n_boundary + (inner_n + 1) * (inner_n + 1) - 1 - j for j in range(inner_n + 1)]
+            i_indices = [n_boundary + (inner_n + 1) * inner_n + (inner_n - j) for j in range(inner_n + 1)]
         else:  # left
-            b_start, b_end = 3 * edge_n, 4 * edge_n
             i_indices = [n_boundary + (inner_n - j) * (inner_n + 1) for j in range(inner_n + 1)]
 
-        b_indices = list(range(b_start, b_end + 1))
-        if b_indices[-1] >= n_boundary:
-            b_indices[-1] = b_indices[-1] % n_boundary
-
-        # Create triangles using ear-clipping style approach
-        # Walk along both edges and create triangles
         n_b = len(b_indices)
         n_i = len(i_indices)
 
+        # Create transition triangles using ratio-based advancing
         bi, ii = 0, 0
         while bi < n_b - 1 or ii < n_i - 1:
             if bi >= n_b - 1:
-                # Only interior vertices left
                 if ii < n_i - 1:
                     v1, v2, v3 = b_indices[-1], i_indices[ii], i_indices[ii + 1]
                     if sign > 0:
@@ -608,7 +645,6 @@ class AdaptiveCubeMesh:
                         faces.append([v1 + 1, v3 + 1, v2 + 1, np.nan])
                     ii += 1
             elif ii >= n_i - 1:
-                # Only boundary vertices left
                 if bi < n_b - 1:
                     v1, v2, v3 = b_indices[bi], b_indices[bi + 1], i_indices[-1]
                     if sign > 0:
@@ -617,12 +653,10 @@ class AdaptiveCubeMesh:
                         faces.append([v1 + 1, v3 + 1, v2 + 1, np.nan])
                     bi += 1
             else:
-                # Both have vertices left - choose based on ratio
-                b_ratio = bi / (n_b - 1)
-                i_ratio = ii / (n_i - 1)
+                b_ratio = bi / max(n_b - 1, 1)
+                i_ratio = ii / max(n_i - 1, 1)
 
                 if b_ratio <= i_ratio:
-                    # Advance boundary
                     v1, v2, v3 = b_indices[bi], b_indices[bi + 1], i_indices[ii]
                     if sign > 0:
                         faces.append([v1 + 1, v2 + 1, v3 + 1, np.nan])
@@ -630,7 +664,6 @@ class AdaptiveCubeMesh:
                         faces.append([v1 + 1, v3 + 1, v2 + 1, np.nan])
                     bi += 1
                 else:
-                    # Advance interior
                     v1, v2, v3 = b_indices[bi], i_indices[ii], i_indices[ii + 1]
                     if sign > 0:
                         faces.append([v1 + 1, v2 + 1, v3 + 1, np.nan])
