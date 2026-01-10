@@ -1049,28 +1049,30 @@ class AdaptiveCubeMesh:
                 all_faces.append([f[0] + offset, f[1] + offset, f[2] + offset, np.nan])
             offset += len(verts)
 
-        # ============ 2. Generate 12 edges (quarter cylinders) ============
+        # ============ 2. Generate 12 edges (quarter cylinders with transitions) ============
         edge_data = {}
         for edge_name, (axis, s1, s2, f1, f2) in edge_info.items():
             n = edge_densities[edge_name]
-            verts, faces = self._gen_global_edge(axis, s1, s2, n, n_arc, h, r, inner)
+            # n1 = density at angle=0 (connects to f1)
+            # n2 = density at angle=π/2 (connects to f2)
+            n1 = densities.get(f1, 12)
+            n2 = densities.get(f2, 12)
+            verts, faces = self._gen_global_edge(axis, s1, s2, n, n_arc, h, r, inner, n1, n2)
             edge_data[edge_name] = {'offset': offset, 'n_verts': len(verts), 'n': n}
             all_vertices.extend(verts)
             for f in faces:
                 all_faces.append([f[0] + offset, f[1] + offset, f[2] + offset, np.nan])
             offset += len(verts)
 
-        # ============ 3. Generate 6 face centers with edge-matching boundaries ============
+        # ============ 3. Generate 6 face centers (simple, no transitions needed) ============
         face_data = {}
         for face_name in ['+x', '-x', '+y', '-y', '+z', '-z']:
             n = densities.get(face_name, 12)
             axis = {'+x': 0, '-x': 0, '+y': 1, '-y': 1, '+z': 2, '-z': 2}[face_name]
             sign = +1 if face_name[0] == '+' else -1
-            boundary_n = face_boundary_densities[face_name]
 
-            verts, faces = self._gen_face_center_with_transitions(
-                axis, sign, n, boundary_n, h, inner
-            )
+            # Use simple face center - edge strip now handles density matching
+            verts, faces = self._gen_global_face_center(axis, sign, n, h, inner)
             face_data[face_name] = {'offset': offset, 'n_verts': len(verts), 'n': n}
             all_vertices.extend(verts)
             for f in faces:
@@ -1134,6 +1136,9 @@ class AdaptiveCubeMesh:
         - Boundary vertices at edge densities (may differ per side)
         - Transition triangles connecting boundaries to internal grid
 
+        IMPORTANT: Corner vertices are shared between internal grid and edge boundaries.
+        We only add MIDDLE vertices for edge boundaries (not corners) to avoid duplicates.
+
         Args:
             axis: 0, 1, or 2 (face normal direction)
             sign: +1 or -1
@@ -1159,11 +1164,10 @@ class AdaptiveCubeMesh:
         all_verts = []
         all_faces = []
 
-        # 1. Generate internal grid (slightly smaller to leave room for boundary)
-        # We use the internal density for an inner region, then add boundary vertices
+        # 1. Generate internal grid
         internal_coords = np.linspace(-inner, inner, n + 1)
 
-        # Generate internal vertices
+        # Generate internal vertices (includes corners)
         for i in range(n + 1):
             for j in range(n + 1):
                 v = [0, 0, 0]
@@ -1187,17 +1191,24 @@ class AdaptiveCubeMesh:
                     all_faces.append([v00 + 1, v11 + 1, v10 + 1])
                     all_faces.append([v00 + 1, v01 + 1, v11 + 1])
 
-        # Internal grid boundaries (vertex indices, 1-indexed)
-        # i indexes ax1, j indexes ax2
-        internal_boundary = {
-            'bottom': [i * (n + 1) + 1 for i in range(n + 1)],  # j=0
-            'top': [i * (n + 1) + (n + 1) for i in range(n + 1)],  # j=n
-            'left': [1 + j for j in range(n + 1)],  # i=0
-            'right': [n * (n + 1) + 1 + j for j in range(n + 1)],  # i=n
+        # Internal grid corner indices (1-indexed)
+        # Grid layout: vertex at (i,j) has index i*(n+1)+j
+        corner_idx = {
+            'bl': 1,                      # (0, 0) - bottom-left
+            'br': n * (n + 1) + 1,        # (n, 0) - bottom-right
+            'tl': n + 1,                  # (0, n) - top-left
+            'tr': n * (n + 1) + n + 1,    # (n, n) - top-right
         }
 
-        # 2. For each boundary that needs different density, add boundary vertices
-        # and transition triangles
+        # Internal grid boundaries (vertex indices, 1-indexed)
+        internal_boundary = {
+            'bottom': [i * (n + 1) + 1 for i in range(n + 1)],  # j=0, from bl to br
+            'top': [i * (n + 1) + (n + 1) for i in range(n + 1)],  # j=n, from tl to tr
+            'left': [1 + j for j in range(n + 1)],  # i=0, from bl to tl
+            'right': [n * (n + 1) + 1 + j for j in range(n + 1)],  # i=n, from br to tr
+        }
+
+        # 2. For each boundary that needs different density, add MIDDLE vertices only
         offset = len(all_verts)
 
         for side in ['bottom', 'top', 'left', 'right']:
@@ -1205,11 +1216,23 @@ class AdaptiveCubeMesh:
             if edge_n == n:
                 continue  # No transition needed
 
-            # Generate boundary vertices at edge density
+            # Generate boundary vertices at edge density - MIDDLE POINTS ONLY
+            # (skip first and last which are corners already in internal grid)
             edge_coords = np.linspace(-inner, inner, edge_n + 1)
-            boundary_verts = []
 
-            for k in range(edge_n + 1):
+            # Determine which corners this side connects
+            if side == 'bottom':
+                start_corner, end_corner = 'bl', 'br'
+            elif side == 'top':
+                start_corner, end_corner = 'tl', 'tr'
+            elif side == 'left':
+                start_corner, end_corner = 'bl', 'tl'
+            else:  # right
+                start_corner, end_corner = 'br', 'tr'
+
+            # Add only middle vertices (indices 1 to edge_n-1)
+            middle_vert_indices = []
+            for k in range(1, edge_n):  # Skip k=0 and k=edge_n (corners)
                 v = [0, 0, 0]
                 v[axis] = sign * h
 
@@ -1226,24 +1249,25 @@ class AdaptiveCubeMesh:
                     v[ax1] = inner
                     v[ax2] = edge_coords[k]
 
-                boundary_verts.append(v)
                 all_verts.append(v)
+                middle_vert_indices.append(offset + len(middle_vert_indices) + 1)
 
-            # Boundary vertex indices (1-indexed)
-            boundary_idx = [offset + k + 1 for k in range(edge_n + 1)]
-            offset += edge_n + 1
+            offset += len(middle_vert_indices)
 
-            # Internal edge vertices
+            # Build complete edge boundary indices:
+            # [start_corner, middle_vertices..., end_corner]
+            edge_boundary_idx = (
+                [corner_idx[start_corner]] +
+                middle_vert_indices +
+                [corner_idx[end_corner]]
+            )
+
+            # Internal boundary indices
             internal_idx = internal_boundary[side]
-
-            # Reverse one of the arrays if needed for proper matching
-            if side in ['top', 'left']:
-                # These edges run in opposite direction
-                pass  # Keep as is after testing
 
             # Create transition triangles
             trans = self._create_transition_strip(
-                internal_idx, boundary_idx, sign, side
+                internal_idx, edge_boundary_idx, sign, side
             )
             all_faces.extend(trans)
 
@@ -1253,18 +1277,19 @@ class AdaptiveCubeMesh:
         """
         Create transition triangles between two vertex sequences.
 
-        idx1: internal boundary vertex indices
-        idx2: edge boundary vertex indices
+        idx1: internal boundary vertex indices (n+1 vertices)
+        idx2: edge boundary vertex indices (edge_n+1 vertices, corners shared)
         sign: face normal direction
         side: 'bottom', 'top', 'left', or 'right'
+
+        Note: First and last vertices of both sequences should be the same
+        (corners are shared), so we skip triangles that would be degenerate.
         """
         faces = []
         n1, n2 = len(idx1), len(idx2)
 
         # Determine winding based on side and sign
-        # For proper outward normals, we need correct vertex ordering
         if side in ['bottom', 'left']:
-            # idx2 is "outside" (at boundary)
             outer, inner = idx2, idx1
             flip = (sign < 0)
         else:
@@ -1272,21 +1297,26 @@ class AdaptiveCubeMesh:
             flip = (sign > 0)
 
         # March through both sequences creating triangles
+        # Skip degenerate triangles where vertices are the same
         i, j = 0, 0
         while i < len(inner) - 1 or j < len(outer) - 1:
             if i >= len(inner) - 1:
                 # Only advance outer
-                if flip:
-                    faces.append([inner[-1], outer[j+1], outer[j]])
-                else:
-                    faces.append([inner[-1], outer[j], outer[j+1]])
+                v1, v2, v3 = inner[-1], outer[j+1], outer[j]
+                if v1 != v2 and v2 != v3 and v1 != v3:
+                    if flip:
+                        faces.append([v1, v2, v3])
+                    else:
+                        faces.append([v1, v3, v2])
                 j += 1
             elif j >= len(outer) - 1:
                 # Only advance inner
-                if flip:
-                    faces.append([inner[i], outer[-1], inner[i+1]])
-                else:
-                    faces.append([inner[i], inner[i+1], outer[-1]])
+                v1, v2, v3 = inner[i], outer[-1], inner[i+1]
+                if v1 != v2 and v2 != v3 and v1 != v3:
+                    if flip:
+                        faces.append([v1, v2, v3])
+                    else:
+                        faces.append([v1, v3, v2])
                 i += 1
             else:
                 # Advance based on parametric position
@@ -1294,16 +1324,20 @@ class AdaptiveCubeMesh:
                 t2 = j / max(len(outer) - 1, 1)
 
                 if t1 <= t2:
-                    if flip:
-                        faces.append([inner[i], outer[j], inner[i+1]])
-                    else:
-                        faces.append([inner[i], inner[i+1], outer[j]])
+                    v1, v2, v3 = inner[i], inner[i+1], outer[j]
+                    if v1 != v2 and v2 != v3 and v1 != v3:
+                        if flip:
+                            faces.append([v1, v3, v2])
+                        else:
+                            faces.append([v1, v2, v3])
                     i += 1
                 else:
-                    if flip:
-                        faces.append([inner[i], outer[j+1], outer[j]])
-                    else:
-                        faces.append([inner[i], outer[j], outer[j+1]])
+                    v1, v2, v3 = inner[i], outer[j+1], outer[j]
+                    if v1 != v2 and v2 != v3 and v1 != v3:
+                        if flip:
+                            faces.append([v1, v2, v3])
+                        else:
+                            faces.append([v1, v3, v2])
                     j += 1
 
         return faces
@@ -1352,14 +1386,22 @@ class AdaptiveCubeMesh:
 
         return vertices, faces
 
-    def _gen_global_edge(self, axis, s1, s2, n, n_arc, h, r, inner):
+    def _gen_global_edge(self, axis, s1, s2, n, n_arc, h, r, inner, n1=None, n2=None):
         """
-        Generate a quarter-cylinder edge.
+        Generate a quarter-cylinder edge with optional transition.
 
         axis: 0=x, 1=y, 2=z (direction of edge)
         s1, s2: signs for the other two axes
-        n: number of divisions along edge
+        n: number of divisions along edge (used if n1, n2 not provided)
+        n_arc: number of arc divisions
+        n1: divisions at angle=0 (face1 density), defaults to n
+        n2: divisions at angle=π/2 (face2 density), defaults to n
         """
+        if n1 is None:
+            n1 = n
+        if n2 is None:
+            n2 = n
+
         # Determine the two perpendicular axes
         if axis == 0:  # edge along x
             ax1, ax2 = 1, 2
@@ -1368,46 +1410,85 @@ class AdaptiveCubeMesh:
         else:  # edge along z
             ax1, ax2 = 0, 1
 
-        # Cylinder center line: at (ax1_pos, ax2_pos) = (s1*(h-r), s2*(h-r))
-        # Edge runs from -inner to +inner along 'axis'
-        edge_coords = np.linspace(-inner, inner, n + 1)
         arc_angles = np.linspace(0, np.pi/2, n_arc + 1)
 
+        # Generate vertices: each arc slice has n_j+1 vertices, where n_j varies
         vertices = []
-        for i in range(n + 1):
-            pos = edge_coords[i]  # position along edge
-            for j in range(n_arc + 1):
-                angle = arc_angles[j]
+        slice_info = []  # (start_idx, n_j) for each arc angle
 
-                # Cylinder surface: curves in ax1-ax2 plane
-                # At angle=0: on ax1 side, at angle=pi/2: on ax2 side
-                ax1_offset = r * np.cos(angle)
-                ax2_offset = r * np.sin(angle)
+        for j in range(n_arc + 1):
+            angle = arc_angles[j]
+            # Interpolate number of divisions from n1 to n2
+            t = j / n_arc
+            n_j = int(round(n1 * (1 - t) + n2 * t))
+            edge_coords_j = np.linspace(-inner, inner, n_j + 1)
 
+            slice_info.append((len(vertices), n_j))
+
+            ax1_offset = r * np.cos(angle)
+            ax2_offset = r * np.sin(angle)
+
+            for i in range(n_j + 1):
                 v = [0, 0, 0]
-                v[axis] = pos
+                v[axis] = edge_coords_j[i]
                 v[ax1] = s1 * (h - r + ax1_offset)
                 v[ax2] = s2 * (h - r + ax2_offset)
                 vertices.append(v)
 
-        # Generate faces
+        # Generate faces connecting adjacent slices
         faces = []
-        for i in range(n):
-            for j in range(n_arc):
-                v00 = i * (n_arc + 1) + j
-                v10 = (i + 1) * (n_arc + 1) + j
-                v01 = i * (n_arc + 1) + (j + 1)
-                v11 = (i + 1) * (n_arc + 1) + (j + 1)
+        for j in range(n_arc):
+            start0, n0 = slice_info[j]
+            start1, n1_curr = slice_info[j + 1]
 
-                # Winding for outward normal
-                if s1 * s2 > 0:
-                    faces.append([v00 + 1, v10 + 1, v11 + 1])
-                    faces.append([v00 + 1, v11 + 1, v01 + 1])
-                else:
-                    faces.append([v00 + 1, v11 + 1, v10 + 1])
-                    faces.append([v00 + 1, v01 + 1, v11 + 1])
+            # Create triangles between slice j (n0+1 verts) and slice j+1 (n1+1 verts)
+            trans_faces = self._triangulate_strips(
+                start0, n0 + 1, start1, n1_curr + 1, s1 * s2 > 0
+            )
+            faces.extend(trans_faces)
 
         return vertices, faces
+
+    def _triangulate_strips(self, start0, count0, start1, count1, positive_winding):
+        """
+        Triangulate between two vertex strips.
+
+        start0, count0: first strip (indices start0 to start0+count0-1)
+        start1, count1: second strip (indices start1 to start1+count1-1)
+        """
+        faces = []
+        idx0 = [start0 + i for i in range(count0)]
+        idx1 = [start1 + i for i in range(count1)]
+
+        i, j = 0, 0
+        while i < count0 - 1 or j < count1 - 1:
+            if i >= count0 - 1:
+                # Only advance second strip
+                v0, v1, v2 = idx0[-1], idx1[j], idx1[j + 1]
+                j += 1
+            elif j >= count1 - 1:
+                # Only advance first strip
+                v0, v1, v2 = idx0[i], idx0[i + 1], idx1[-1]
+                i += 1
+            else:
+                # Choose based on parametric position
+                t0 = i / max(count0 - 1, 1)
+                t1 = j / max(count1 - 1, 1)
+
+                if t0 <= t1:
+                    v0, v1, v2 = idx0[i], idx0[i + 1], idx1[j]
+                    i += 1
+                else:
+                    v0, v1, v2 = idx0[i], idx1[j], idx1[j + 1]
+                    j += 1
+
+            # Add triangle with proper winding (1-indexed)
+            if positive_winding:
+                faces.append([v0 + 1, v1 + 1, v2 + 1])
+            else:
+                faces.append([v0 + 1, v2 + 1, v1 + 1])
+
+        return faces
 
     def _gen_global_face_center(self, axis, sign, n, h, inner):
         """Generate flat center region of a face."""
