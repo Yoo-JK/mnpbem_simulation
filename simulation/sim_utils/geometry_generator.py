@@ -925,14 +925,14 @@ class AdaptiveCubeMesh:
 
     def generate_proper_rounded(self, densities):
         """
-        Generate proper rounded cube mesh with vertices placed directly on curved surfaces.
+        Generate proper rounded cube mesh with globally shared corners and edges.
 
-        This avoids the vertex collision problem of the post-hoc rounding approach.
+        Unlike the per-face approach, this generates:
+        - 8 corners ONCE (each 1/8 sphere, shared by 3 faces)
+        - 12 edges ONCE (each quarter cylinder, shared by 2 faces)
+        - 6 face centers (flat regions with edge-matching boundaries)
 
-        A rounded cube consists of:
-        - 6 flat center regions (one per face)
-        - 12 cylindrical edge regions
-        - 8 spherical corner regions
+        This avoids the overlap problem at cube corners.
 
         Args:
             densities: dict with keys '+x', '-x', '+y', '-y', '+z', '-z'
@@ -943,125 +943,486 @@ class AdaptiveCubeMesh:
         """
         h = self.half_size
         r = self.r
-        inner = h - r  # Boundary between flat and curved regions
+        inner = h - r
 
         if r <= 0:
-            # No rounding, use simple flat cube
             return self.generate(densities)
 
-        # Edge adjacency: which faces share each edge
-        edge_adjacency = {
-            'x_pp': ('+y', '+z'), 'x_pm': ('+y', '-z'),
-            'x_mp': ('-y', '+z'), 'x_mm': ('-y', '-z'),
-            'y_pp': ('+x', '+z'), 'y_pm': ('+x', '-z'),
-            'y_mp': ('-x', '+z'), 'y_mm': ('-x', '-z'),
-            'z_pp': ('+x', '+y'), 'z_pm': ('+x', '-y'),
-            'z_mp': ('-x', '+y'), 'z_mm': ('-x', '-y'),
+        # Angular divisions for curved regions
+        n_arc = max(3, int(self.rounding * 8))
+
+        # Edge info: (axis along edge, sign1, sign2, face1, face2)
+        # face1 connects at angle=0, face2 connects at angle=π/2
+        edge_info = {
+            'x_pp': (0, +1, +1, '+y', '+z'),
+            'x_pm': (0, +1, -1, '+y', '-z'),
+            'x_mp': (0, -1, +1, '-y', '+z'),
+            'x_mm': (0, -1, -1, '-y', '-z'),
+            'y_pp': (1, +1, +1, '+x', '+z'),
+            'y_pm': (1, +1, -1, '+x', '-z'),
+            'y_mp': (1, -1, +1, '-x', '+z'),
+            'y_mm': (1, -1, -1, '-x', '-z'),
+            'z_pp': (2, +1, +1, '+x', '+y'),
+            'z_pm': (2, +1, -1, '+x', '-y'),
+            'z_mp': (2, -1, +1, '-x', '+y'),
+            'z_mm': (2, -1, -1, '-x', '-y'),
         }
 
-        # Corner adjacency: which faces share each corner
-        corner_adjacency = {
-            'ppp': ('+x', '+y', '+z'), 'ppm': ('+x', '+y', '-z'),
-            'pmp': ('+x', '-y', '+z'), 'pmm': ('+x', '-y', '-z'),
-            'mpp': ('-x', '+y', '+z'), 'mpm': ('-x', '+y', '-z'),
-            'mmp': ('-x', '-y', '+z'), 'mmm': ('-x', '-y', '-z'),
+        corner_info = {
+            'ppp': (+1, +1, +1, ('+x', '+y', '+z')),
+            'ppm': (+1, +1, -1, ('+x', '+y', '-z')),
+            'pmp': (+1, -1, +1, ('+x', '-y', '+z')),
+            'pmm': (+1, -1, -1, ('+x', '-y', '-z')),
+            'mpp': (-1, +1, +1, ('-x', '+y', '+z')),
+            'mpm': (-1, +1, -1, ('-x', '+y', '-z')),
+            'mmp': (-1, -1, +1, ('-x', '-y', '+z')),
+            'mmm': (-1, -1, -1, ('-x', '-y', '-z')),
         }
 
         # Calculate edge densities (max of adjacent faces)
         edge_densities = {}
-        for edge_key, (face1, face2) in edge_adjacency.items():
-            d1 = densities.get(face1, 12)
-            d2 = densities.get(face2, 12)
-            edge_densities[edge_key] = max(d1, d2)
+        for edge_name, (_, _, _, f1, f2) in edge_info.items():
+            edge_densities[edge_name] = max(densities.get(f1, 12), densities.get(f2, 12))
 
-        # Calculate corner densities (max of adjacent faces)
-        corner_densities = {}
-        for corner_key, (f1, f2, f3) in corner_adjacency.items():
-            d1 = densities.get(f1, 12)
-            d2 = densities.get(f2, 12)
-            d3 = densities.get(f3, 12)
-            corner_densities[corner_key] = max(d1, d2, d3)
+        # Determine which edges touch each face and their densities
+        # Each face has 4 boundaries that connect to 4 edges
+        # Face boundary names: bottom (ax2=-inner), top (ax2=+inner),
+        #                      left (ax1=-inner), right (ax1=+inner)
+        face_edge_map = {
+            '+x': {  # axis=0, ax1=y, ax2=z
+                'bottom': ('y_pm', 0),  # z=-inner, edge at angle=0
+                'top': ('y_pp', 0),     # z=+inner, edge at angle=0
+                'left': ('z_pm', 0),    # y=-inner, edge at angle=0
+                'right': ('z_pp', 0),   # y=+inner, edge at angle=0
+            },
+            '-x': {  # axis=0, ax1=y, ax2=z
+                'bottom': ('y_mm', 0),  # z=-inner
+                'top': ('y_mp', 0),     # z=+inner
+                'left': ('z_mm', 0),    # y=-inner
+                'right': ('z_mp', 0),   # y=+inner
+            },
+            '+y': {  # axis=1, ax1=x, ax2=z
+                'bottom': ('x_pm', 0),  # z=-inner
+                'top': ('x_pp', 0),     # z=+inner
+                'left': ('z_mp', 1),    # x=-inner, edge at angle=π/2
+                'right': ('z_pp', 1),   # x=+inner
+            },
+            '-y': {  # axis=1, ax1=x, ax2=z
+                'bottom': ('x_mm', 0),  # z=-inner
+                'top': ('x_mp', 0),     # z=+inner
+                'left': ('z_mm', 1),    # x=-inner
+                'right': ('z_pm', 1),   # x=+inner
+            },
+            '+z': {  # axis=2, ax1=x, ax2=y
+                'bottom': ('x_mp', 1),  # y=-inner, edge at angle=π/2
+                'top': ('x_pp', 1),     # y=+inner
+                'left': ('y_mp', 1),    # x=-inner
+                'right': ('y_pp', 1),   # x=+inner
+            },
+            '-z': {  # axis=2, ax1=x, ax2=y
+                'bottom': ('x_mm', 1),  # y=-inner
+                'top': ('x_pm', 1),     # y=+inner
+                'left': ('y_mm', 1),    # x=-inner
+                'right': ('y_pm', 1),   # x=+inner
+            },
+        }
 
-        # Number of angular divisions for curved regions
-        n_arc = max(3, int(self.rounding * 8))  # 3-8 divisions based on rounding
+        # Get boundary densities for each face (from adjacent edges)
+        face_boundary_densities = {}
+        for face_name in ['+x', '-x', '+y', '-y', '+z', '-z']:
+            face_boundary_densities[face_name] = {
+                side: edge_densities[edge_name]
+                for side, (edge_name, _) in face_edge_map[face_name].items()
+            }
 
         all_vertices = []
         all_faces = []
-        vertex_offset = 0
+        offset = 0
 
-        # Process each face
-        face_defs = {
-            '+x': (0, +1), '-x': (0, -1),
-            '+y': (1, +1), '-y': (1, -1),
-            '+z': (2, +1), '-z': (2, -1),
-        }
+        # ============ 1. Generate 8 corners (1/8 spheres) ============
+        corner_data = {}
+        for corner_name, (sx, sy, sz, _) in corner_info.items():
+            verts, faces = self._gen_global_corner(sx, sy, sz, n_arc, h, r, inner)
+            corner_data[corner_name] = {'offset': offset, 'n_verts': len(verts)}
+            all_vertices.extend(verts)
+            for f in faces:
+                all_faces.append([f[0] + offset, f[1] + offset, f[2] + offset, np.nan])
+            offset += len(verts)
 
-        # Map face to its edges and corners
-        face_edges = {
-            '+x': {'bottom': 'y_pm', 'right': 'z_pp', 'top': 'y_pp', 'left': 'z_pm'},
-            '-x': {'bottom': 'y_mm', 'right': 'z_mp', 'top': 'y_mp', 'left': 'z_mm'},
-            '+y': {'bottom': 'x_pm', 'right': 'z_pp', 'top': 'x_pp', 'left': 'z_mp'},
-            '-y': {'bottom': 'x_mm', 'right': 'z_pm', 'top': 'x_mp', 'left': 'z_mm'},
-            '+z': {'bottom': 'x_mp', 'right': 'y_pp', 'top': 'x_pp', 'left': 'y_mp'},
-            '-z': {'bottom': 'x_mm', 'right': 'y_pm', 'top': 'x_pm', 'left': 'y_mm'},
-        }
+        # ============ 2. Generate 12 edges (quarter cylinders) ============
+        edge_data = {}
+        for edge_name, (axis, s1, s2, f1, f2) in edge_info.items():
+            n = edge_densities[edge_name]
+            verts, faces = self._gen_global_edge(axis, s1, s2, n, n_arc, h, r, inner)
+            edge_data[edge_name] = {'offset': offset, 'n_verts': len(verts), 'n': n}
+            all_vertices.extend(verts)
+            for f in faces:
+                all_faces.append([f[0] + offset, f[1] + offset, f[2] + offset, np.nan])
+            offset += len(verts)
 
-        face_corners = {
-            '+x': {'bl': 'pmm', 'br': 'ppm', 'tr': 'ppp', 'tl': 'pmp'},
-            '-x': {'bl': 'mmm', 'br': 'mpm', 'tr': 'mpp', 'tl': 'mmp'},
-            '+y': {'bl': 'ppm', 'br': 'mpm', 'tr': 'mpp', 'tl': 'ppp'},
-            '-y': {'bl': 'pmm', 'br': 'mmm', 'tr': 'mmp', 'tl': 'pmp'},
-            '+z': {'bl': 'mmp', 'br': 'pmp', 'tr': 'ppp', 'tl': 'mpp'},
-            '-z': {'bl': 'mmm', 'br': 'pmm', 'tr': 'ppm', 'tl': 'mpm'},
-        }
+        # ============ 3. Generate 6 face centers with edge-matching boundaries ============
+        face_data = {}
+        for face_name in ['+x', '-x', '+y', '-y', '+z', '-z']:
+            n = densities.get(face_name, 12)
+            axis = {'+x': 0, '-x': 0, '+y': 1, '-y': 1, '+z': 2, '-z': 2}[face_name]
+            sign = +1 if face_name[0] == '+' else -1
+            boundary_n = face_boundary_densities[face_name]
 
-        for face_name, (axis, sign) in face_defs.items():
-            face_density = densities.get(face_name, 12)
-
-            # Get edge and corner densities for this face
-            edges = face_edges[face_name]
-            corners = face_corners[face_name]
-
-            edge_d = {k: edge_densities[v] for k, v in edges.items()}
-            corner_d = {k: corner_densities[v] for k, v in corners.items()}
-
-            # Generate this face with proper rounded regions
-            verts, faces = self._generate_face_proper_rounded(
-                axis, sign, face_density, edge_d, corner_d, n_arc, h, r, inner
+            verts, faces = self._gen_face_center_with_transitions(
+                axis, sign, n, boundary_n, h, inner
             )
+            face_data[face_name] = {'offset': offset, 'n_verts': len(verts), 'n': n}
+            all_vertices.extend(verts)
+            for f in faces:
+                all_faces.append([f[0] + offset, f[1] + offset, f[2] + offset, np.nan])
+            offset += len(verts)
 
-            # Offset face indices
-            faces_offset = faces + vertex_offset
+        # Convert to arrays
+        vertices = np.array(all_vertices)
+        faces = np.array(all_faces)
 
-            all_vertices.append(verts)
-            all_faces.append(faces_offset)
-            vertex_offset += len(verts)
-
-        # Concatenate all
-        vertices = np.vstack(all_vertices)
-        faces = np.vstack(all_faces)
-
-        # Merge duplicate vertices at shared edges and corners
+        # Merge duplicate vertices
         vertices, faces = self._merge_vertices(vertices, faces)
 
-        # Verify no degenerate triangles
+        # Remove degenerate triangles
         valid_mask = []
         for face in faces:
             v1, v2, v3 = int(face[0]), int(face[1]), int(face[2])
-            is_valid = (v1 != v2) and (v2 != v3) and (v1 != v3)
-            valid_mask.append(is_valid)
+            valid_mask.append((v1 != v2) and (v2 != v3) and (v1 != v3))
 
         n_degenerate = sum(1 for v in valid_mask if not v)
         if n_degenerate > 0:
             faces = faces[valid_mask]
             if self.verbose:
-                print(f"  Warning: Removed {n_degenerate} degenerate triangles")
+                print(f"  Removed {n_degenerate} degenerate triangles")
 
         if self.verbose:
             print(f"  Proper rounded mesh: {len(vertices)} vertices, {len(faces)} faces")
 
         return vertices, faces
 
+    def _gen_face_center_with_transitions(self, axis, sign, n, boundary_n, h, inner):
+        """
+        Generate face center with edge-matching boundaries and internal transitions.
+
+        The face has:
+        - Internal grid at density n
+        - Boundary vertices at edge densities (may differ per side)
+        - Transition triangles connecting boundaries to internal grid
+
+        Args:
+            axis: 0, 1, or 2 (face normal direction)
+            sign: +1 or -1
+            n: internal grid density
+            boundary_n: dict with 'bottom', 'top', 'left', 'right' densities
+            h, inner: geometry parameters
+        """
+        if axis == 0:
+            ax1, ax2 = 1, 2
+        elif axis == 1:
+            ax1, ax2 = 0, 2
+        else:
+            ax1, ax2 = 0, 1
+
+        # Check if any boundary has different density
+        needs_transition = any(boundary_n[side] != n for side in boundary_n)
+
+        if not needs_transition:
+            # Simple case: all boundaries match internal density
+            return self._gen_global_face_center(axis, sign, n, h, inner)
+
+        # Generate with boundary transitions
+        all_verts = []
+        all_faces = []
+
+        # 1. Generate internal grid (slightly smaller to leave room for boundary)
+        # We use the internal density for an inner region, then add boundary vertices
+        internal_coords = np.linspace(-inner, inner, n + 1)
+
+        # Generate internal vertices
+        for i in range(n + 1):
+            for j in range(n + 1):
+                v = [0, 0, 0]
+                v[axis] = sign * h
+                v[ax1] = internal_coords[i]
+                v[ax2] = internal_coords[j]
+                all_verts.append(v)
+
+        # Generate internal faces
+        for i in range(n):
+            for j in range(n):
+                v00 = i * (n + 1) + j
+                v10 = (i + 1) * (n + 1) + j
+                v01 = i * (n + 1) + (j + 1)
+                v11 = (i + 1) * (n + 1) + (j + 1)
+
+                if sign > 0:
+                    all_faces.append([v00 + 1, v10 + 1, v11 + 1])
+                    all_faces.append([v00 + 1, v11 + 1, v01 + 1])
+                else:
+                    all_faces.append([v00 + 1, v11 + 1, v10 + 1])
+                    all_faces.append([v00 + 1, v01 + 1, v11 + 1])
+
+        # Internal grid boundaries (vertex indices, 1-indexed)
+        # i indexes ax1, j indexes ax2
+        internal_boundary = {
+            'bottom': [i * (n + 1) + 1 for i in range(n + 1)],  # j=0
+            'top': [i * (n + 1) + (n + 1) for i in range(n + 1)],  # j=n
+            'left': [1 + j for j in range(n + 1)],  # i=0
+            'right': [n * (n + 1) + 1 + j for j in range(n + 1)],  # i=n
+        }
+
+        # 2. For each boundary that needs different density, add boundary vertices
+        # and transition triangles
+        offset = len(all_verts)
+
+        for side in ['bottom', 'top', 'left', 'right']:
+            edge_n = boundary_n[side]
+            if edge_n == n:
+                continue  # No transition needed
+
+            # Generate boundary vertices at edge density
+            edge_coords = np.linspace(-inner, inner, edge_n + 1)
+            boundary_verts = []
+
+            for k in range(edge_n + 1):
+                v = [0, 0, 0]
+                v[axis] = sign * h
+
+                if side == 'bottom':
+                    v[ax1] = edge_coords[k]
+                    v[ax2] = -inner
+                elif side == 'top':
+                    v[ax1] = edge_coords[k]
+                    v[ax2] = inner
+                elif side == 'left':
+                    v[ax1] = -inner
+                    v[ax2] = edge_coords[k]
+                else:  # right
+                    v[ax1] = inner
+                    v[ax2] = edge_coords[k]
+
+                boundary_verts.append(v)
+                all_verts.append(v)
+
+            # Boundary vertex indices (1-indexed)
+            boundary_idx = [offset + k + 1 for k in range(edge_n + 1)]
+            offset += edge_n + 1
+
+            # Internal edge vertices
+            internal_idx = internal_boundary[side]
+
+            # Reverse one of the arrays if needed for proper matching
+            if side in ['top', 'left']:
+                # These edges run in opposite direction
+                pass  # Keep as is after testing
+
+            # Create transition triangles
+            trans = self._create_transition_strip(
+                internal_idx, boundary_idx, sign, side
+            )
+            all_faces.extend(trans)
+
+        return all_verts, all_faces
+
+    def _create_transition_strip(self, idx1, idx2, sign, side):
+        """
+        Create transition triangles between two vertex sequences.
+
+        idx1: internal boundary vertex indices
+        idx2: edge boundary vertex indices
+        sign: face normal direction
+        side: 'bottom', 'top', 'left', or 'right'
+        """
+        faces = []
+        n1, n2 = len(idx1), len(idx2)
+
+        # Determine winding based on side and sign
+        # For proper outward normals, we need correct vertex ordering
+        if side in ['bottom', 'left']:
+            # idx2 is "outside" (at boundary)
+            outer, inner = idx2, idx1
+            flip = (sign < 0)
+        else:
+            outer, inner = idx2, idx1
+            flip = (sign > 0)
+
+        # March through both sequences creating triangles
+        i, j = 0, 0
+        while i < len(inner) - 1 or j < len(outer) - 1:
+            if i >= len(inner) - 1:
+                # Only advance outer
+                if flip:
+                    faces.append([inner[-1], outer[j+1], outer[j]])
+                else:
+                    faces.append([inner[-1], outer[j], outer[j+1]])
+                j += 1
+            elif j >= len(outer) - 1:
+                # Only advance inner
+                if flip:
+                    faces.append([inner[i], outer[-1], inner[i+1]])
+                else:
+                    faces.append([inner[i], inner[i+1], outer[-1]])
+                i += 1
+            else:
+                # Advance based on parametric position
+                t1 = i / max(len(inner) - 1, 1)
+                t2 = j / max(len(outer) - 1, 1)
+
+                if t1 <= t2:
+                    if flip:
+                        faces.append([inner[i], outer[j], inner[i+1]])
+                    else:
+                        faces.append([inner[i], inner[i+1], outer[j]])
+                    i += 1
+                else:
+                    if flip:
+                        faces.append([inner[i], outer[j+1], outer[j]])
+                    else:
+                        faces.append([inner[i], outer[j], outer[j+1]])
+                    j += 1
+
+        return faces
+
+    def _gen_global_corner(self, sx, sy, sz, n_arc, h, r, inner):
+        """Generate a 1/8 sphere at cube corner (sx*h, sy*h, sz*h)."""
+        # Sphere center at (sx*(h-r), sy*(h-r), sz*(h-r))
+        cx, cy, cz = sx * (h - r), sy * (h - r), sz * (h - r)
+
+        vertices = []
+        # Parametrize the 1/8 sphere using two angles
+        # theta: 0 to pi/2 (from z-axis toward xy-plane)
+        # phi: angle in xy-plane covering the octant
+        for i in range(n_arc + 1):
+            theta = i * (np.pi / 2) / n_arc
+            for j in range(n_arc + 1):
+                phi = j * (np.pi / 2) / n_arc
+
+                # Local spherical coordinates
+                dx = r * np.sin(theta) * np.cos(phi)
+                dy = r * np.sin(theta) * np.sin(phi)
+                dz = r * np.cos(theta)
+
+                # Global position
+                x = cx + sx * dx
+                y = cy + sy * dy
+                z = cz + sz * dz
+                vertices.append([x, y, z])
+
+        # Generate faces
+        faces = []
+        for i in range(n_arc):
+            for j in range(n_arc):
+                v00 = i * (n_arc + 1) + j
+                v10 = (i + 1) * (n_arc + 1) + j
+                v01 = i * (n_arc + 1) + (j + 1)
+                v11 = (i + 1) * (n_arc + 1) + (j + 1)
+
+                # Winding order for outward normal
+                if sx * sy * sz > 0:
+                    faces.append([v00 + 1, v10 + 1, v11 + 1])
+                    faces.append([v00 + 1, v11 + 1, v01 + 1])
+                else:
+                    faces.append([v00 + 1, v11 + 1, v10 + 1])
+                    faces.append([v00 + 1, v01 + 1, v11 + 1])
+
+        return vertices, faces
+
+    def _gen_global_edge(self, axis, s1, s2, n, n_arc, h, r, inner):
+        """
+        Generate a quarter-cylinder edge.
+
+        axis: 0=x, 1=y, 2=z (direction of edge)
+        s1, s2: signs for the other two axes
+        n: number of divisions along edge
+        """
+        # Determine the two perpendicular axes
+        if axis == 0:  # edge along x
+            ax1, ax2 = 1, 2
+        elif axis == 1:  # edge along y
+            ax1, ax2 = 0, 2
+        else:  # edge along z
+            ax1, ax2 = 0, 1
+
+        # Cylinder center line: at (ax1_pos, ax2_pos) = (s1*(h-r), s2*(h-r))
+        # Edge runs from -inner to +inner along 'axis'
+        edge_coords = np.linspace(-inner, inner, n + 1)
+        arc_angles = np.linspace(0, np.pi/2, n_arc + 1)
+
+        vertices = []
+        for i in range(n + 1):
+            pos = edge_coords[i]  # position along edge
+            for j in range(n_arc + 1):
+                angle = arc_angles[j]
+
+                # Cylinder surface: curves in ax1-ax2 plane
+                # At angle=0: on ax1 side, at angle=pi/2: on ax2 side
+                ax1_offset = r * np.cos(angle)
+                ax2_offset = r * np.sin(angle)
+
+                v = [0, 0, 0]
+                v[axis] = pos
+                v[ax1] = s1 * (h - r + ax1_offset)
+                v[ax2] = s2 * (h - r + ax2_offset)
+                vertices.append(v)
+
+        # Generate faces
+        faces = []
+        for i in range(n):
+            for j in range(n_arc):
+                v00 = i * (n_arc + 1) + j
+                v10 = (i + 1) * (n_arc + 1) + j
+                v01 = i * (n_arc + 1) + (j + 1)
+                v11 = (i + 1) * (n_arc + 1) + (j + 1)
+
+                # Winding for outward normal
+                if s1 * s2 > 0:
+                    faces.append([v00 + 1, v10 + 1, v11 + 1])
+                    faces.append([v00 + 1, v11 + 1, v01 + 1])
+                else:
+                    faces.append([v00 + 1, v11 + 1, v10 + 1])
+                    faces.append([v00 + 1, v01 + 1, v11 + 1])
+
+        return vertices, faces
+
+    def _gen_global_face_center(self, axis, sign, n, h, inner):
+        """Generate flat center region of a face."""
+        coords = np.linspace(-inner, inner, n + 1)
+
+        if axis == 0:
+            ax1, ax2 = 1, 2
+        elif axis == 1:
+            ax1, ax2 = 0, 2
+        else:
+            ax1, ax2 = 0, 1
+
+        vertices = []
+        for i in range(n + 1):
+            for j in range(n + 1):
+                v = [0, 0, 0]
+                v[axis] = sign * h
+                v[ax1] = coords[i]
+                v[ax2] = coords[j]
+                vertices.append(v)
+
+        faces = []
+        for i in range(n):
+            for j in range(n):
+                v00 = i * (n + 1) + j
+                v10 = (i + 1) * (n + 1) + j
+                v01 = i * (n + 1) + (j + 1)
+                v11 = (i + 1) * (n + 1) + (j + 1)
+
+                if sign > 0:
+                    faces.append([v00 + 1, v10 + 1, v11 + 1])
+                    faces.append([v00 + 1, v11 + 1, v01 + 1])
+                else:
+                    faces.append([v00 + 1, v11 + 1, v10 + 1])
+                    faces.append([v00 + 1, v01 + 1, v11 + 1])
+
+        return vertices, faces
+
+    # Keep old methods for backwards compatibility (marked as deprecated)
     def _generate_face_proper_rounded(self, axis, sign, face_n, edge_d, corner_d,
                                        n_arc, h, r, inner):
         """
