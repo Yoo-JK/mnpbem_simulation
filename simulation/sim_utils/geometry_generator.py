@@ -2840,11 +2840,10 @@ fprintf('Loading adaptive mesh geometry...\\n');
             # Shift particle 1 to left position
             verts1[:, 0] -= shift_distance
 
-            # Save to .mat file (faces as Nx3 integer for MNPBEM compatibility)
+            # Save to .mat file (MNPBEM expects Nx4, 4th column NaN for triangles)
             mat_file1 = f'adaptive_mesh_p1_layer{layer_idx}.mat'
             mat_path1 = output_dir / mat_file1
-            faces1_clean = faces1[:, :3].astype(int)  # Remove NaN column, convert to int
-            sio.savemat(str(mat_path1), {'vertices': verts1, 'faces': faces1_clean}, do_compression=True)
+            sio.savemat(str(mat_path1), {'vertices': verts1, 'faces': faces1}, do_compression=True)
 
             if layer_idx == 0:
                 p1_name = "p1_core"
@@ -2902,8 +2901,7 @@ fprintf('  {p1_name}: %d vertices, %d faces\\n', size(mesh_data.vertices, 1), si
             # Save to .mat file
             mat_file2 = f'adaptive_mesh_p2_layer{layer_idx}.mat'
             mat_path2 = output_dir / mat_file2
-            faces2_clean = faces2[:, :3].astype(int)  # Remove NaN column, convert to int
-            sio.savemat(str(mat_path2), {'vertices': verts2, 'faces': faces2_clean}, do_compression=True)
+            sio.savemat(str(mat_path2), {'vertices': verts2, 'faces': faces2}, do_compression=True)
 
             if layer_idx == 0:
                 p2_name = "p2_core"
@@ -2918,20 +2916,24 @@ fprintf('  {p2_name}: %d vertices, %d faces\\n', size(mesh_data.vertices, 1), si
 """
             particles_list.append(p2_name)
 
-        # Print summary
-        # Compare: uniform mesh at gap_density (required for accuracy) vs adaptive
-        total_elements_uniform = 2 * len(sizes) * 6 * 2 * gap_density * gap_density
-        total_elements_adaptive = 2 * len(sizes) * (
-            2 * 2 * gap_density * gap_density +  # 2 gap faces
-            2 * 2 * back_density * back_density +  # 2 back faces
-            4 * 2 * side_density * side_density    # 4 side faces
-        )
+        # Print summary using actual face counts
+        # Total elements = sum of all faces from both particles
+        actual_elements = sum(len(f) for f in [faces1, faces2] for _ in range(len(sizes)))
+        # For comparison: uniform mesh at gap_density
+        uniform_densities = {f: gap_density for f in ['+x', '-x', '+y', '-y', '+z', '-z']}
+        mesh_uniform = AdaptiveCubeMesh(sizes[-1], rounding=roundings[-1], verbose=False)
+        if roundings[-1] > 0:
+            _, uniform_faces = mesh_uniform.generate_proper_rounded(uniform_densities)
+        else:
+            _, uniform_faces = mesh_uniform.generate(uniform_densities)
+        total_elements_uniform = len(uniform_faces) * 2 * len(sizes)
+        total_elements_adaptive = len(faces1) * 2 * len(sizes)
         reduction = (1 - total_elements_adaptive / total_elements_uniform) * 100
 
         if self.verbose:
             print(f"  Element reduction: {reduction:.1f}%")
-            print(f"    Uniform (all at {gap_density}): ~{total_elements_uniform} elements")
-            print(f"    Adaptive: ~{total_elements_adaptive} elements")
+            print(f"    Uniform (all at {gap_density}): {total_elements_uniform} elements")
+            print(f"    Adaptive: {total_elements_adaptive} elements")
 
         code += f"""
 %% Summary: Adaptive mesh reduces element count by ~{reduction:.0f}%
