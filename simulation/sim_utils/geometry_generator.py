@@ -326,6 +326,339 @@ fprintf('  Material {mat_idx} ({mat_name}): %d vertices, %d faces\\n', ...
 
 
 # ============================================================================
+# Adaptive Cube Mesh Generator
+# ============================================================================
+
+class AdaptiveCubeMesh:
+    """
+    Generate adaptive mesh for rounded cube with per-face density control.
+
+    For dimer structures, gap-facing faces need fine mesh while
+    opposite faces can use coarser mesh to reduce total element count.
+    """
+
+    def __init__(self, size, rounding=0.2, verbose=False):
+        """
+        Initialize adaptive cube mesh generator.
+
+        Args:
+            size: Cube edge length (nm)
+            rounding: Edge rounding parameter (0-1, 0=sharp, 1=sphere-like)
+            verbose: Print debug information
+        """
+        self.size = size
+        self.rounding = rounding
+        self.verbose = verbose
+        self.half_size = size / 2
+        # Rounding radius as fraction of half-size
+        self.r = rounding * self.half_size * 0.5  # Scale factor for rounding
+
+    def generate(self, densities):
+        """
+        Generate cube mesh with per-face densities.
+
+        Args:
+            densities: dict with keys '+x', '-x', '+y', '-y', '+z', '-z'
+                      Each value is the mesh density for that face.
+                      Example: {'+x': 36, '-x': 12, '+y': 18, '-y': 18, '+z': 18, '-z': 18}
+
+        Returns:
+            vertices: (N, 3) array of vertex coordinates
+            faces: (M, 4) array of face indices (1-indexed, 4th column is NaN for triangles)
+        """
+        all_vertices = []
+        all_faces = []
+        vertex_offset = 0
+
+        # Face definitions: (normal direction, axis index, sign)
+        face_defs = {
+            '+x': (0, +1),  # axis=0 (x), positive direction
+            '-x': (0, -1),
+            '+y': (1, +1),
+            '-y': (1, -1),
+            '+z': (2, +1),
+            '-z': (2, -1),
+        }
+
+        for face_name, (axis, sign) in face_defs.items():
+            n = densities.get(face_name, 12)  # Default density
+
+            verts, faces = self._generate_face(axis, sign, n)
+
+            # Apply rounding to vertices near edges/corners
+            verts = self._apply_rounding(verts)
+
+            # Offset face indices
+            faces_offset = faces + vertex_offset
+
+            all_vertices.append(verts)
+            all_faces.append(faces_offset)
+
+            vertex_offset += len(verts)
+
+        # Concatenate all
+        vertices = np.vstack(all_vertices)
+        faces = np.vstack(all_faces)
+
+        # Merge duplicate vertices (from shared edges)
+        vertices, faces = self._merge_vertices(vertices, faces)
+
+        if self.verbose:
+            print(f"  Adaptive cube mesh: {len(vertices)} vertices, {len(faces)} faces")
+            for face_name in densities:
+                print(f"    {face_name}: density={densities[face_name]}")
+
+        return vertices, faces
+
+    def _generate_face(self, axis, sign, n):
+        """
+        Generate triangular mesh for one face of the cube.
+
+        Args:
+            axis: 0=x, 1=y, 2=z (normal axis)
+            sign: +1 or -1 (direction of normal)
+            n: mesh density (grid divisions per edge)
+
+        Returns:
+            vertices: (n+1)^2 x 3 array
+            faces: 2*n^2 x 4 array (triangles, 4th col = NaN)
+        """
+        h = self.half_size
+
+        # Create grid on the face
+        # The face is perpendicular to 'axis' at position sign * h
+        u = np.linspace(-h, h, n + 1)
+        v = np.linspace(-h, h, n + 1)
+        uu, vv = np.meshgrid(u, v)
+
+        # Flatten
+        uu = uu.flatten()
+        vv = vv.flatten()
+
+        # Build 3D coordinates
+        vertices = np.zeros((len(uu), 3))
+
+        if axis == 0:  # x-face: y and z vary
+            vertices[:, 0] = sign * h
+            vertices[:, 1] = uu
+            vertices[:, 2] = vv
+        elif axis == 1:  # y-face: x and z vary
+            vertices[:, 0] = uu
+            vertices[:, 1] = sign * h
+            vertices[:, 2] = vv
+        else:  # z-face: x and y vary
+            vertices[:, 0] = uu
+            vertices[:, 1] = vv
+            vertices[:, 2] = sign * h
+
+        # Generate triangular faces
+        faces = []
+        for i in range(n):
+            for j in range(n):
+                # Vertex indices in the grid (0-indexed)
+                v00 = i * (n + 1) + j
+                v10 = (i + 1) * (n + 1) + j
+                v01 = i * (n + 1) + (j + 1)
+                v11 = (i + 1) * (n + 1) + (j + 1)
+
+                # Two triangles per grid cell (1-indexed for MATLAB)
+                # Orientation depends on face direction for consistent normals
+                if sign > 0:
+                    faces.append([v00 + 1, v10 + 1, v11 + 1, np.nan])
+                    faces.append([v00 + 1, v11 + 1, v01 + 1, np.nan])
+                else:
+                    faces.append([v00 + 1, v11 + 1, v10 + 1, np.nan])
+                    faces.append([v00 + 1, v01 + 1, v11 + 1, np.nan])
+
+        return vertices, np.array(faces)
+
+    def _apply_rounding(self, vertices):
+        """
+        Apply rounding to vertices near edges and corners.
+
+        Vertices near cube edges/corners are moved inward and then
+        projected onto a rounded surface.
+        """
+        if self.rounding <= 0:
+            return vertices
+
+        h = self.half_size
+        r = self.r
+
+        # Threshold for being "near edge"
+        edge_threshold = h - r
+
+        rounded_verts = vertices.copy()
+
+        for i, v in enumerate(vertices):
+            x, y, z = v
+
+            # Count how many coordinates are near the edge
+            near_x = abs(abs(x) - h) < 1e-10
+            near_y = abs(abs(y) - h) < 1e-10
+            near_z = abs(abs(z) - h) < 1e-10
+            n_near = near_x + near_y + near_z
+
+            if n_near == 1:
+                # On a face, check if near an edge within the face
+                if not near_x:
+                    if abs(y) > edge_threshold or abs(z) > edge_threshold:
+                        rounded_verts[i] = self._round_edge_vertex(v, r, h)
+                elif not near_y:
+                    if abs(x) > edge_threshold or abs(z) > edge_threshold:
+                        rounded_verts[i] = self._round_edge_vertex(v, r, h)
+                else:  # not near_z
+                    if abs(x) > edge_threshold or abs(y) > edge_threshold:
+                        rounded_verts[i] = self._round_edge_vertex(v, r, h)
+            elif n_near >= 2:
+                # On an edge or corner - apply rounding
+                rounded_verts[i] = self._round_corner_vertex(v, r, h)
+
+        return rounded_verts
+
+    def _round_edge_vertex(self, v, r, h):
+        """Round a vertex that's on a face but near an edge."""
+        x, y, z = v
+
+        # Find which axis is the face normal
+        if abs(abs(x) - h) < 1e-10:
+            # On x-face, round y and z if near edge
+            new_y, new_z = self._round_2d(y, z, r, h)
+            return np.array([x, new_y, new_z])
+        elif abs(abs(y) - h) < 1e-10:
+            new_x, new_z = self._round_2d(x, z, r, h)
+            return np.array([new_x, y, new_z])
+        else:
+            new_x, new_y = self._round_2d(x, y, r, h)
+            return np.array([new_x, new_y, z])
+
+    def _round_2d(self, u, v, r, h):
+        """Round in 2D plane."""
+        edge_h = h - r
+
+        new_u, new_v = u, v
+
+        # Check if in corner region
+        in_corner_u = abs(u) > edge_h
+        in_corner_v = abs(v) > edge_h
+
+        if in_corner_u and in_corner_v:
+            # Corner region - project onto circle
+            su = np.sign(u)
+            sv = np.sign(v)
+
+            # Local coords relative to corner center
+            lu = abs(u) - edge_h
+            lv = abs(v) - edge_h
+
+            # Project onto circle of radius r
+            dist = np.sqrt(lu**2 + lv**2)
+            if dist > 0:
+                new_u = su * (edge_h + r * lu / dist)
+                new_v = sv * (edge_h + r * lv / dist)
+        elif in_corner_u:
+            # Edge in u direction only
+            su = np.sign(u)
+            new_u = su * h  # Keep at boundary
+        elif in_corner_v:
+            sv = np.sign(v)
+            new_v = sv * h
+
+        return new_u, new_v
+
+    def _round_corner_vertex(self, v, r, h):
+        """Round a vertex at an edge or corner of the cube."""
+        x, y, z = v
+        edge_h = h - r
+
+        # Determine which edges/corners
+        sx = np.sign(x) if abs(x) > edge_h else 0
+        sy = np.sign(y) if abs(y) > edge_h else 0
+        sz = np.sign(z) if abs(z) > edge_h else 0
+
+        if sx != 0 and sy != 0 and sz != 0:
+            # True corner - project onto sphere
+            cx = sx * edge_h
+            cy = sy * edge_h
+            cz = sz * edge_h
+
+            dx = x - cx
+            dy = y - cy
+            dz = z - cz
+
+            dist = np.sqrt(dx**2 + dy**2 + dz**2)
+            if dist > 0:
+                return np.array([
+                    cx + r * dx / dist,
+                    cy + r * dy / dist,
+                    cz + r * dz / dist
+                ])
+        elif sx != 0 and sy != 0:
+            # Edge along z
+            new_x, new_y = self._round_2d(x, y, r, h)
+            return np.array([new_x, new_y, z])
+        elif sx != 0 and sz != 0:
+            new_x, new_z = self._round_2d(x, z, r, h)
+            return np.array([new_x, y, new_z])
+        elif sy != 0 and sz != 0:
+            new_y, new_z = self._round_2d(y, z, r, h)
+            return np.array([x, new_y, new_z])
+
+        return v
+
+    def _merge_vertices(self, vertices, faces, tol=1e-6):
+        """
+        Merge duplicate vertices and update face indices.
+
+        This is important because faces share vertices at edges.
+        """
+        n = len(vertices)
+
+        # Find unique vertices
+        unique_verts = []
+        index_map = np.zeros(n, dtype=int)
+
+        for i, v in enumerate(vertices):
+            found = False
+            for j, uv in enumerate(unique_verts):
+                if np.linalg.norm(v - uv) < tol:
+                    index_map[i] = j + 1  # 1-indexed
+                    found = True
+                    break
+            if not found:
+                unique_verts.append(v)
+                index_map[i] = len(unique_verts)  # 1-indexed
+
+        # Update face indices
+        new_faces = faces.copy()
+        for i in range(len(faces)):
+            for j in range(3):  # Only first 3 columns are indices
+                old_idx = int(faces[i, j])
+                new_faces[i, j] = index_map[old_idx - 1]  # Convert to 0-indexed, then back
+
+        return np.array(unique_verts), new_faces
+
+    def save_to_mat(self, vertices, faces, filepath):
+        """Save mesh to .mat file for MATLAB."""
+        try:
+            import scipy.io as sio
+        except ImportError:
+            raise ImportError("scipy is required for saving mesh to .mat file")
+
+        sio.savemat(
+            str(filepath),
+            {
+                'vertices': vertices,
+                'faces': faces
+            },
+            do_compression=True
+        )
+
+        if self.verbose:
+            print(f"  Saved adaptive mesh to {filepath}")
+
+
+# ============================================================================
 # Geometry Generator
 # ============================================================================
 
@@ -1195,13 +1528,13 @@ particles = {{core1, shell1, core2, shell2}};
         shell_layers = self.config.get('shell_layers', [])
         materials = self.config.get('materials', [])
         mesh = self.config.get('mesh_density', 12)
-        
+
         if len(materials) != 1 + len(shell_layers):
             raise ValueError(
                 f"materials length ({len(materials)}) must equal "
                 f"1 (core) + {len(shell_layers)} (shells) = {1 + len(shell_layers)}"
             )
-        
+
         if 'roundings' in self.config:
             roundings = self.config.get('roundings')
             if len(roundings) != len(materials):
@@ -1214,20 +1547,31 @@ particles = {{core1, shell1, core2, shell2}};
             roundings = [single_rounding] * len(materials)
         else:
             roundings = [0.25] * len(materials)
-        
+
         gap = self.config.get('gap', 10)
         offset = self.config.get('offset', [0, 0, 0])
         tilt_angle = self.config.get('tilt_angle', 0)
         tilt_axis = self.config.get('tilt_axis', [0, 1, 0])
         rotation_angle = self.config.get('rotation_angle', 0)
-        
+
         sizes = [core_size]
         for thickness in shell_layers:
             sizes.append(sizes[-1] + 2 * thickness)
-        
+
         total_size = sizes[-1]
         shift_distance = (total_size + gap) / 2
-        
+
+        # Check if adaptive mesh is enabled
+        use_adaptive_mesh = self.config.get('use_adaptive_mesh', False)
+
+        if use_adaptive_mesh:
+            return self._advanced_dimer_cube_adaptive(
+                sizes, materials, roundings, gap, offset,
+                tilt_angle, tilt_axis, rotation_angle,
+                mesh, shift_distance
+            )
+
+        # Standard uniform mesh (original behavior)
         code = f"""
 %% Geometry: Advanced Dimer Cube
 mesh_density = {mesh};
@@ -1235,11 +1579,11 @@ gap = {gap};
 shift_distance = {shift_distance};
 
 """
-        
+
         # Particle 1
         code += "\n%% === Particle 1 (Left) ===\n"
         particles_list = []
-        
+
         for i, (size, material, rounding) in enumerate(zip(sizes, materials, roundings)):
             if i == 0:
                 code += f"% Core: {material}\n"
@@ -1252,10 +1596,10 @@ shift_distance = {shift_distance};
                 code += f"p1_shell{shell_num} = tricube(mesh_density, {size}, 'e', {rounding});\n"
                 code += f"p1_shell{shell_num} = shift(p1_shell{shell_num}, [-shift_distance, 0, 0]);\n"
                 particles_list.append(f"p1_shell{shell_num}")
-        
+
         # Particle 2
         code += "\n%% === Particle 2 (Right with transformations) ===\n"
-        
+
         for i, (size, material, rounding) in enumerate(zip(sizes, materials, roundings)):
             if i == 0:
                 code += f"% Core: {material}\n"
@@ -1274,11 +1618,184 @@ shift_distance = {shift_distance};
                 code += f"p2_shell{shell_num} = shift(p2_shell{shell_num}, [shift_distance, 0, 0]);\n"
                 code += f"p2_shell{shell_num} = shift(p2_shell{shell_num}, [{offset[0]}, {offset[1]}, {offset[2]}]);\n"
                 particles_list.append(f"p2_shell{shell_num}")
-        
+
         particles_str = ", ".join(particles_list)
         code += f"\n%% Combine all particles\nparticles = {{{particles_str}}};\n"
-        
+
         return code
+
+    def _advanced_dimer_cube_adaptive(self, sizes, materials, roundings, gap, offset,
+                                       tilt_angle, tilt_axis, rotation_angle,
+                                       base_mesh, shift_distance):
+        """
+        Generate advanced dimer cube with adaptive mesh (per-face density control).
+
+        For dimer structures along x-axis:
+        - Particle 1 (left): +x face is gap-facing (fine mesh)
+        - Particle 2 (right): -x face is gap-facing (fine mesh)
+        - Opposite faces: coarse mesh
+        - Side faces (y, z): medium mesh
+        """
+        import scipy.io as sio
+
+        # Get adaptive mesh settings
+        adaptive_config = self.config.get('adaptive_mesh', {})
+        gap_density = adaptive_config.get('gap_density', base_mesh)
+        back_density = adaptive_config.get('back_density', max(6, base_mesh // 3))
+        side_density = adaptive_config.get('side_density', max(8, base_mesh // 2))
+
+        output_dir = Path(self.config.get('output_dir', './results'))
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        if self.verbose:
+            print(f"  Adaptive mesh enabled:")
+            print(f"    Gap faces: {gap_density}")
+            print(f"    Back faces: {back_density}")
+            print(f"    Side faces: {side_density}")
+
+        code = f"""
+%% Geometry: Advanced Dimer Cube (Adaptive Mesh)
+%% Gap-facing faces have fine mesh, opposite faces have coarse mesh
+gap = {gap};
+shift_distance = {shift_distance};
+
+fprintf('Loading adaptive mesh geometry...\\n');
+"""
+
+        particles_list = []
+        particle_idx = 1
+
+        # Generate mesh for each surface layer
+        for layer_idx, (size, material, rounding) in enumerate(zip(sizes, materials, roundings)):
+
+            # Particle 1 (Left): +x is gap-facing
+            densities_p1 = {
+                '+x': gap_density,   # Gap face - fine
+                '-x': back_density,  # Back face - coarse
+                '+y': side_density,  # Side faces - medium
+                '-y': side_density,
+                '+z': side_density,
+                '-z': side_density,
+            }
+
+            mesh_gen = AdaptiveCubeMesh(size, rounding=rounding, verbose=self.verbose)
+            verts1, faces1 = mesh_gen.generate(densities_p1)
+
+            # Shift particle 1 to left position
+            verts1[:, 0] -= shift_distance
+
+            # Save to .mat file
+            mat_file1 = f'adaptive_mesh_p1_layer{layer_idx}.mat'
+            mat_path1 = output_dir / mat_file1
+            sio.savemat(str(mat_path1), {'vertices': verts1, 'faces': faces1}, do_compression=True)
+
+            if layer_idx == 0:
+                p1_name = "p1_core"
+            else:
+                p1_name = f"p1_shell{layer_idx}"
+
+            code += f"""
+% Particle 1, Layer {layer_idx}: {material}
+mesh_data = load('{mat_file1}');
+{p1_name} = particle(mesh_data.vertices, mesh_data.faces, op);
+fprintf('  {p1_name}: %d vertices, %d faces\\n', size(mesh_data.vertices, 1), size(mesh_data.faces, 1));
+"""
+            particles_list.append(p1_name)
+
+            # Particle 2 (Right): -x is gap-facing
+            densities_p2 = {
+                '+x': back_density,  # Back face - coarse
+                '-x': gap_density,   # Gap face - fine
+                '+y': side_density,  # Side faces - medium
+                '-y': side_density,
+                '+z': side_density,
+                '-z': side_density,
+            }
+
+            verts2, faces2 = mesh_gen.generate(densities_p2)
+
+            # Apply transformations for particle 2
+            # 1. Rotation around z-axis
+            if rotation_angle != 0:
+                rad = np.radians(rotation_angle)
+                cos_r, sin_r = np.cos(rad), np.sin(rad)
+                rot_z = np.array([
+                    [cos_r, -sin_r, 0],
+                    [sin_r, cos_r, 0],
+                    [0, 0, 1]
+                ])
+                verts2 = verts2 @ rot_z.T
+
+            # 2. Tilt rotation around custom axis
+            if tilt_angle != 0:
+                verts2 = self._rotate_vertices(verts2, tilt_angle, tilt_axis)
+
+            # 3. Shift to right position
+            verts2[:, 0] += shift_distance
+
+            # 4. Apply offset
+            verts2[:, 0] += offset[0]
+            verts2[:, 1] += offset[1]
+            verts2[:, 2] += offset[2]
+
+            # Save to .mat file
+            mat_file2 = f'adaptive_mesh_p2_layer{layer_idx}.mat'
+            mat_path2 = output_dir / mat_file2
+            sio.savemat(str(mat_path2), {'vertices': verts2, 'faces': faces2}, do_compression=True)
+
+            if layer_idx == 0:
+                p2_name = "p2_core"
+            else:
+                p2_name = f"p2_shell{layer_idx}"
+
+            code += f"""
+% Particle 2, Layer {layer_idx}: {material}
+mesh_data = load('{mat_file2}');
+{p2_name} = particle(mesh_data.vertices, mesh_data.faces, op);
+fprintf('  {p2_name}: %d vertices, %d faces\\n', size(mesh_data.vertices, 1), size(mesh_data.faces, 1));
+"""
+            particles_list.append(p2_name)
+
+        # Print summary
+        total_elements_uniform = 2 * len(sizes) * 6 * 2 * base_mesh * base_mesh
+        total_elements_adaptive = 2 * len(sizes) * (
+            2 * 2 * gap_density * gap_density +  # 2 gap faces
+            2 * 2 * back_density * back_density +  # 2 back faces
+            4 * 2 * side_density * side_density    # 4 side faces
+        )
+        reduction = (1 - total_elements_adaptive / total_elements_uniform) * 100
+
+        if self.verbose:
+            print(f"  Element reduction: {reduction:.1f}%")
+            print(f"    Uniform: ~{total_elements_uniform} elements")
+            print(f"    Adaptive: ~{total_elements_adaptive} elements")
+
+        code += f"""
+%% Summary: Adaptive mesh reduces element count by ~{reduction:.0f}%
+fprintf('Adaptive mesh loaded successfully.\\n');
+"""
+
+        particles_str = ", ".join(particles_list)
+        code += f"\n%% Combine all particles\nparticles = {{{particles_str}}};\n"
+
+        return code
+
+    def _rotate_vertices(self, vertices, angle_deg, axis):
+        """Rotate vertices around arbitrary axis using Rodrigues' rotation formula."""
+        rad = np.radians(angle_deg)
+        axis = np.array(axis, dtype=float)
+        axis = axis / np.linalg.norm(axis)  # Normalize
+
+        cos_a = np.cos(rad)
+        sin_a = np.sin(rad)
+
+        # Rodrigues' rotation formula
+        rotated = np.zeros_like(vertices)
+        for i, v in enumerate(vertices):
+            rotated[i] = (v * cos_a +
+                         np.cross(axis, v) * sin_a +
+                         axis * np.dot(axis, v) * (1 - cos_a))
+        return rotated
     
     def _from_shape(self):
         """Generate code for DDA shape file import."""
