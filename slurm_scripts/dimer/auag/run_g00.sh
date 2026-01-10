@@ -1,10 +1,10 @@
 #!/bin/bash
-#SBATCH --job-name=auag02
+#SBATCH --job-name=auag00
 #SBATCH --account=yoojk20-ic
 #SBATCH --partition=IllinoisComputes
 #SBATCH --time=72:00:00
 #SBATCH --nodes=1
-#SBATCH --ntasks=48
+#SBATCH --ntasks=72
 #SBATCH --cpus-per-task=1
 #SBATCH --export=NONE
 

@@ -16,7 +16,7 @@ args['use_parallel'] = True  # Set to False to disable parallel computing
 # args['num_workers'] = 'env'  # Recommended for Slurm clusters
 
 # Alternative: specify exact number
-args['num_workers'] = 8
+rgs['num_workers'] = 4
 args['max_comp_threads'] = 1
 args['wavelength_chunk_size'] = 10
 
@@ -200,7 +200,7 @@ args['use_mirror_symmetry'] = 'xy'
 # Iterative solver (for very large structures with >10,000 elements)
 # Uses less memory but may be slower
 # Enable if you encounter out-of-memory errors
-args['use_iterative_solver'] = True
+args['use_iterative_solver'] = False
 
 # Nonlocal effects (advanced, for very small particles <5nm)
 # Includes quantum effects at metal surfaces
