@@ -2840,10 +2840,11 @@ fprintf('Loading adaptive mesh geometry...\\n');
             # Shift particle 1 to left position
             verts1[:, 0] -= shift_distance
 
-            # Save to .mat file
+            # Save to .mat file (faces as Nx3 integer for MNPBEM compatibility)
             mat_file1 = f'adaptive_mesh_p1_layer{layer_idx}.mat'
             mat_path1 = output_dir / mat_file1
-            sio.savemat(str(mat_path1), {'vertices': verts1, 'faces': faces1}, do_compression=True)
+            faces1_clean = faces1[:, :3].astype(int)  # Remove NaN column, convert to int
+            sio.savemat(str(mat_path1), {'vertices': verts1, 'faces': faces1_clean}, do_compression=True)
 
             if layer_idx == 0:
                 p1_name = "p1_core"
@@ -2901,7 +2902,8 @@ fprintf('  {p1_name}: %d vertices, %d faces\\n', size(mesh_data.vertices, 1), si
             # Save to .mat file
             mat_file2 = f'adaptive_mesh_p2_layer{layer_idx}.mat'
             mat_path2 = output_dir / mat_file2
-            sio.savemat(str(mat_path2), {'vertices': verts2, 'faces': faces2}, do_compression=True)
+            faces2_clean = faces2[:, :3].astype(int)  # Remove NaN column, convert to int
+            sio.savemat(str(mat_path2), {'vertices': verts2, 'faces': faces2_clean}, do_compression=True)
 
             if layer_idx == 0:
                 p2_name = "p2_core"
