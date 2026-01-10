@@ -2831,7 +2831,11 @@ fprintf('Loading adaptive mesh geometry...\\n');
             }
 
             mesh_gen = AdaptiveCubeMesh(size, rounding=rounding, verbose=self.verbose)
-            verts1, faces1 = mesh_gen.generate(densities_p1)
+            # Use proper curved rounding (not shrink-based)
+            if rounding > 0:
+                verts1, faces1 = mesh_gen.generate_proper_rounded(densities_p1)
+            else:
+                verts1, faces1 = mesh_gen.generate(densities_p1)
 
             # Shift particle 1 to left position
             verts1[:, 0] -= shift_distance
@@ -2864,7 +2868,11 @@ fprintf('  {p1_name}: %d vertices, %d faces\\n', size(mesh_data.vertices, 1), si
                 '-z': side_density,
             }
 
-            verts2, faces2 = mesh_gen.generate(densities_p2)
+            # Use proper curved rounding (not shrink-based)
+            if rounding > 0:
+                verts2, faces2 = mesh_gen.generate_proper_rounded(densities_p2)
+            else:
+                verts2, faces2 = mesh_gen.generate(densities_p2)
 
             # Apply transformations for particle 2
             # 1. Rotation around z-axis
