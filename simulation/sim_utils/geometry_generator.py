@@ -397,13 +397,24 @@ class AdaptiveCubeMesh:
 
         # Map each face to its 4 edges
         # Order: bottom, right, top, left (going around the face)
+        # Based on _generate_face_gradual logic:
+        #   - bottom: ax2 = -h, ax1 varies from -h to +h
+        #   - right:  ax1 = +h, ax2 varies from -h to +h
+        #   - top:    ax2 = +h, ax1 varies from +h to -h
+        #   - left:   ax1 = -h, ax2 varies from +h to -h
         face_edges = {
-            '+x': ['z_pm', 'y_pp', 'z_pp', 'y_pm'],  # x=+h face, spans y,z
-            '-x': ['z_mm', 'y_mp', 'z_mp', 'y_mm'],  # x=-h face
-            '+y': ['z_pp', 'x_pp', 'z_mp', 'x_pm'],  # y=+h face, spans x,z
-            '-y': ['z_pm', 'x_mp', 'z_mm', 'x_mm'],  # y=-h face
-            '+z': ['y_pp', 'x_pp', 'y_mp', 'x_pm'],  # z=+h face, spans x,y (note: corrected)
-            '-z': ['y_pm', 'x_mp', 'y_mm', 'x_mm'],  # z=-h face
+            # +x face: ax1=y, ax2=z, face at x=+h
+            '+x': ['y_pm', 'z_pp', 'y_pp', 'z_pm'],
+            # -x face: ax1=y, ax2=z, face at x=-h
+            '-x': ['y_mm', 'z_mp', 'y_mp', 'z_mm'],
+            # +y face: ax1=x, ax2=z, face at y=+h
+            '+y': ['x_pm', 'z_pp', 'x_pp', 'z_mp'],
+            # -y face: ax1=x, ax2=z, face at y=-h
+            '-y': ['x_mm', 'z_pm', 'x_mp', 'z_mm'],
+            # +z face: ax1=x, ax2=y, face at z=+h
+            '+z': ['x_mp', 'y_pp', 'x_pp', 'y_mp'],
+            # -z face: ax1=x, ax2=y, face at z=-h
+            '-z': ['x_mm', 'y_pm', 'x_pm', 'y_mm'],
         }
 
         if self.verbose:
@@ -457,7 +468,20 @@ class AdaptiveCubeMesh:
         # Merge duplicate vertices at shared edges
         vertices, faces = self._merge_vertices(vertices, faces)
 
+        # Remove degenerate triangles (where two or more vertices are the same)
+        # This can happen when rounding moves nearby vertices to the same position
+        valid_mask = []
+        for face in faces:
+            v1, v2, v3 = int(face[0]), int(face[1]), int(face[2])
+            is_valid = (v1 != v2) and (v2 != v3) and (v1 != v3)
+            valid_mask.append(is_valid)
+
+        faces = faces[valid_mask]
+
         if self.verbose:
+            n_removed = sum(1 for v in valid_mask if not v)
+            if n_removed > 0:
+                print(f"  Removed {n_removed} degenerate triangles")
             print(f"  Total: {len(vertices)} vertices, {len(faces)} faces")
 
         return vertices, faces
