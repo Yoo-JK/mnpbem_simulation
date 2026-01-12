@@ -135,7 +135,7 @@ args['relcutoff'] = 3
 args['calculate_cross_sections'] = True
 
 # Calculate electric field distribution
-args['calculate_fields'] = False
+args['calculate_fields'] = True
 
 # Field calculation region (only used if calculate_fields=True)
 args['field_region'] = {

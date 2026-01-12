@@ -20,6 +20,7 @@ args['use_parallel'] = True  # Set to False to disable parallel computing
 args['num_workers'] = 4
 args['max_comp_threads'] = 1
 args['wavelength_chunk_size'] = 10
+
 # ============================================================================
 # MNPBEM TOOLBOX PATH (REQUIRED)
 # ============================================================================
@@ -37,7 +38,7 @@ args['mnpbem_path'] = os.path.join(Path.home(), 'workspace/MNPBEM')
 # SIMULATION NAME (IDENTIFIER)
 # ============================================================================
 # Give your simulation a descriptive name
-args['simulation_name'] = 'auag_r0.2_g5.0'
+args['simulation_name'] = 'au_r0.2_g0.2'
 
 # ============================================================================
 # SIMULATION TYPE
@@ -172,14 +173,14 @@ args['output_dir'] = os.path.join(Path.home(), 'research/mnpbem/dimer')
 # Data file save formats (for postprocessing)
 # Available: 'txt', 'csv', 'json'
 # Note: MATLAB always saves 'txt' and 'mat' formats automatically
-args['output_formats'] = ['txt', 'csv', 'json']
+args['output_formats'] = ['txt']
 
 # Generate plots
 args['save_plots'] = True
 
 # Plot formats
 # Available: 'png', 'pdf', 'eps', 'svg'
-args['plot_format'] = ['png', 'pdf']
+args['plot_format'] = ['png']
 
 # Plot DPI (resolution)
 args['plot_dpi'] = 300
@@ -192,7 +193,7 @@ args['spectrum_xaxis'] = 'energy'
 # Mirror symmetry (for reducing computation time)
 # Options: False, 'x', 'y', 'z', 'xy', 'xz', 'yz'
 # Only use if your structure and excitation have the appropriate symmetry
-args['use_mirror_symmetry'] = 'xy'
+args['use_mirror_symmetry'] = False
 
 # Example: Use x-symmetry for symmetric dimer with x-polarization
 # args['use_mirror_symmetry'] = 'x'
@@ -200,11 +201,10 @@ args['use_mirror_symmetry'] = 'xy'
 # Iterative solver (for very large structures with >10,000 elements)
 # Uses less memory but may be slower
 # Enable if you encounter out-of-memory errors
-args['use_iterative_solver'] = False
+args['use_iterative_solver'] = True
 
 # Nonlocal effects (advanced, for very small particles <5nm)
 # Includes quantum effects at metal surfaces
-# Requires additional setup
 args['use_nonlocality'] = False
 
 # ============================================================================
