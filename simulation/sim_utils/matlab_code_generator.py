@@ -28,7 +28,40 @@ class MatlabCodeGenerator:
             self.config['use_h2_compression'] = False
 
         self.nonlocal_gen = NonlocalGenerator(config, verbose)
-    
+
+        # Validate calculate_cross_sections and field_wavelength_idx combination
+        self._validate_field_options()
+
+    def _validate_field_options(self):
+        """
+        Validate field calculation options.
+
+        If calculate_cross_sections=False, field_wavelength_idx cannot use
+        peak-based options ('peak', 'peak_ext', 'peak_sca') because these
+        require spectrum data to find the peak wavelength.
+        """
+        calculate_cross_sections = self.config.get('calculate_cross_sections', True)
+        calculate_fields = self.config.get('calculate_fields', False)
+        field_wl_idx = self.config.get('field_wavelength_idx', 'middle')
+
+        # Only check if fields are being calculated without cross sections
+        if calculate_fields and not calculate_cross_sections:
+            peak_options = ['peak', 'peak_ext', 'peak_sca']
+
+            if field_wl_idx in peak_options:
+                raise ValueError(
+                    f"\n[ERROR] Invalid configuration!\n"
+                    f"  calculate_cross_sections = False\n"
+                    f"  field_wavelength_idx = '{field_wl_idx}'\n\n"
+                    f"Peak-based wavelength selection requires spectrum calculation.\n"
+                    f"Either:\n"
+                    f"  1. Set calculate_cross_sections = True, or\n"
+                    f"  2. Use a different field_wavelength_idx option:\n"
+                    f"     - 'middle': Use middle wavelength\n"
+                    f"     - Integer (e.g., 50): Use specific wavelength index\n"
+                    f"     - List (e.g., [500, 600, 700]): Use specific wavelengths in nm"
+                )
+
     def generate_complete_script(self, geometry_code, material_code):
         """Generate complete MATLAB simulation script."""
 
@@ -1239,19 +1272,22 @@ fprintf('Beam energy: %.2e eV\\n', beam_energy);
     def _generate_wavelength_loop(self):
         """
         Generate wavelength loop with proper parallel execution.
-        
+
         CRITICAL FIXES (2024-12-03):
         1. Excitation MUST be initialized OUTSIDE parfor loop
         2. MNPBEM processes ALL polarizations at once (no polarization loop needed)
         3. Improved error handling and pool cleanup
-        
+
+        NEW (2025-01): Support for field-only calculation (no cross sections)
+
         Based on MNPBEM official example: Demo/planewave/ret/demospecret9.m
         """
         wavelength_range = self.config['wavelength_range']
         calculate_fields = self.config.get('calculate_fields', False)
+        calculate_cross_sections = self.config.get('calculate_cross_sections', True)
         excitation_type = self.config['excitation_type']
         use_parallel = self.config.get('use_parallel', False)
-        
+
         code = f"""
 %% Wavelength Loop
 % Note: 'enei' was already defined in Green function section if substrate is used
@@ -1270,11 +1306,19 @@ fprintf('Wavelength range: %.1f - %.1f nm (%d points)\\n', ...
         min(enei), max(enei), n_wavelengths);
 fprintf('Number of polarizations: %d\\n', n_polarizations);
 """
-        
+
+        # Add mode info
+        if calculate_cross_sections and calculate_fields:
+            code += "fprintf('Calculation mode: Cross sections + Field\\n');\n"
+        elif calculate_cross_sections:
+            code += "fprintf('Calculation mode: Cross sections only\\n');\n"
+        elif calculate_fields:
+            code += "fprintf('Calculation mode: Field only (no cross sections)\\n');\n"
+
         # Add parallel setup if enabled
         if use_parallel:
             code += self._generate_parallel_setup()
-        
+
         code += """fprintf('----------------------------------------------------------------\\n');
 
 % Initialize result arrays
@@ -1282,16 +1326,16 @@ sca = zeros(n_wavelengths, n_polarizations);
 ext = zeros(n_wavelengths, n_polarizations);
 abs_cross = zeros(n_wavelengths, n_polarizations);
 """
-        
+
         if calculate_fields:
             code += self._generate_field_setup()
-        
+
         # CRITICAL FIX 1: Initialize excitation BEFORE the loop!
         code += """
 %% Initialize Excitation Object (CRITICAL: Must be before parallel loop!)
 fprintf('\\nInitializing excitation object...\\n');
 """
-    
+
         if excitation_type == 'planewave':
             code += """% Plane wave excitation (ALL polarizations at once)
 exc = planewave(pol, dir, op);
@@ -1308,13 +1352,40 @@ fprintf('  [OK] Dipole excitation initialized\\n');
             code += """exc = eelsret(p, impact, beam_energy, 'width', beam_width, op);
 fprintf('  [OK] EELS excitation initialized\\n');
 """
-    
+
         code += """
 % Start timer
 calculation_start = tic;
 
 """
-    
+
+        # ========================================
+        # FIELD-ONLY MODE (no cross section calculation)
+        # ========================================
+        if not calculate_cross_sections and calculate_fields:
+            code += """% ========================================
+% FIELD-ONLY MODE (skipping cross section calculation)
+% ========================================
+fprintf('\\n[!] Skipping cross section calculation (calculate_cross_sections=false)\\n');
+fprintf('    -> Only calculating field distribution\\n\\n');
+
+"""
+            code += self._generate_field_only_calculation()
+
+            code += """
+% Calculation timing
+calculation_time = toc(calculation_start);
+fprintf('\\n');
+fprintf('================================================================\\n');
+fprintf('Field calculation completed in %.2f seconds (%.2f minutes)\\n', ...
+        calculation_time, calculation_time/60);
+fprintf('================================================================\\n');
+"""
+            return code
+
+        # ========================================
+        # NORMAL MODE (with cross section calculation)
+        # ========================================
         # Generate loop - parfor if parallel enabled, regular for otherwise
         if use_parallel:
             code += """% ========================================
@@ -1324,7 +1395,7 @@ if exist('parallel_enabled', 'var') && parallel_enabled
     fprintf('\\n Using PARALLEL execution (parfor loop)\\n');
     fprintf('    Progress updates may appear out of order\\n');
     fprintf('    Each worker computes independently\\n\\n');
-    
+
     %% PARALLEL LOOP (FIXED!)
     % - Excitation object (exc) is already initialized
     % - MNPBEM processes ALL polarizations at once
@@ -1336,16 +1407,16 @@ if exist('parallel_enabled', 'var') && parallel_enabled
                 fprintf('  [Worker] Processing wavelength %d/%d (lambda = %.1f nm)\\n', ...
                         ien, n_wavelengths, enei(ien));
             end
-            
+
             % FIXED: Just use pre-initialized exc object!
             % MNPBEM automatically handles ALL polarizations in one call
             sig = bem \\ exc(p, enei(ien));
-            
+
             % Extract cross sections (returns vector for all polarizations)
             sca(ien, :) = exc.sca(sig);
             ext(ien, :) = exc.ext(sig);
             abs_cross(ien, :) = ext(ien, :) - sca(ien, :);
-            
+
         catch ME
             % Error handling: print error but continue with other wavelengths
             fprintf('  ERROR at wavelength %d (%.1f nm): %s\\n', ...
@@ -1356,9 +1427,9 @@ if exist('parallel_enabled', 'var') && parallel_enabled
             abs_cross(ien, :) = zeros(1, n_polarizations);
         end
     end
-    
+
     fprintf('\\n[OK] Parallel computation completed\\n');
-    
+
 else
     % ========================================
     % SERIAL EXECUTION (for loop)
@@ -1372,33 +1443,33 @@ else
 % ========================================
 fprintf('\\nStarting wavelength loop (serial execution)...\\n\\n');
 """
-    
+
         # FIXED: Serial loop without polarization loop
         code += """
     % Progress bar
     multiWaitbar('BEM Calculation', 0, 'Color', 'g', 'CanCancel', 'on');
-    
+
     %% SERIAL LOOP (FIXED!)
     for ien = 1:n_wavelengths
         % Update progress bar
         multiWaitbar('BEM Calculation', ien / n_wavelengths);
-        
+
         % Text progress indicator
         if mod(ien-1, max(1, floor(n_wavelengths/20))) == 0
             fprintf('  Progress: %d/%d (lambda = %.1f nm, %.1f%%)\\n', ...
                     ien, n_wavelengths, enei(ien), 100*ien/n_wavelengths);
         end
-        
+
         try
             % FIXED: Use pre-initialized exc object
             % MNPBEM handles ALL polarizations automatically
             sig = bem \\ exc(p, enei(ien));
-            
+
             % Extract cross sections (vector for all polarizations)
             sca(ien, :) = exc.sca(sig);
             ext(ien, :) = exc.ext(sig);
             abs_cross(ien, :) = ext(ien, :) - sca(ien, :);
-            
+
         catch ME
             fprintf('  [!] ERROR at wavelength %d (%.1f nm): %s\\n', ...
                     ien, enei(ien), ME.message);
@@ -1417,11 +1488,11 @@ fprintf('\\nStarting wavelength loop (serial execution)...\\n\\n');
     multiWaitbar('CloseAll');
     fprintf('\\n[OK] Serial computation completed\\n');
 """
-        
+
         if use_parallel:
             code += """end  % End of parallel/serial decision
 """
-        
+
         # Timing
         code += """
 % Calculation timing
@@ -1434,7 +1505,207 @@ fprintf('Average time per wavelength: %.2f seconds\\n', ...
         calculation_time / n_wavelengths);
 fprintf('================================================================\\n');
 """
-        
+
+        return code
+
+    def _generate_field_only_calculation(self):
+        """
+        Generate field-only calculation code (no cross sections).
+
+        This is used when calculate_cross_sections=False and calculate_fields=True.
+        Only 'middle', integer index, or wavelength list are allowed for field_wavelength_idx.
+        """
+        field_wl_idx = self.config.get('field_wavelength_idx', 'middle')
+        use_mirror = self.config.get('use_mirror_symmetry', False)
+
+        code = ""
+
+        # Mirror expansion for field calculation
+        if use_mirror:
+            code += """
+% Mirror symmetry: Expand to full particle for field calculation
+fprintf('  Expanding mirror particle to full size for field calculation...\\n');
+p_field = full(p);
+fprintf('  [OK] Full particle: %d boundary elements\\n', p_field.n);
+"""
+        else:
+            code += """
+% Use particle as-is for field calculation
+p_field = p;
+"""
+
+        # Determine wavelength indices
+        if field_wl_idx == 'middle':
+            code += """
+% Use middle wavelength (single wavelength for all polarizations)
+field_wavelength_idx = round(n_wavelengths / 2);
+unique_field_wavelength_indices = field_wavelength_idx;
+n_field_wavelengths = 1;
+field_wavelength_indices = repmat(field_wavelength_idx, 1, n_polarizations);
+fprintf('Using middle wavelength: lambda = %.1f nm (index %d)\\n', ...
+        enei(field_wavelength_idx), field_wavelength_idx);
+"""
+        elif isinstance(field_wl_idx, int):
+            code += f"""
+% Use specified wavelength index (single wavelength for all polarizations)
+field_wavelength_idx = {field_wl_idx};
+unique_field_wavelength_indices = field_wavelength_idx;
+n_field_wavelengths = 1;
+field_wavelength_indices = repmat(field_wavelength_idx, 1, n_polarizations);
+fprintf('Using specified wavelength: lambda = %.1f nm (index %d)\\n', ...
+        enei(field_wavelength_idx), field_wavelength_idx);
+"""
+        elif isinstance(field_wl_idx, list):
+            wavelengths_str = ', '.join(str(w) for w in field_wl_idx)
+            code += f"""
+% Map wavelength list to nearest indices
+target_wavelengths = [{wavelengths_str}];
+fprintf('Mapping %d target wavelengths to indices...\\n', length(target_wavelengths));
+
+field_wavelength_indices = zeros(1, length(target_wavelengths));
+for i = 1:length(target_wavelengths)
+    [~, idx] = min(abs(enei - target_wavelengths(i)));
+    field_wavelength_indices(i) = idx;
+    fprintf('  %.1f nm -> index %d (actual: %.1f nm)\\n', ...
+            target_wavelengths(i), idx, enei(idx));
+end
+
+unique_field_wavelength_indices = unique(field_wavelength_indices);
+n_field_wavelengths = length(unique_field_wavelength_indices);
+fprintf('  -> Total %d unique wavelength(s) for field calculation\\n', n_field_wavelengths);
+"""
+
+        # Field grid setup
+        field_region = self.config.get('field_region', {})
+        x_range = field_region.get('x_range', [-50, 50, 101])
+        y_range = field_region.get('y_range', [0, 0, 1])
+        z_range = field_region.get('z_range', [-50, 50, 101])
+
+        code += f"""
+%% Field Grid Setup
+x_range = linspace({x_range[0]}, {x_range[1]}, {x_range[2]});
+y_range = linspace({y_range[0]}, {y_range[1]}, {y_range[2]});
+z_range = linspace({z_range[0]}, {z_range[1]}, {z_range[2]});
+
+[X, Y, Z] = meshgrid(x_range, y_range, z_range);
+field_pts = [X(:), Y(:), Z(:)];
+n_field_pts = size(field_pts, 1);
+
+fprintf('Field grid: %d x %d x %d = %d points\\n', ...
+        length(x_range), length(y_range), length(z_range), n_field_pts);
+"""
+
+        # Field calculation parameters
+        field_mindist = self.config.get('field_mindist', 0.5)
+        field_nmax = self.config.get('field_nmax', 2000)
+
+        code += f"""
+%% Field Calculation Parameters
+field_mindist = {field_mindist};  % Minimum distance from particle surface (nm)
+field_nmax = {field_nmax};        % Work off calculation in portions
+
+% Initialize field data structure
+field_data = struct();
+field_data.x = x_range;
+field_data.y = y_range;
+field_data.z = z_range;
+field_data.wavelengths = enei(unique_field_wavelength_indices);
+field_data.fields = {{}};
+
+%% Field Calculation Loop
+fprintf('\\n');
+fprintf('================================================================\\n');
+fprintf('    Field Calculation (Field-Only Mode)                        \\n');
+fprintf('================================================================\\n');
+
+for iwl = 1:n_field_wavelengths
+    field_wavelength_idx = unique_field_wavelength_indices(iwl);
+    current_wavelength = enei(field_wavelength_idx);
+
+    fprintf('\\n[%d/%d] Wavelength: lambda = %.1f nm (index %d)\\n', ...
+            iwl, n_field_wavelengths, current_wavelength, field_wavelength_idx);
+
+    field_start = tic;
+
+    % Reinitialize BEM solver for this wavelength
+    fprintf('  -> Reinitializing BEM solver...\\n');
+    bem = bemsolver(p, op);
+
+    % BEM calculation for this wavelength
+    fprintf('  -> Solving BEM equations...\\n');
+    sig = bem \\ exc(p, current_wavelength);
+
+    % Calculate fields for all polarizations
+    for ipol = 1:n_polarizations
+        fprintf('    Polarization %d/%d...\\n', ipol, n_polarizations);
+
+        % Create compoint for field calculation
+        pt_field = compoint(p_field, field_pts, 'mindist', field_mindist);
+
+        % Calculate field (work off in portions if large)
+        if n_field_pts > field_nmax
+            fprintf('      Large grid (%d pts), computing in portions...\\n', n_field_pts);
+            e_field = zeros(n_field_pts, 3);
+
+            n_portions = ceil(n_field_pts / field_nmax);
+            for iport = 1:n_portions
+                idx_start = (iport-1) * field_nmax + 1;
+                idx_end = min(iport * field_nmax, n_field_pts);
+                idx_range = idx_start:idx_end;
+
+                pt_portion = compoint(p_field, field_pts(idx_range, :), 'mindist', field_mindist);
+
+                % Calculate scattered field
+                e_portion = pt_portion(sig, ipol);
+                e_field(idx_range, :) = e_portion.e;
+
+                if mod(iport, 5) == 0 || iport == n_portions
+                    fprintf('        Portion %d/%d done\\n', iport, n_portions);
+                end
+            end
+        else
+            % Calculate all at once
+            e_scattered = pt_field(sig, ipol);
+            e_field = e_scattered.e;
+        end
+
+        % Calculate incoming field for enhancement
+        e_inc = exc.field(pt_field, current_wavelength);
+        if iscell(e_inc)
+            e_incoming = e_inc{{ipol}}.e;
+        else
+            e_incoming = e_inc(ipol).e;
+        end
+
+        % Total field and enhancement
+        e_total = e_field + e_incoming;
+        E_inc_mag = sqrt(sum(abs(e_incoming).^2, 2));
+        E_tot_mag = sqrt(sum(abs(e_total).^2, 2));
+        enhancement = E_tot_mag ./ max(E_inc_mag, 1e-30);
+
+        % Store results
+        field_entry = struct();
+        field_entry.wavelength = current_wavelength;
+        field_entry.wavelength_idx = field_wavelength_idx;
+        field_entry.polarization = ipol;
+        field_entry.E_scattered = reshape(e_field, [length(y_range), length(x_range), length(z_range), 3]);
+        field_entry.E_incoming = reshape(e_incoming, [length(y_range), length(x_range), length(z_range), 3]);
+        field_entry.E_total = reshape(e_total, [length(y_range), length(x_range), length(z_range), 3]);
+        field_entry.enhancement = reshape(enhancement, [length(y_range), length(x_range), length(z_range)]);
+        field_entry.max_enhancement = max(enhancement(:));
+
+        field_data.fields{{end+1}} = field_entry;
+
+        fprintf('      Max enhancement: %.2f\\n', field_entry.max_enhancement);
+    end
+
+    field_time = toc(field_start);
+    fprintf('  [OK] Wavelength completed in %.1f seconds\\n', field_time);
+end
+
+fprintf('\\n[OK] Field-only calculation completed\\n');
+"""
+
         return code
     
     def _generate_field_setup(self):
@@ -2105,7 +2376,8 @@ surface_charge = struct();
     def _generate_save_results(self):
         """Generate code to save simulation results."""
         calculate_fields = self.config.get('calculate_fields', False)
-        
+        calculate_cross_sections = self.config.get('calculate_cross_sections', True)
+
         code = """
 %% Save Results
 fprintf('\\n');
@@ -2114,14 +2386,28 @@ fprintf('Saving results...\\n');
 
 results = struct();
 results.wavelength = enei;
-results.scattering = sca;
-results.extinction = ext;
-results.absorption = abs_cross;
 results.polarizations = pol;
 results.propagation_dirs = dir;
 results.calculation_time = calculation_time;
 """
-        
+
+        if calculate_cross_sections:
+            code += """
+% Include cross section data
+results.scattering = sca;
+results.extinction = ext;
+results.absorption = abs_cross;
+"""
+        else:
+            code += """
+% Cross sections not calculated (field-only mode)
+results.scattering = [];
+results.extinction = [];
+results.absorption = [];
+results.field_only_mode = true;
+fprintf('  [!] Cross sections not calculated (field-only mode)\\n');
+"""
+
         if calculate_fields:
             code += """
 if exist('field_data', 'var') && ~isempty(field_data)
@@ -2134,11 +2420,14 @@ if exist('surface_charge', 'var') && ~isempty(surface_charge)
     fprintf('Surface charge data included in results\\n');
 end
 """
-        
+
         code += """
 save('simulation_results.mat', 'results');
 fprintf('[OK] Results saved to: simulation_results.mat\\n');
+"""
 
+        if calculate_cross_sections:
+            code += """
 % Save cross sections to text file
 fid = fopen('simulation_results.txt', 'w');
 fprintf(fid, 'Wavelength(nm)\\t');
@@ -2176,6 +2465,11 @@ for i = 1:length(enei)
 end
 fclose(fid);
 fprintf('[OK] Cross sections saved to: simulation_results.txt\\n');
+"""
+        else:
+            code += """
+% Skip cross sections text file (field-only mode)
+fprintf('  [!] Skipping simulation_results.txt (no cross section data)\\n');
 """
 
         if calculate_fields:
@@ -2361,7 +2655,8 @@ exit;
         use_iterative = self.config.get('use_iterative_solver', False)
         excitation_type = self.config['excitation_type']
         calculate_fields = self.config.get('calculate_fields', False)
-        
+        calculate_cross_sections = self.config.get('calculate_cross_sections', True)
+
         code = f"""
 %% Wavelength Loop with Chunking (Memory-Efficient!)
 if ~exist('enei', 'var')
@@ -2390,7 +2685,15 @@ fprintf('Number of chunks: %d\\n', n_chunks);
         else:
             code += """fprintf('Solver mode: DIRECT (full matrix)\\n');
 """
-        
+
+        # Add mode info
+        if calculate_cross_sections and calculate_fields:
+            code += "fprintf('Calculation mode: Cross sections + Field\\n');\n"
+        elif calculate_cross_sections:
+            code += "fprintf('Calculation mode: Cross sections only\\n');\n"
+        elif calculate_fields:
+            code += "fprintf('Calculation mode: Field only (no cross sections)\\n');\n"
+
         code += """fprintf('----------------------------------------------------------------\\n');
 
 % Initialize result arrays
@@ -2402,7 +2705,7 @@ abs_cross = zeros(n_wavelengths, n_polarizations);
         # Parallel setup
         if use_parallel:
             code += self._generate_parallel_setup()
-        
+
         # Excitation initialization
         code += """
 %% Initialize Excitation (once, outside all loops!)
@@ -2427,7 +2730,36 @@ fprintf('  [OK] EELS excitation initialized\\n');
 % Start overall timer
 total_start = tic;
 
-%% ========================================
+"""
+
+        # ========================================
+        # FIELD-ONLY MODE (no cross section calculation)
+        # ========================================
+        if not calculate_cross_sections and calculate_fields:
+            code += """% ========================================
+% FIELD-ONLY MODE (skipping cross section calculation)
+% ========================================
+fprintf('\\n[!] Skipping cross section calculation (calculate_cross_sections=false)\\n');
+fprintf('    -> Only calculating field distribution\\n\\n');
+
+"""
+            code += self._generate_field_only_calculation()
+
+            code += """
+% Calculation timing
+calculation_time = toc(total_start);
+fprintf('\\n');
+fprintf('================================================================\\n');
+fprintf('Field calculation completed in %.2f seconds (%.2f minutes)\\n', ...
+        calculation_time, calculation_time/60);
+fprintf('================================================================\\n');
+"""
+            return code
+
+        # ========================================
+        # NORMAL MODE (with cross section calculation)
+        # ========================================
+        code += """%% ========================================
 %% CHUNK LOOP: Calculate cross sections ONLY (NO field calculation)
 %% ========================================
 for ichunk = 1:n_chunks

@@ -156,6 +156,10 @@ args['relcutoff'] = 3
 # ============================================================================
 
 # Calculate optical cross sections (scattering, absorption, extinction)
+# Set to False to skip spectrum calculation and only calculate fields
+# NOTE: If False, field_wavelength_idx cannot use 'peak', 'peak_ext', 'peak_sca'
+#       (these require spectrum data to find peak wavelength)
+#       Use 'middle', integer index, or wavelength list instead
 args['calculate_cross_sections'] = True
 
 # Calculate electric field distribution
