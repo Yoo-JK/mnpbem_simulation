@@ -193,7 +193,7 @@ args['spectrum_xaxis'] = 'energy'
 # Mirror symmetry (for reducing computation time)
 # Options: False, 'x', 'y', 'z', 'xy', 'xz', 'yz'
 # Only use if your structure and excitation have the appropriate symmetry
-args['use_mirror_symmetry'] = 'xy'
+args['use_mirror_symmetry'] = False
 
 # Example: Use x-symmetry for symmetric dimer with x-polarization
 # args['use_mirror_symmetry'] = 'x'
@@ -201,7 +201,7 @@ args['use_mirror_symmetry'] = 'xy'
 # Iterative solver (for very large structures with >10,000 elements)
 # Uses less memory but may be slower
 # Enable if you encounter out-of-memory errors
-args['use_iterative_solver'] = False
+args['use_iterative_solver'] = True
 
 # Nonlocal effects (advanced, for very small particles <5nm)
 # Includes quantum effects at metal surfaces
