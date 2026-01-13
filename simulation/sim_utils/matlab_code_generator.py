@@ -2604,12 +2604,31 @@ exit;
             return '[' + ', '.join([str(x) for x in python_list]) + ']'
 
     def _extract_closed_args(self, material_code):
-        """Extract closed arguments from material code."""
+        """Extract closed arguments from material code.
+
+        For gap <= 0 (conductive junction / CTP mode):
+          - Keeps brackets: [1, 2] → comparticle(..., [1, 2], op)
+          - All particles as one equipotential surface
+
+        For gap > 0 (capacitive coupling):
+          - Removes brackets: [1, 2] → comparticle(..., 1, 2, op)
+          - Each particle as separate surface
+        """
+        gap = self.config.get('gap', None)
+        use_conductive = gap is not None and gap <= 0.0
+
         # Find: closed = [1, 2];
         if 'closed = [' in material_code:
             start = material_code.find('closed = [') + len('closed = [')
             end = material_code.find(']', start)
-            self._closed_args = material_code[start:end].strip()
+            inner = material_code[start:end].strip()
+
+            if use_conductive:
+                # Conductive junction (CTP mode): keep brackets
+                self._closed_args = f"[{inner}]"
+            else:
+                # Capacitive coupling: remove brackets (default behavior)
+                self._closed_args = inner
         else:
             # Single value: closed = 1;
             if 'closed = ' in material_code:
