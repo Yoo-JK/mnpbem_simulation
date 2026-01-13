@@ -36,6 +36,25 @@ class MaterialManager:
             return any(metal in mat_lower for metal in self.METALS)
         return False
 
+    def _is_conductive_junction(self):
+        """
+        Check if conductive junction should be used.
+
+        Returns True when gap <= 0 (particles touching or overlapping),
+        which physically corresponds to metallic contact allowing charge transfer.
+
+        Returns:
+            bool: True if conductive junction (CTP mode), False if capacitive
+        """
+        gap = self.config.get('gap', None)
+
+        # If no gap parameter (single particle), not applicable
+        if gap is None:
+            return False
+
+        # Gap <= 0 means touching or overlapping = conductive junction
+        return gap <= 0.0
+
     def _find_outermost_metal(self, materials):
         """
         Find the outermost metal in the materials list.
@@ -725,9 +744,11 @@ end
         """Generate closed surfaces specification.
 
         For nonlocal mode, only the outermost metal layer gets an additional boundary.
+        For gap <= 0 (contact), automatically uses conductive junction (CTP mode).
         """
         use_nonlocal = self.nonlocal_gen.is_needed()
         materials = self.config.get('materials', [])
+        use_conductive = self._is_conductive_junction()
 
         # Check if outermost layer is a metal
         outermost_idx, outermost_metal = self._find_outermost_metal(materials)
@@ -735,6 +756,17 @@ end
         # If nonlocal enabled but no outermost metal, disable nonlocal for closed calculation
         if use_nonlocal and outermost_metal is None:
             use_nonlocal = False
+
+        # For simple dimer structures with gap <= 0, use conductive junction
+        if use_conductive and not use_nonlocal:
+            if self.structure in ['dimer_sphere', 'dimer_cube']:
+                if self.verbose:
+                    print(f"  Auto-detected gap <= 0: Using conductive junction (CTP mode)")
+                return "closed = [1, 2];"
+            elif self.structure == 'dimer_core_shell_cube':
+                if self.verbose:
+                    print(f"  Auto-detected gap <= 0: Using conductive junction (CTP mode)")
+                return "closed = [1, 2, 3, 4];"
 
         structure_closed_map = {
             'sphere': "closed = 1;",
@@ -797,10 +829,12 @@ end
         """Closed surfaces for advanced dimer cube.
 
         When nonlocal is enabled, only the outermost metal layer gets an extra boundary.
+        Automatically uses conductive junction (CTP mode) when gap <= 0.
         """
         materials = self.config.get('materials', [])
         n_layers = len(materials)  # 1 (core) + n_shells
         n_particles = 2  # dimer
+        use_conductive = self._is_conductive_junction()
 
         if use_nonlocal and outermost_idx is not None:
             # Only outermost metal gets an extra boundary
@@ -816,6 +850,9 @@ end
             # Standard mode: each layer = 1 boundary
             boundaries_per_particle = n_layers
             n_boundaries_total = n_particles * boundaries_per_particle
+
+            if use_conductive and self.verbose:
+                print(f"  Auto-detected gap <= 0: Using conductive junction for advanced dimer (CTP mode)")
 
         closed_indices = list(range(1, n_boundaries_total + 1))
         return f"closed = [{', '.join(map(str, closed_indices))}];"
@@ -833,7 +870,19 @@ end
             return f"closed = [{', '.join(map(str, closed_indices))}];"
 
     def _closed_sphere_cluster_aggregate(self):
-        """Closed surfaces for sphere cluster aggregate."""
+        """Closed surfaces for sphere cluster aggregate.
+
+        Automatically uses conductive junction (CTP mode) when gap <= 0.
+        """
         n_spheres = self.config.get('n_spheres', 1)
+        use_conductive = self._is_conductive_junction()
         closed_indices = list(range(1, n_spheres + 1))
-        return f"closed = [{', '.join(map(str, closed_indices))}];"
+
+        if use_conductive:
+            if self.verbose:
+                print(f"  Auto-detected gap <= 0: Using conductive junction for {n_spheres} spheres (CTP mode)")
+            # Conductive: all spheres as one connected surface
+            return f"closed = [{', '.join(map(str, closed_indices))}];"
+        else:
+            # Capacitive: each sphere as separate surface (default)
+            return f"closed = [{', '.join(map(str, closed_indices))}];"
