@@ -7,7 +7,9 @@ args['structure'] = 'core_shell_rod'
 args['core_diameter'] = 20  # nm
 args['shell_thickness'] = 3.5  # nm (total diameter = 25nm)
 args['height'] = 67  # nm (along z-axis)
-args['rod_mesh'] = [15, 20, 20]   # [nphi, ntheta, nz]: circumference / caps / length
+args['nphi'] = 3
+args['ntheta'] = 3           
+args['nz'] = 3
 args['materials'] = ['gold', 'ctab']  # [core, shell]
 args['medium'] = 'air'
 args['refractive_index_paths'] = {
