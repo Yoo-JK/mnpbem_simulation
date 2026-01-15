@@ -24,28 +24,34 @@ args['structure_name'] = 'my_structure'
 # --- Sphere ---
 # args['structure'] = 'sphere'
 # args['diameter'] = 50  # nm
-# args['mesh_density'] = 144
+# args['mesh_density'] = 5  # element size in nm (smaller = finer mesh)
 # args['materials'] = ['gold']
+# Legacy mode (optional): use nphi, ntheta, nz instead of mesh_density
+# args['nphi'] = 15
+# args['ntheta'] = 20
 
 # --- Cube ---
 # args['structure'] = 'cube'
 # args['size'] = 40  # edge length (nm)
 # args['rounding'] = 0.25  # 0-1, smaller = sharper edges
-# args['mesh_density'] = 12
+# args['mesh_density'] = 3  # element size in nm (smaller = finer mesh)
 # args['materials'] = ['gold']
 
 # --- Rod (Cylinder) ---
 # args['structure'] = 'rod'
 # args['diameter'] = 20  # nm
 # args['height'] = 80  # nm (along z-axis)
-# args['mesh_density'] = 144   # Choose 'mesh_density' or 'rod_mesh'
-# args['rod_mesh'] = [15, 20, 20]   # [nphi, ntheta, nz]: circumference / caps / length
+# args['mesh_density'] = 5  # element size in nm (smaller = finer mesh)
 # args['materials'] = ['gold']
+# Legacy mode (optional): use nphi, ntheta, nz instead of mesh_density
+# args['nphi'] = 15    # circumference divisions
+# args['ntheta'] = 20  # cap divisions
+# args['nz'] = 20      # length divisions
 
 # --- Ellipsoid ---
 # args['structure'] = 'ellipsoid'
 # args['axes'] = [20, 30, 40]  # [x, y, z] semi-axes (nm)
-# args['mesh_density'] = 144
+# args['mesh_density'] = 5  # element size in nm (smaller = finer mesh)
 # args['materials'] = ['gold']
 
 # --- Triangle ---
@@ -62,7 +68,7 @@ args['structure_name'] = 'my_structure'
 # args['structure'] = 'core_shell_sphere'
 # args['core_diameter'] = 40  # nm
 # args['shell_thickness'] = 10  # nm
-# args['mesh_density'] = 144
+# args['mesh_density'] = 5  # element size in nm (smaller = finer mesh)
 # args['materials'] = ['silver', 'gold']  # [shell, core]
 
 # --- Core-Shell Cube ---
@@ -70,7 +76,7 @@ args['structure_name'] = 'my_structure'
 # args['core_size'] = 30  # nm
 # args['shell_thickness'] = 5  # nm
 # args['rounding'] = 0.25
-# args['mesh_density'] = 12
+# args['mesh_density'] = 3  # element size in nm (smaller = finer mesh)
 # args['materials'] = ['silver', 'gold']  # [shell, core]
 
 # --- Core-Shell Rod (Nanorod) ---
@@ -78,11 +84,12 @@ args['structure_name'] = 'my_structure'
 # args['core_diameter'] = 15  # nm
 # args['shell_thickness'] = 5  # nm (total diameter = 25nm)
 # args['height'] = 80  # nm (total length along z-axis)
-# args['mesh_density'] = 144   # Choose 'mesh_density' or 'rod_mesh'
-# args['rod_mesh'] = [15, 20, 20]   # [nphi, ntheta, nz]: circumference / caps / length
+# args['mesh_density'] = 5  # element size in nm (smaller = finer mesh)
 # args['materials'] = ['gold', 'silver']  # [core, shell]
-# Example: Gold core nanorod with silver shell
-# Perfect for studying plasmonic nanorods with tunable properties
+# Legacy mode (optional): use nphi, ntheta, nz instead of mesh_density
+# args['nphi'] = 15    # circumference divisions
+# args['ntheta'] = 20  # cap divisions
+# args['nz'] = 20      # length divisions
 
 # ============================================================================
 # SECTION 3: SIMPLE DIMERS (Two Particles)
@@ -92,15 +99,18 @@ args['structure_name'] = 'my_structure'
 # args['structure'] = 'dimer_sphere'
 # args['diameter'] = 50  # nm
 # args['gap'] = 5  # surface-to-surface gap (nm)
-# args['mesh_density'] = 144
+# args['mesh_density'] = 5  # element size in nm (smaller = finer mesh)
 # args['materials'] = ['gold']
+# Legacy mode (optional): use nphi, ntheta, nz instead of mesh_density
+# args['nphi'] = 15
+# args['ntheta'] = 20
 
 # --- Dimer Cube ---
 # args['structure'] = 'dimer_cube'
 # args['size'] = 40  # nm
 # args['gap'] = 10  # surface-to-surface gap (nm)
 # args['rounding'] = 0.25
-# args['mesh_density'] = 12
+# args['mesh_density'] = 3  # element size in nm (smaller = finer mesh)
 # args['materials'] = ['gold']
 
 # --- Dimer Core-Shell Cube (Simple) ---
@@ -109,7 +119,7 @@ args['structure_name'] = 'my_structure'
 # args['shell_thickness'] = 5  # nm
 # args['gap'] = 10  # nm
 # args['rounding'] = 0.25
-# args['mesh_density'] = 12
+# args['mesh_density'] = 3  # element size in nm (smaller = finer mesh)
 # args['materials'] = ['silver', 'gold']  # [shell, core]
 
 # ============================================================================
@@ -144,19 +154,8 @@ args['roundings'] = [0.25, 0.2, 0.15]  # [core, inner, outer]
 # args['rounding'] = 0.2
 
 # --- Mesh Density ---
-args['mesh_density'] = 12
-# Recommended: 12-16 for cubes
-
-# --- Adaptive Mesh (Optional) ---
-# Reduces memory by using fine mesh only where needed (gap region)
-# args['use_adaptive_mesh'] = True
-# args['adaptive_mesh'] = {
-#     'gap_density': 36,   # Gap-facing faces (fine, same as mesh_density)
-#     'back_density': 12,  # Opposite faces (coarse, ~1/3 of gap)
-#     'side_density': 18,  # Side faces (medium, ~1/2 of gap)
-# }
-# Memory reduction: ~50-65% compared to uniform mesh
-# Note: Only works with advanced_dimer_cube structure
+args['mesh_density'] = 3  # element size in nm (smaller = finer mesh)
+# Recommended: 2-5 nm for cubes
 
 # --- Dimer Configuration ---
 args['gap'] = 5  # surface-to-surface distance (nm)
@@ -242,7 +241,7 @@ args['rotation_angle'] = 0  # degrees, particle 2 rotation around z-axis
 # args['n_spheres'] = 5  # 1-7 (see structure types below)
 # args['diameter'] = 50  # nm
 # args['gap'] = -0.1  # negative = 0.1nm overlap (contact)
-# args['mesh_density'] = 144
+# args['mesh_density'] = 5  # element size in nm (smaller = finer mesh)
 
 # --- Structure Types by n_spheres ---
 # N=1: Single sphere
@@ -264,7 +263,7 @@ args['rotation_angle'] = 0  # degrees, particle 2 rotation around z-axis
 # args['n_spheres'] = 3
 # args['diameter'] = 50
 # args['gap'] = -0.1  # contact
-# args['mesh_density'] = 144
+# args['mesh_density'] = 5  # element size in nm
 # args['materials'] = ['gold']
 # args['use_substrate'] = True
 # args['substrate'] = {'material': 'gold', 'position': -25.01}
@@ -274,7 +273,7 @@ args['rotation_angle'] = 0  # degrees, particle 2 rotation around z-axis
 # args['n_spheres'] = 6
 # args['diameter'] = 30
 # args['gap'] = -0.05  # tight contact
-# args['mesh_density'] = 144
+# args['mesh_density'] = 4  # element size in nm
 # args['materials'] = ['silver']
 
 # Example 3: Large 7-sphere aggregate
@@ -282,7 +281,7 @@ args['rotation_angle'] = 0  # degrees, particle 2 rotation around z-axis
 # args['n_spheres'] = 7
 # args['diameter'] = 50
 # args['gap'] = -0.1
-# args['mesh_density'] = 144
+# args['mesh_density'] = 5  # element size in nm
 # args['materials'] = ['gold']
 # Perfect for maximum field enhancement at multiple junctions
 
@@ -376,10 +375,16 @@ args['use_substrate'] = False
 # TIPS
 # ============================================================================
 #
-# 1. Mesh Density Guidelines:
-#    - Spheres/ellipsoids: 144 (good balance)
-#    - Cubes: 12-16 (sufficient for most cases)
-#    - Complex shapes: increase for accuracy, but slower
+# 1. Mesh Density Guidelines (element size in nm):
+#    - Spheres/ellipsoids: 3-5 nm (smaller = finer mesh)
+#    - Cubes: 2-4 nm (sufficient for most cases)
+#    - Rods: 3-6 nm (depends on diameter)
+#    - Complex shapes: decrease for accuracy, but slower
+#    - Rule of thumb: element size should be ~1/10 of smallest feature
+#
+#    Legacy mode (sphere, rod, dimer_sphere only):
+#    - Use nphi, ntheta, nz parameters instead of mesh_density
+#    - Formula: nphi = circumference/nphi, ntheta = cap/ntheta, nz = length/nz
 #
 # 2. Gap Size:
 #    - > 10 nm: weak coupling
