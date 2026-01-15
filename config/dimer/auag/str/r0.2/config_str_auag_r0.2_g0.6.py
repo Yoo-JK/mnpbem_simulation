@@ -32,7 +32,7 @@ args['roundings'] = [0.2, 0.2]  # [Au: round, Ag: medium, AgCl: sharp]
 # args['rounding'] = 0.2
 
 # --- Mesh Density ---
-args['mesh_density'] = 24
+args['mesh_density'] = 2
 
 # --- Dimer Configuration ---
 args['gap'] = 0.6  # 5nm gap for strong coupling
