@@ -1986,58 +1986,129 @@ class GeometryGenerator:
         # Do NOT generate pre-selection code - comparticlemirror handles this internally
         return ""
 
-    def _mesh_density_to_n_rod(self, mesh_density):
+    def _is_legacy_mesh_mode(self):
         """
-        Convert single mesh_density value to [nphi, ntheta, nz] for trirod.
-        
-        MNPBEM's trirod default is [15, 20, 20] which gives ~900 vertices.
-        This method maintains similar aspect ratios for different densities.
-        
+        Check if legacy mesh mode should be used.
+
+        Legacy mode is enabled when nphi, ntheta, or nz is specified in config.
+        This mode uses the colleague's formula for mesh generation.
+
+        Returns:
+            bool: True if legacy mode, False for new element-size mode
+        """
+        return any(key in self.config for key in ['nphi', 'ntheta', 'nz'])
+
+    def _element_size_to_n_rod(self, element_size, diameter, height):
+        """
+        Convert element size (nm) to [nphi, ntheta, nz] for trirod.
+
+        New method: mesh_density represents target element size in nm.
+        All directions get approximately the same element size.
+
         Args:
-            mesh_density (int): Target mesh density (similar to sphere)
-            
+            element_size (float): Target element size in nm
+            diameter (float): Rod diameter in nm
+            height (float): Rod height in nm
+
         Returns:
             list: [nphi, ntheta, nz] for trirod
         """
-        
-        # Predefined mapping for common values
-        MESH_MAPPING = {
-            32:   [8,   10,  10],   # Very coarse (~240 vertices)
-            60:   [10,  12,  12],   # Coarse (~360 vertices)
-            144:  [15,  20,  20],   # Standard (~900 vertices) - MNPBEM default
-            256:  [20,  25,  25],   # Medium (~1400 vertices)
-            400:  [25,  30,  30],   # Fine (~2100 vertices)
-            576:  [30,  35,  35],   # Very fine (~3150 vertices)
-            900:  [35,  40,  40],   # Ultra fine (~4200 vertices)
-        }
-        
-        # Return exact match if available
-        if mesh_density in MESH_MAPPING:
-            if self.verbose:
-                print(f"    mesh_density {mesh_density} → {MESH_MAPPING[mesh_density]}")
-            return MESH_MAPPING[mesh_density]
-        
-        # Find closest match (within 15%)
-        closest = min(MESH_MAPPING.keys(), key=lambda x: abs(x - mesh_density))
-        if abs(closest - mesh_density) < mesh_density * 0.15:
-            if self.verbose:
-                print(f"    mesh_density {mesh_density} rounded to {closest} → {MESH_MAPPING[closest]}")
-            return MESH_MAPPING[closest]
-        
-        # Calculate for custom values
-        # Total vertices ≈ nphi * (2*ntheta + nz)
-        # Maintain ratio nphi:ntheta:nz = 15:20:20 = 3:4:4
-        k = np.sqrt(mesh_density / 4.0)
-        nphi = max(8, int(np.round(k)))
-        ntheta = max(10, int(np.round(k * 4.0 / 3.0)))
-        nz = max(10, int(np.round(k * 4.0 / 3.0)))
-        
+        # Circumference direction: π * diameter / element_size
+        nphi = max(8, int(np.ceil(np.pi * diameter / element_size)))
+
+        # Hemisphere direction: 0.5 * diameter / element_size (hemisphere arc)
+        ntheta = max(6, int(np.ceil(0.5 * diameter / element_size)))
+
+        # Cylinder direction: (height - diameter) / element_size
+        cylinder_length = height - diameter
+        nz = max(4, int(np.ceil(cylinder_length / element_size)))
+
         result = [nphi, ntheta, nz]
         if self.verbose:
-            approx_verts = nphi * (2 * ntheta + nz)
-            print(f"    mesh_density {mesh_density} (custom) → {result} (~{approx_verts} vertices)")
-        
+            print(f"    element_size={element_size}nm → [{nphi}, {ntheta}, {nz}]")
+            print(f"      (actual element sizes: phi={np.pi*diameter/nphi:.2f}nm, "
+                  f"theta={0.5*diameter/ntheta:.2f}nm, z={cylinder_length/nz:.2f}nm)")
+
         return result
+
+    def _legacy_mesh_to_n_rod(self, nphi_param, ntheta_param, nz_param, diameter, height):
+        """
+        Convert legacy mesh parameters to [nphi, ntheta, nz] for trirod.
+
+        Colleague's formula:
+            nphi = (diameter + 1) * π / nphi_param
+            ntheta = (diameter + 1) / ntheta_param
+            nz = (height - diameter + 1) / nz_param
+
+        Args:
+            nphi_param, ntheta_param, nz_param: Legacy mesh parameters
+            diameter: Rod diameter in nm
+            height: Rod height in nm
+
+        Returns:
+            list: [nphi, ntheta, nz] for trirod
+        """
+        nphi = max(8, int(np.ceil((diameter + 1) * np.pi / nphi_param)))
+        ntheta = max(6, int(np.ceil((diameter + 1) / ntheta_param)))
+        nz = max(4, int(np.ceil((height - diameter + 1) / nz_param)))
+
+        result = [nphi, ntheta, nz]
+        if self.verbose:
+            print(f"    legacy mode: nphi_param={nphi_param}, ntheta_param={ntheta_param}, nz_param={nz_param}")
+            print(f"    → [{nphi}, {ntheta}, {nz}]")
+
+        return result
+
+    def _element_size_to_n_sphere(self, element_size, diameter):
+        """
+        Convert element size (nm) to vertex count for trisphere.
+
+        Args:
+            element_size (float): Target element size in nm
+            diameter (float): Sphere diameter in nm
+
+        Returns:
+            int: Vertex count for trisphere (from available set)
+        """
+        # Surface area = π * d²
+        # Target faces ≈ surface_area / element_size²
+        # Vertices ≈ faces / 2 (Euler's formula approximation)
+        surface_area = np.pi * diameter ** 2
+        target_faces = surface_area / (element_size ** 2)
+        target_vertices = int(target_faces / 2)
+
+        # trisphere available vertex counts
+        available = [32, 60, 144, 169, 225, 256, 289, 324, 361, 400,
+                     441, 484, 529, 576, 625, 676, 729, 784, 841, 900,
+                     961, 1024, 1089, 1156, 1225, 1296, 1369, 1444, 1521, 1600]
+
+        # Find closest
+        closest = min(available, key=lambda x: abs(x - target_vertices))
+
+        if self.verbose:
+            print(f"    element_size={element_size}nm, diameter={diameter}nm")
+            print(f"    target_vertices={target_vertices} → trisphere({closest})")
+
+        return closest
+
+    def _element_size_to_n_cube(self, element_size, size):
+        """
+        Convert element size (nm) to subdivision count for tricube.
+
+        Args:
+            element_size (float): Target element size in nm
+            size (float): Cube size in nm
+
+        Returns:
+            int: Subdivision count for tricube
+        """
+        n = max(4, int(np.ceil(size / element_size)))
+
+        if self.verbose:
+            actual_element = size / n
+            print(f"    element_size={element_size}nm, size={size}nm → n={n} (actual: {actual_element:.2f}nm)")
+
+        return n
     
     def _apply_nonlocal_coverlayer(self, base_geometry_code):
         """Apply nonlocal cover layer to existing geometry.
@@ -2361,12 +2432,43 @@ end
     # ========================================================================
     
     def _sphere(self):
-        """Generate code for single sphere."""
+        """Generate code for single sphere.
+
+        Mesh modes:
+        - New mode (default): mesh_density = element size in nm
+        - Legacy mode: nphi/ntheta/nz specified → use legacy vertex calculation
+        """
         diameter = self.config.get('diameter', 10)
-        mesh = self.config.get('mesh_density', 144)
-        
-        code = f"""
+
+        if self._is_legacy_mesh_mode():
+            # Legacy mode: use nphi as the mesh parameter
+            # For sphere, legacy uses a single parameter (like nphi)
+            nphi = self.config.get('nphi', 4)
+            # Colleague's formula for sphere: vertices based on diameter/nphi ratio
+            # Approximate: more vertices for larger spheres
+            target_vertices = int(np.ceil((diameter + 1) * np.pi / nphi) ** 2 / 2)
+            available = [32, 60, 144, 169, 225, 256, 289, 324, 361, 400,
+                         441, 484, 529, 576, 625, 676, 729, 784, 841, 900]
+            mesh = min(available, key=lambda x: abs(x - target_vertices))
+
+            if self.verbose:
+                print(f"  Sphere (legacy mode): nphi={nphi} → trisphere({mesh})")
+
+            code = f"""
+%% Geometry: Single Sphere (Legacy mesh mode)
+%% nphi={nphi} → trisphere({mesh})
+diameter = {diameter};
+p = trisphere({mesh}, diameter);
+particles = {{p}};
+"""
+        else:
+            # New mode: mesh_density = element size in nm
+            element_size = self.config.get('mesh_density', 2.0)
+            mesh = self._element_size_to_n_sphere(element_size, diameter)
+
+            code = f"""
 %% Geometry: Single Sphere
+%% element_size={element_size}nm → trisphere({mesh})
 diameter = {diameter};
 p = trisphere({mesh}, diameter);
 particles = {{p}};
@@ -2374,13 +2476,19 @@ particles = {{p}};
         return code
     
     def _cube(self):
-        """Generate code for single cube."""
+        """Generate code for single cube.
+
+        Mesh mode: mesh_density = element size in nm
+        """
         size = self.config.get('size', 20)
         rounding = self.config.get('rounding', 0.25)
-        mesh = self.config.get('mesh_density', 12)
-        
+        element_size = self.config.get('mesh_density', 4.0)
+
+        mesh = self._element_size_to_n_cube(element_size, size)
+
         code = f"""
 %% Geometry: Single Cube
+%% element_size={element_size}nm → tricube({mesh}, ...)
 cube_size = {size};
 rounding_param = {rounding};
 p = tricube({mesh}, cube_size, 'e', rounding_param);
@@ -2390,57 +2498,87 @@ particles = {{p}};
     
     def _rod(self):
         """Generate code for rod/cylinder (horizontal).
-        
-        Mesh can be specified in two ways:
-        1. mesh_density (auto-calculated)
-        2. rod_mesh = [nphi, ntheta, nz] (manual)
+
+        Mesh modes:
+        - New mode (default): mesh_density = element size in nm
+        - Legacy mode: nphi/ntheta/nz specified → use colleague's formula
+        - Manual mode: rod_mesh = [nphi, ntheta, nz] directly
         """
         diameter = self.config.get('diameter', 10)
         height = self.config.get('height', 50)
-        
-        # Check if user provided explicit mesh parameters
+
+        # Check if user provided explicit mesh parameters (manual mode)
         if 'rod_mesh' in self.config:
-            # User specifies [nphi, ntheta, nz] directly
             n = self.config['rod_mesh']
             nphi, ntheta, nz = n
-            
+
             code = f"""
 %% Geometry: Rod (horizontal along x-axis)
 diameter = {diameter};
 height = {height};
 
 % User-specified mesh: [{nphi}, {ntheta}, {nz}]
-p = trirod(diameter, height, [{nphi}, {ntheta}, {nz}]);
+p = trirod(diameter, height, [{nphi}, {ntheta}, {nz}], 'triangles');
+p = rot(p, 90, [0, 1, 0]);
+
+particles = {{p}};
+"""
+        elif self._is_legacy_mesh_mode():
+            # Legacy mode: use colleague's formula
+            nphi_param = self.config.get('nphi', 4)
+            ntheta_param = self.config.get('ntheta', 4)
+            nz_param = self.config.get('nz', 4)
+
+            n = self._legacy_mesh_to_n_rod(nphi_param, ntheta_param, nz_param, diameter, height)
+
+            code = f"""
+%% Geometry: Rod (horizontal along x-axis)
+%% Legacy mode: nphi={nphi_param}, ntheta={ntheta_param}, nz={nz_param}
+diameter = {diameter};
+height = {height};
+
+% Calculated mesh: {n}
+p = trirod(diameter, height, {n}, 'triangles');
 p = rot(p, 90, [0, 1, 0]);
 
 particles = {{p}};
 """
         else:
-            # Use mesh_density (existing behavior)
-            mesh = self.config.get('mesh_density', 144)
-            n = self._mesh_density_to_n_rod(mesh)
-            
+            # New mode: mesh_density = element size in nm
+            element_size = self.config.get('mesh_density', 2.0)
+            n = self._element_size_to_n_rod(element_size, diameter, height)
+
             code = f"""
 %% Geometry: Rod (horizontal along x-axis)
+%% element_size={element_size}nm
 diameter = {diameter};
 height = {height};
 
-% Auto-calculated mesh from mesh_density={mesh}: {n}
-p = trirod(diameter, height, {n});
+% Calculated mesh: {n}
+p = trirod(diameter, height, {n}, 'triangles');
 p = rot(p, 90, [0, 1, 0]);
 
 particles = {{p}};
 """
-        
+
         return code
     
     def _ellipsoid(self):
-        """Generate code for ellipsoid."""
+        """Generate code for ellipsoid.
+
+        Mesh mode: mesh_density = element size in nm
+        Uses the average diameter for mesh calculation.
+        """
         axes = self.config.get('axes', [10, 15, 20])
-        mesh = self.config.get('mesh_density', 144)
-        
+        element_size = self.config.get('mesh_density', 2.0)
+
+        # Use average diameter for mesh calculation
+        avg_diameter = 2 * (axes[0] * axes[1] * axes[2]) ** (1/3)
+        mesh = self._element_size_to_n_sphere(element_size, avg_diameter)
+
         code = f"""
 %% Geometry: Ellipsoid
+%% element_size={element_size}nm, avg_diameter={avg_diameter:.2f}nm → trisphere({mesh})
 p = trisphere({mesh}, 1);
 p.verts(:, 1) = p.verts(:, 1) * {axes[0]};
 p.verts(:, 2) = p.verts(:, 2) * {axes[1]};
@@ -2466,13 +2604,49 @@ particles = {{p}};
         return code
     
     def _dimer_sphere(self):
-        """Generate code for two coupled spheres."""
+        """Generate code for two coupled spheres.
+
+        Mesh modes:
+        - New mode (default): mesh_density = element size in nm
+        - Legacy mode: nphi/ntheta/nz specified → use legacy vertex calculation
+        """
         diameter = self.config.get('diameter', 10)
         gap = self.config.get('gap', 5)
-        mesh = self.config.get('mesh_density', 144)
-        
-        code = f"""
+
+        if self._is_legacy_mesh_mode():
+            # Legacy mode
+            nphi = self.config.get('nphi', 4)
+            target_vertices = int(np.ceil((diameter + 1) * np.pi / nphi) ** 2 / 2)
+            available = [32, 60, 144, 169, 225, 256, 289, 324, 361, 400,
+                         441, 484, 529, 576, 625, 676, 729, 784, 841, 900]
+            mesh = min(available, key=lambda x: abs(x - target_vertices))
+
+            if self.verbose:
+                print(f"  Dimer sphere (legacy mode): nphi={nphi} → trisphere({mesh})")
+
+            code = f"""
+%% Geometry: Dimer - Two Spheres (Legacy mesh mode)
+%% nphi={nphi} → trisphere({mesh})
+diameter = {diameter};
+gap = {gap};
+shift_distance = (diameter + gap) / 2;
+
+p1 = trisphere({mesh}, diameter);
+p1 = shift(p1, [-shift_distance, 0, 0]);
+
+p2 = trisphere({mesh}, diameter);
+p2 = shift(p2, [shift_distance, 0, 0]);
+
+particles = {{p1, p2}};
+"""
+        else:
+            # New mode: mesh_density = element size in nm
+            element_size = self.config.get('mesh_density', 2.0)
+            mesh = self._element_size_to_n_sphere(element_size, diameter)
+
+            code = f"""
 %% Geometry: Dimer - Two Spheres
+%% element_size={element_size}nm → trisphere({mesh})
 diameter = {diameter};
 gap = {gap};
 shift_distance = (diameter + gap) / 2;
@@ -2508,7 +2682,10 @@ particles = {{p1, p2}};
         n_spheres = self.config.get('n_spheres', 1)
         diameter = self.config.get('diameter', 50)
         gap = self.config.get('gap', -0.1)
-        mesh = self.config.get('mesh_density', 144)
+
+        # New mode: mesh_density = element size in nm
+        element_size = self.config.get('mesh_density', 2.0)
+        mesh = self._element_size_to_n_sphere(element_size, diameter)
         
         # Center-to-center spacing for contact
         spacing = diameter + gap
@@ -2632,14 +2809,20 @@ fprintf('=================================\\n');
         return code
     
     def _dimer_cube(self):
-        """Generate code for two coupled cubes."""
+        """Generate code for two coupled cubes.
+
+        Mesh mode: mesh_density = element size in nm
+        """
         size = self.config.get('size', 20)
         gap = self.config.get('gap', 10)
         rounding = self.config.get('rounding', 0.25)
-        mesh = self.config.get('mesh_density', 12)
-        
+        element_size = self.config.get('mesh_density', 4.0)
+
+        mesh = self._element_size_to_n_cube(element_size, size)
+
         code = f"""
 %% Geometry: Dimer - Two Cubes
+%% element_size={element_size}nm → tricube({mesh}, ...)
 cube_size = {size};
 gap = {gap};
 rounding_param = {rounding};
@@ -2656,42 +2839,58 @@ particles = {{p1, p2}};
         return code
     
     def _core_shell_sphere(self):
-        """Generate code for core-shell sphere."""
+        """Generate code for core-shell sphere.
+
+        Mesh mode: mesh_density = element size in nm
+        All layers get the same element size.
+        """
         core_diameter = self.config.get('core_diameter', 10)
         shell_thickness = self.config.get('shell_thickness', 5)
-        mesh = self.config.get('mesh_density', 144)
+        element_size = self.config.get('mesh_density', 2.0)
         shell_diameter = core_diameter + 2 * shell_thickness
-        
+
+        mesh_core = self._element_size_to_n_sphere(element_size, core_diameter)
+        mesh_shell = self._element_size_to_n_sphere(element_size, shell_diameter)
+
         code = f"""
 %% Geometry: Core-Shell Sphere
+%% element_size={element_size}nm
 core_diameter = {core_diameter};
 shell_thickness = {shell_thickness};
 shell_diameter = core_diameter + 2 * shell_thickness;
 
-p_core = trisphere({mesh}, core_diameter);
-p_shell = trisphere({mesh}, shell_diameter);
+p_core = trisphere({mesh_core}, core_diameter);   % ~{element_size}nm elements
+p_shell = trisphere({mesh_shell}, shell_diameter);  % ~{element_size}nm elements
 
 particles = {{p_core, p_shell}};
 """
         return code
     
     def _core_shell_cube(self):
-        """Generate code for core-shell cube."""
+        """Generate code for core-shell cube.
+
+        Mesh mode: mesh_density = element size in nm
+        All layers get the same element size.
+        """
         core_size = self.config.get('core_size')
         shell_thickness = self.config.get('shell_thickness')
         rounding = self.config.get('rounding')
-        mesh = self.config.get('mesh_density', 12)
+        element_size = self.config.get('mesh_density', 4.0)
         shell_size = core_size + 2 * shell_thickness
-        
+
+        mesh_core = self._element_size_to_n_cube(element_size, core_size)
+        mesh_shell = self._element_size_to_n_cube(element_size, shell_size)
+
         code = f"""
 %% Geometry: Core-Shell Cube
+%% element_size={element_size}nm
 core_size = {core_size};
 shell_thickness = {shell_thickness};
 shell_size = core_size + 2 * shell_thickness;
 rounding_param = {rounding};
 
-p_core = tricube({mesh}, core_size, 'e', rounding_param);
-p_shell = tricube({mesh}, shell_size, 'e', rounding_param);
+p_core = tricube({mesh_core}, core_size, 'e', rounding_param);   % ~{core_size/mesh_core:.2f}nm elements
+p_shell = tricube({mesh_shell}, shell_size, 'e', rounding_param);  % ~{shell_size/mesh_shell:.2f}nm elements
 
 particles = {{p_core, p_shell}};
 """
@@ -2699,41 +2898,56 @@ particles = {{p_core, p_shell}};
 
     def _core_shell_rod(self):
         """Generate code for core-shell rod with complete shell coverage.
-        
-        Mesh specification:
-            Option 1: mesh_density (auto-calculated)
-            Option 2: rod_mesh = [nphi, ntheta, nz] (manual override)
+
+        Mesh modes:
+        - New mode (default): mesh_density = element size in nm
+        - Legacy mode: nphi/ntheta/nz specified → use colleague's formula
+        - Manual mode: rod_mesh = [nphi, ntheta, nz] directly
         """
         core_diameter = self.config.get('core_diameter', 15)
         shell_thickness = self.config.get('shell_thickness', 5)
         height = self.config.get('height', 80)
-        
-        # Check for manual mesh specification
-        if 'rod_mesh' in self.config:
-            n = self.config['rod_mesh']
-            if len(n) != 3:
-                raise ValueError(f"rod_mesh must have 3 values [nphi, ntheta, nz], got {n}")
-        else:
-            # Auto-calculate from mesh_density
-            mesh = self.config.get('mesh_density', 144)
-            n = self._mesh_density_to_n_rod(mesh)
-        
+
         shell_diameter = core_diameter + 2 * shell_thickness
         shell_height = height
         core_height = height - 2 * shell_thickness
-        
+
+        # Check for manual mesh specification
+        if 'rod_mesh' in self.config:
+            n_core = self.config['rod_mesh']
+            n_shell = self.config['rod_mesh']
+            if len(n_core) != 3:
+                raise ValueError(f"rod_mesh must have 3 values [nphi, ntheta, nz], got {n_core}")
+            mesh_comment = f"User-specified mesh: {n_core}"
+        elif self._is_legacy_mesh_mode():
+            # Legacy mode
+            nphi_param = self.config.get('nphi', 4)
+            ntheta_param = self.config.get('ntheta', 4)
+            nz_param = self.config.get('nz', 4)
+            n_core = self._legacy_mesh_to_n_rod(nphi_param, ntheta_param, nz_param, core_diameter, core_height)
+            n_shell = self._legacy_mesh_to_n_rod(nphi_param, ntheta_param, nz_param, shell_diameter, shell_height)
+            mesh_comment = f"Legacy mode: nphi={nphi_param}, ntheta={ntheta_param}, nz={nz_param}"
+        else:
+            # New mode: mesh_density = element size in nm
+            element_size = self.config.get('mesh_density', 2.0)
+            n_core = self._element_size_to_n_rod(element_size, core_diameter, core_height)
+            n_shell = self._element_size_to_n_rod(element_size, shell_diameter, shell_height)
+            mesh_comment = f"element_size={element_size}nm"
+
         code = f"""
 %% Geometry: Core-Shell Rod
+%% {mesh_comment}
 core_diameter = {core_diameter};
 shell_thickness = {shell_thickness};
 shell_diameter = core_diameter + 2 * shell_thickness;
 shell_height = {height};
 core_height = shell_height - 2 * shell_thickness;
 
-% Mesh: {n}
+% Core mesh: {n_core}
+% Shell mesh: {n_shell}
 % Create rod particles (initially standing along z-axis)
-p_core = trirod(core_diameter, core_height, {n}, 'triangles');
-p_shell = trirod(shell_diameter, shell_height, {n}, 'triangles');
+p_core = trirod(core_diameter, core_height, {n_core}, 'triangles');
+p_shell = trirod(shell_diameter, shell_height, {n_shell}, 'triangles');
 
 % Rotate 90 degrees to lie down along x-axis
 p_core = rot(p_core, 90, [0, 1, 0]);
@@ -2744,16 +2958,24 @@ particles = {{p_core, p_shell}};
         return code
     
     def _dimer_core_shell_cube(self):
-        """Generate code for two core-shell cubes."""
+        """Generate code for two core-shell cubes.
+
+        Mesh mode: mesh_density = element size in nm
+        All layers get the same element size.
+        """
         core_size = self.config.get('core_size', 20)
         shell_thickness = self.config.get('shell_thickness', 5)
         gap = self.config.get('gap', 10)
         rounding = self.config.get('rounding', 0.25)
-        mesh = self.config.get('mesh_density', 12)
+        element_size = self.config.get('mesh_density', 4.0)
         shell_size = core_size + 2 * shell_thickness
-        
+
+        mesh_core = self._element_size_to_n_cube(element_size, core_size)
+        mesh_shell = self._element_size_to_n_cube(element_size, shell_size)
+
         code = f"""
 %% Geometry: Dimer Core-Shell Cubes
+%% element_size={element_size}nm
 core_size = {core_size};
 shell_thickness = {shell_thickness};
 shell_size = core_size + 2 * shell_thickness;
@@ -2762,17 +2984,17 @@ rounding_param = {rounding};
 shift_distance = (shell_size + gap) / 2;
 
 % Particle 1 (Left)
-core1 = tricube({mesh}, core_size, 'e', rounding_param);
+core1 = tricube({mesh_core}, core_size, 'e', rounding_param);  % ~{core_size/mesh_core:.2f}nm elements
 core1 = shift(core1, [-shift_distance, 0, 0]);
 
-shell1 = tricube({mesh}, shell_size, 'e', rounding_param);
+shell1 = tricube({mesh_shell}, shell_size, 'e', rounding_param);  % ~{shell_size/mesh_shell:.2f}nm elements
 shell1 = shift(shell1, [-shift_distance, 0, 0]);
 
 % Particle 2 (Right)
-core2 = tricube({mesh}, core_size, 'e', rounding_param);
+core2 = tricube({mesh_core}, core_size, 'e', rounding_param);
 core2 = shift(core2, [shift_distance, 0, 0]);
 
-shell2 = tricube({mesh}, shell_size, 'e', rounding_param);
+shell2 = tricube({mesh_shell}, shell_size, 'e', rounding_param);
 shell2 = shift(shell2, [shift_distance, 0, 0]);
 
 particles = {{core1, shell1, core2, shell2}};
@@ -2780,11 +3002,15 @@ particles = {{core1, shell1, core2, shell2}};
         return code
     
     def _advanced_dimer_cube(self):
-        """Generate advanced dimer cube with full control."""
+        """Generate advanced dimer cube with full control.
+
+        Mesh mode: mesh_density = element size in nm
+        All layers get the same element size, resulting in consistent mesh quality.
+        """
         core_size = self.config.get('core_size', 30)
         shell_layers = self.config.get('shell_layers', [])
         materials = self.config.get('materials', [])
-        mesh = self.config.get('mesh_density', 12)
+        element_size = self.config.get('mesh_density', 2.0)
 
         if len(materials) != 1 + len(shell_layers):
             raise ValueError(
@@ -2818,20 +3044,18 @@ particles = {{core1, shell1, core2, shell2}};
         total_size = sizes[-1]
         shift_distance = (total_size + gap) / 2
 
-        # Check if adaptive mesh is enabled
-        use_adaptive_mesh = self.config.get('use_adaptive_mesh', False)
+        # Calculate mesh subdivision for each layer based on element size
+        mesh_subdivs = [self._element_size_to_n_cube(element_size, size) for size in sizes]
 
-        if use_adaptive_mesh:
-            return self._advanced_dimer_cube_adaptive(
-                sizes, materials, roundings, gap, offset,
-                tilt_angle, tilt_axis, rotation_angle,
-                mesh, shift_distance
-            )
+        if self.verbose:
+            print(f"  Advanced dimer cube mesh (element_size={element_size}nm):")
+            for i, (size, mesh) in enumerate(zip(sizes, mesh_subdivs)):
+                layer_name = "core" if i == 0 else f"shell{i}"
+                print(f"    {layer_name}: size={size}nm → n={mesh}")
 
-        # Standard uniform mesh (original behavior)
         code = f"""
 %% Geometry: Advanced Dimer Cube
-mesh_density = {mesh};
+%% element_size={element_size}nm (uniform element size across all layers)
 gap = {gap};
 shift_distance = {shift_distance};
 
@@ -2841,26 +3065,26 @@ shift_distance = {shift_distance};
         code += "\n%% === Particle 1 (Left) ===\n"
         particles_list = []
 
-        for i, (size, material, rounding) in enumerate(zip(sizes, materials, roundings)):
+        for i, (size, material, rounding, mesh) in enumerate(zip(sizes, materials, roundings, mesh_subdivs)):
             if i == 0:
-                code += f"% Core: {material}\n"
-                code += f"p1_core = tricube(mesh_density, {size}, 'e', {rounding});\n"
+                code += f"% Core: {material} (n={mesh}, ~{size/mesh:.2f}nm elements)\n"
+                code += f"p1_core = tricube({mesh}, {size}, 'e', {rounding});\n"
                 code += f"p1_core = shift(p1_core, [-shift_distance, 0, 0]);\n"
                 particles_list.append("p1_core")
             else:
                 shell_num = i
-                code += f"\n% Shell {shell_num}: {material}\n"
-                code += f"p1_shell{shell_num} = tricube(mesh_density, {size}, 'e', {rounding});\n"
+                code += f"\n% Shell {shell_num}: {material} (n={mesh}, ~{size/mesh:.2f}nm elements)\n"
+                code += f"p1_shell{shell_num} = tricube({mesh}, {size}, 'e', {rounding});\n"
                 code += f"p1_shell{shell_num} = shift(p1_shell{shell_num}, [-shift_distance, 0, 0]);\n"
                 particles_list.append(f"p1_shell{shell_num}")
 
         # Particle 2
         code += "\n%% === Particle 2 (Right with transformations) ===\n"
 
-        for i, (size, material, rounding) in enumerate(zip(sizes, materials, roundings)):
+        for i, (size, material, rounding, mesh) in enumerate(zip(sizes, materials, roundings, mesh_subdivs)):
             if i == 0:
-                code += f"% Core: {material}\n"
-                code += f"p2_core = tricube(mesh_density, {size}, 'e', {rounding});\n"
+                code += f"% Core: {material} (n={mesh}, ~{size/mesh:.2f}nm elements)\n"
+                code += f"p2_core = tricube({mesh}, {size}, 'e', {rounding});\n"
                 code += f"p2_core = rot(p2_core, {rotation_angle}, [0, 0, 1]);\n"
                 code += f"p2_core = rot(p2_core, {tilt_angle}, [{tilt_axis[0]}, {tilt_axis[1]}, {tilt_axis[2]}]);\n"
                 code += f"p2_core = shift(p2_core, [shift_distance, 0, 0]);\n"
@@ -2868,182 +3092,13 @@ shift_distance = {shift_distance};
                 particles_list.append("p2_core")
             else:
                 shell_num = i
-                code += f"\n% Shell {shell_num}: {material}\n"
-                code += f"p2_shell{shell_num} = tricube(mesh_density, {size}, 'e', {rounding});\n"
+                code += f"\n% Shell {shell_num}: {material} (n={mesh}, ~{size/mesh:.2f}nm elements)\n"
+                code += f"p2_shell{shell_num} = tricube({mesh}, {size}, 'e', {rounding});\n"
                 code += f"p2_shell{shell_num} = rot(p2_shell{shell_num}, {rotation_angle}, [0, 0, 1]);\n"
                 code += f"p2_shell{shell_num} = rot(p2_shell{shell_num}, {tilt_angle}, [{tilt_axis[0]}, {tilt_axis[1]}, {tilt_axis[2]}]);\n"
                 code += f"p2_shell{shell_num} = shift(p2_shell{shell_num}, [shift_distance, 0, 0]);\n"
                 code += f"p2_shell{shell_num} = shift(p2_shell{shell_num}, [{offset[0]}, {offset[1]}, {offset[2]}]);\n"
                 particles_list.append(f"p2_shell{shell_num}")
-
-        particles_str = ", ".join(particles_list)
-        code += f"\n%% Combine all particles\nparticles = {{{particles_str}}};\n"
-
-        return code
-
-    def _advanced_dimer_cube_adaptive(self, sizes, materials, roundings, gap, offset,
-                                       tilt_angle, tilt_axis, rotation_angle,
-                                       base_mesh, shift_distance):
-        """
-        Generate advanced dimer cube with adaptive mesh (per-face density control).
-
-        For dimer structures along x-axis:
-        - Particle 1 (left): +x face is gap-facing (fine mesh)
-        - Particle 2 (right): -x face is gap-facing (fine mesh)
-        - Opposite faces: coarse mesh
-        - Side faces (y, z): medium mesh
-        """
-        import scipy.io as sio
-
-        # Get adaptive mesh settings
-        adaptive_config = self.config.get('adaptive_mesh', {})
-        gap_density = adaptive_config.get('gap_density', base_mesh)
-        back_density = adaptive_config.get('back_density', max(6, base_mesh // 3))
-        side_density = adaptive_config.get('side_density', max(8, base_mesh // 2))
-
-        output_dir = Path(self.config.get('output_dir', './results'))
-        output_dir.mkdir(parents=True, exist_ok=True)
-
-        if self.verbose:
-            print(f"  Adaptive mesh enabled:")
-            print(f"    Gap faces: {gap_density}")
-            print(f"    Back faces: {back_density}")
-            print(f"    Side faces: {side_density}")
-
-        code = f"""
-%% Geometry: Advanced Dimer Cube (Adaptive Mesh)
-%% Gap-facing faces have fine mesh, opposite faces have coarse mesh
-gap = {gap};
-shift_distance = {shift_distance};
-
-fprintf('Loading adaptive mesh geometry...\\n');
-"""
-
-        particles_list = []
-        particle_idx = 1
-
-        # Generate mesh for each surface layer
-        for layer_idx, (size, material, rounding) in enumerate(zip(sizes, materials, roundings)):
-
-            # Particle 1 (Left): +x is gap-facing
-            densities_p1 = {
-                '+x': gap_density,   # Gap face - fine
-                '-x': back_density,  # Back face - coarse
-                '+y': side_density,  # Side faces - medium
-                '-y': side_density,
-                '+z': side_density,
-                '-z': side_density,
-            }
-
-            mesh_gen = AdaptiveCubeMesh(size, rounding=rounding, verbose=self.verbose)
-            # Use proper curved rounding (not shrink-based)
-            if rounding > 0:
-                verts1, faces1 = mesh_gen.generate_proper_rounded(densities_p1)
-            else:
-                verts1, faces1 = mesh_gen.generate(densities_p1)
-
-            # Shift particle 1 to left position
-            verts1[:, 0] -= shift_distance
-
-            # Save to .mat file (MNPBEM expects Nx4, 4th column NaN for triangles)
-            mat_file1 = f'adaptive_mesh_p1_layer{layer_idx}.mat'
-            mat_path1 = output_dir / mat_file1
-            sio.savemat(str(mat_path1), {'vertices': verts1, 'faces': faces1}, do_compression=True)
-
-            if layer_idx == 0:
-                p1_name = "p1_core"
-            else:
-                p1_name = f"p1_shell{layer_idx}"
-
-            code += f"""
-% Particle 1, Layer {layer_idx}: {material}
-mesh_data = load('{mat_file1}');
-{p1_name} = particle(mesh_data.vertices, mesh_data.faces, op, 'interp', 'flat');
-fprintf('  {p1_name}: %d vertices, %d faces\\n', size(mesh_data.vertices, 1), size(mesh_data.faces, 1));
-"""
-            particles_list.append(p1_name)
-
-            # Particle 2 (Right): -x is gap-facing
-            densities_p2 = {
-                '+x': back_density,  # Back face - coarse
-                '-x': gap_density,   # Gap face - fine
-                '+y': side_density,  # Side faces - medium
-                '-y': side_density,
-                '+z': side_density,
-                '-z': side_density,
-            }
-
-            # Use proper curved rounding (not shrink-based)
-            if rounding > 0:
-                verts2, faces2 = mesh_gen.generate_proper_rounded(densities_p2)
-            else:
-                verts2, faces2 = mesh_gen.generate(densities_p2)
-
-            # Apply transformations for particle 2
-            # 1. Rotation around z-axis
-            if rotation_angle != 0:
-                rad = np.radians(rotation_angle)
-                cos_r, sin_r = np.cos(rad), np.sin(rad)
-                rot_z = np.array([
-                    [cos_r, -sin_r, 0],
-                    [sin_r, cos_r, 0],
-                    [0, 0, 1]
-                ])
-                verts2 = verts2 @ rot_z.T
-
-            # 2. Tilt rotation around custom axis
-            if tilt_angle != 0:
-                verts2 = self._rotate_vertices(verts2, tilt_angle, tilt_axis)
-
-            # 3. Shift to right position
-            verts2[:, 0] += shift_distance
-
-            # 4. Apply offset
-            verts2[:, 0] += offset[0]
-            verts2[:, 1] += offset[1]
-            verts2[:, 2] += offset[2]
-
-            # Save to .mat file
-            mat_file2 = f'adaptive_mesh_p2_layer{layer_idx}.mat'
-            mat_path2 = output_dir / mat_file2
-            sio.savemat(str(mat_path2), {'vertices': verts2, 'faces': faces2}, do_compression=True)
-
-            if layer_idx == 0:
-                p2_name = "p2_core"
-            else:
-                p2_name = f"p2_shell{layer_idx}"
-
-            code += f"""
-% Particle 2, Layer {layer_idx}: {material}
-mesh_data = load('{mat_file2}');
-{p2_name} = particle(mesh_data.vertices, mesh_data.faces, op, 'interp', 'flat');
-fprintf('  {p2_name}: %d vertices, %d faces\\n', size(mesh_data.vertices, 1), size(mesh_data.faces, 1));
-"""
-            particles_list.append(p2_name)
-
-        # Print summary using actual face counts
-        # Total elements = sum of all faces from both particles
-        actual_elements = sum(len(f) for f in [faces1, faces2] for _ in range(len(sizes)))
-        # For comparison: uniform mesh at gap_density
-        uniform_densities = {f: gap_density for f in ['+x', '-x', '+y', '-y', '+z', '-z']}
-        mesh_uniform = AdaptiveCubeMesh(sizes[-1], rounding=roundings[-1], verbose=False)
-        if roundings[-1] > 0:
-            _, uniform_faces = mesh_uniform.generate_proper_rounded(uniform_densities)
-        else:
-            _, uniform_faces = mesh_uniform.generate(uniform_densities)
-        total_elements_uniform = len(uniform_faces) * 2 * len(sizes)
-        total_elements_adaptive = len(faces1) * 2 * len(sizes)
-        reduction = (1 - total_elements_adaptive / total_elements_uniform) * 100
-
-        if self.verbose:
-            print(f"  Element reduction: {reduction:.1f}%")
-            print(f"    Uniform (all at {gap_density}): {total_elements_uniform} elements")
-            print(f"    Adaptive: {total_elements_adaptive} elements")
-
-        code += f"""
-%% Summary: Adaptive mesh reduces element count by ~{reduction:.0f}%
-fprintf('Adaptive mesh loaded successfully.\\n');
-"""
 
         particles_str = ", ".join(particles_list)
         code += f"\n%% Combine all particles\nparticles = {{{particles_str}}};\n"
