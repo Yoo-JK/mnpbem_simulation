@@ -189,19 +189,30 @@ class FieldAnalyzer:
         hotspots = []
         for i in range(min(num_hotspots, len(sorted_idx))):
             idx = sorted_idx[i]
-            
-            # Get position indices
-            if enhancement.ndim == 2:
-                row_idx, col_idx = max_indices[0][idx], max_indices[1][idx]
-                x_pos = float(x_grid[row_idx, col_idx])
-                y_pos = float(y_grid[row_idx, col_idx])
-                z_pos = float(z_grid[row_idx, col_idx])
-            else:  # 3D
+
+            # Get position based on array dimensionality
+            ndim = enhancement.ndim
+            n_indices = len(max_indices)
+
+            if ndim == 1 or n_indices == 1:
+                # 1D case
+                flat_idx = max_indices[0][idx]
+                x_pos = float(x_grid.flat[flat_idx]) if hasattr(x_grid, 'flat') else float(x_grid)
+                y_pos = float(y_grid.flat[flat_idx]) if hasattr(y_grid, 'flat') else float(y_grid)
+                z_pos = float(z_grid.flat[flat_idx]) if hasattr(z_grid, 'flat') else float(z_grid)
+            elif ndim == 2 or n_indices == 2:
+                # 2D case
+                idx_0, idx_1 = max_indices[0][idx], max_indices[1][idx]
+                x_pos = float(x_grid[idx_0, idx_1]) if x_grid.ndim >= 2 else float(x_grid.flat[idx_0])
+                y_pos = float(y_grid[idx_0, idx_1]) if y_grid.ndim >= 2 else float(y_grid.flat[idx_0])
+                z_pos = float(z_grid[idx_0, idx_1]) if z_grid.ndim >= 2 else float(z_grid.flat[idx_0])
+            else:
+                # 3D case
                 i_idx, j_idx, k_idx = max_indices[0][idx], max_indices[1][idx], max_indices[2][idx]
                 x_pos = float(x_grid[i_idx, j_idx, k_idx])
                 y_pos = float(y_grid[i_idx, j_idx, k_idx])
                 z_pos = float(z_grid[i_idx, j_idx, k_idx])
-            
+
             hotspot = {
                 'rank': i + 1,
                 'position': [x_pos, y_pos, z_pos],
@@ -209,7 +220,7 @@ class FieldAnalyzer:
                 'intensity_enhancement': float(max_values[idx]**2)
             }
             hotspots.append(hotspot)
-        
+
         return hotspots
     
     def _analyze_high_field_regions(self, enhancement, x_grid, y_grid, z_grid):
