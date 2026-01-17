@@ -1612,6 +1612,12 @@ field_data.z = z_range;
 field_data.wavelengths = enei(unique_field_wavelength_indices);
 field_data.fields = {{}};
 
+% Create meshfield object (handles mindist and nmax internally)
+fprintf('Creating meshfield for field calculation...\\n');
+emesh = meshfield(p_field, x_range, y_range, z_range, op, ...
+                  'mindist', field_mindist, 'nmax', field_nmax);
+fprintf('  -> meshfield created: %d points\\n', emesh.pt.n);
+
 %% Field Calculation Loop
 fprintf('\\n');
 fprintf('================================================================\\n');
@@ -1635,64 +1641,109 @@ for iwl = 1:n_field_wavelengths
     fprintf('  -> Solving BEM equations...\\n');
     sig = bem \\ exc(p, current_wavelength);
 
+    % Calculate induced field using meshfield (handles all polarizations)
+    fprintf('  -> Calculating induced field...\\n');
+    e_induced_all = emesh(sig);
+    fprintf('      Induced field size: [%s]\\n', num2str(size(e_induced_all)));
+
+    % Calculate incoming field using meshfield
+    fprintf('  -> Calculating incoming field...\\n');
+    exc_field = exc.field(emesh.pt, current_wavelength);
+    e_incoming_all = emesh(exc_field);
+    fprintf('      Incoming field size: [%s]\\n', num2str(size(e_incoming_all)));
+
+    % Determine if grid-based (4D) or point-based (2D/3D)
+    is_grid_based = (ndims(e_induced_all) == 4);
+
     % Calculate fields for all polarizations
     for ipol = 1:n_polarizations
         fprintf('    Polarization %d/%d...\\n', ipol, n_polarizations);
 
-        % Create compoint for field calculation
-        pt_field = compoint(p_field, field_pts, 'mindist', field_mindist);
-
-        % Calculate field (work off in portions if large)
-        if n_field_pts > field_nmax
-            fprintf('      Large grid (%d pts), computing in portions...\\n', n_field_pts);
-            e_field = zeros(n_field_pts, 3);
-
-            n_portions = ceil(n_field_pts / field_nmax);
-            for iport = 1:n_portions
-                idx_start = (iport-1) * field_nmax + 1;
-                idx_end = min(iport * field_nmax, n_field_pts);
-                idx_range = idx_start:idx_end;
-
-                pt_portion = compoint(p_field, field_pts(idx_range, :), 'mindist', field_mindist);
-
-                % Calculate scattered field
-                e_portion = pt_portion(sig, ipol);
-                e_field(idx_range, :) = e_portion.e;
-
-                if mod(iport, 5) == 0 || iport == n_portions
-                    fprintf('        Portion %d/%d done\\n', iport, n_portions);
-                end
+        % Extract induced field for this polarization
+        if is_grid_based
+            % 4D: [ny, nx, nz, 3] or [ny, nx, 3, n_pol]
+            if size(e_induced_all, 4) == n_polarizations
+                e_induced_grid = e_induced_all(:, :, :, ipol);  % [ny, nx, 3]
+            else
+                e_induced_grid = e_induced_all;  % Single polarization
+            end
+        elseif ndims(e_induced_all) == 3
+            if size(e_induced_all, 3) == n_polarizations
+                e_induced = e_induced_all(:, :, ipol);  % [n_points, 3]
+            else
+                e_induced = e_induced_all;
             end
         else
-            % Calculate all at once
-            e_scattered = pt_field(sig, ipol);
-            e_field = e_scattered.e;
+            e_induced = e_induced_all;  % [n_points, 3]
         end
 
-        % Calculate incoming field for enhancement
-        e_inc = exc.field(pt_field, current_wavelength);
-        if iscell(e_inc)
-            e_incoming = e_inc{{ipol}}.e;
+        % Extract incoming field for this polarization
+        if is_grid_based
+            if ndims(e_incoming_all) == 4 && size(e_incoming_all, 4) == n_polarizations
+                e_incoming_grid = e_incoming_all(:, :, :, ipol);
+            else
+                e_incoming_grid = e_incoming_all;
+            end
+        elseif ndims(e_incoming_all) == 3 && size(e_incoming_all, 3) == n_polarizations
+            e_incoming = e_incoming_all(:, :, ipol);
         else
-            e_incoming = e_inc(ipol).e;
+            e_incoming = e_incoming_all;
         end
 
-        % Total field and enhancement
-        e_total = e_field + e_incoming;
-        E_inc_mag = sqrt(sum(abs(e_incoming).^2, 2));
-        E_tot_mag = sqrt(sum(abs(e_total).^2, 2));
-        enhancement = E_tot_mag ./ max(E_inc_mag, 1e-30);
+        % Calculate total field and enhancement
+        if is_grid_based
+            % Grid-based: direct 3D array operations
+            e_total_grid = e_induced_grid + e_incoming_grid;
+            E_inc_mag = sqrt(sum(abs(e_incoming_grid).^2, 3));
+            E_tot_mag = sqrt(sum(abs(e_total_grid).^2, 3));
+            enhancement_grid = E_tot_mag ./ max(E_inc_mag, 1e-30);
 
-        % Store results
-        field_entry = struct();
-        field_entry.wavelength = current_wavelength;
-        field_entry.wavelength_idx = field_wavelength_idx;
-        field_entry.polarization = ipol;
-        field_entry.E_scattered = reshape(e_field, [length(y_range), length(x_range), length(z_range), 3]);
-        field_entry.E_incoming = reshape(e_incoming, [length(y_range), length(x_range), length(z_range), 3]);
-        field_entry.E_total = reshape(e_total, [length(y_range), length(x_range), length(z_range), 3]);
-        field_entry.enhancement = reshape(enhancement, [length(y_range), length(x_range), length(z_range)]);
-        field_entry.max_enhancement = max(enhancement(:));
+            % Store results (already in grid form)
+            field_entry = struct();
+            field_entry.wavelength = current_wavelength;
+            field_entry.wavelength_idx = field_wavelength_idx;
+            field_entry.polarization = ipol;
+            field_entry.E_scattered = e_induced_grid;
+            field_entry.E_incoming = e_incoming_grid;
+            field_entry.E_total = e_total_grid;
+            field_entry.enhancement = enhancement_grid;
+            field_entry.max_enhancement = max(enhancement_grid(:));
+        else
+            % Point-based: need to map to grid
+            e_total = e_induced + e_incoming;
+            E_inc_mag = sqrt(sum(abs(e_incoming).^2, 2));
+            E_tot_mag = sqrt(sum(abs(e_total).^2, 2));
+            enhancement = E_tot_mag ./ max(E_inc_mag, 1e-30);
+
+            % Map points to grid using meshfield point positions
+            nx = length(x_range); ny = length(y_range); nz = length(z_range);
+            E_scattered_grid = NaN(ny, nx, nz, 3);
+            E_incoming_grid = NaN(ny, nx, nz, 3);
+            E_total_grid = NaN(ny, nx, nz, 3);
+            enhancement_grid = NaN(ny, nx, nz);
+
+            % Map each point to grid location
+            for ii = 1:emesh.pt.n
+                [~, ix] = min(abs(emesh.pt.pos(ii,1) - x_range));
+                [~, iy] = min(abs(emesh.pt.pos(ii,2) - y_range));
+                [~, iz] = min(abs(emesh.pt.pos(ii,3) - z_range));
+                E_scattered_grid(iy, ix, iz, :) = e_induced(ii, :);
+                E_incoming_grid(iy, ix, iz, :) = e_incoming(ii, :);
+                E_total_grid(iy, ix, iz, :) = e_total(ii, :);
+                enhancement_grid(iy, ix, iz) = enhancement(ii);
+            end
+
+            % Store results
+            field_entry = struct();
+            field_entry.wavelength = current_wavelength;
+            field_entry.wavelength_idx = field_wavelength_idx;
+            field_entry.polarization = ipol;
+            field_entry.E_scattered = E_scattered_grid;
+            field_entry.E_incoming = E_incoming_grid;
+            field_entry.E_total = E_total_grid;
+            field_entry.enhancement = enhancement_grid;
+            field_entry.max_enhancement = max(enhancement(:));
+        end
 
         field_data.fields{{end+1}} = field_entry;
 
