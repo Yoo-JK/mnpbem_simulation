@@ -84,7 +84,8 @@ class PostprocessManager:
 
             for field_data in data['fields']:
                 field_result = self.field_analyzer.analyze_field(field_data)
-                field_analysis.append(field_result)
+                if field_result is not None:
+                    field_analysis.append(field_result)
 
         # Step 3: Create visualizations (with unpolarized plots if applicable)
         if self.verbose:
@@ -226,24 +227,30 @@ class PostprocessManager:
             if field_analysis:
                 f.write("\nFIELD ANALYSIS\n")
                 f.write("-"*60 + "\n\n")
-                
+
                 for pol_idx, field_result in enumerate(field_analysis):
-                    f.write(f"Polarization {pol_idx + 1} (λ = {field_result['wavelength']:.1f} nm):\n")
-                    
-                    stats = field_result['enhancement_stats']
-                    f.write(f"  Enhancement Statistics:\n")
-                    f.write(f"    Max:       {stats['max']:.2f}\n")
-                    f.write(f"    Mean:      {stats['mean']:.2f}\n")
-                    f.write(f"    Median:    {stats['median']:.2f}\n")
-                    f.write(f"    95th %ile: {stats['percentile_95']:.2f}\n")
-                    
-                    if field_result['hotspots']:
+                    if field_result is None:
+                        continue
+
+                    wl = field_result.get('wavelength', 0)
+                    f.write(f"Polarization {pol_idx + 1} (λ = {wl:.1f} nm):\n")
+
+                    stats = field_result.get('enhancement_stats', {})
+                    if stats:
+                        f.write(f"  Enhancement Statistics:\n")
+                        f.write(f"    Max:       {stats.get('max', 0):.2f}\n")
+                        f.write(f"    Mean:      {stats.get('mean', 0):.2f}\n")
+                        f.write(f"    Median:    {stats.get('median', 0):.2f}\n")
+                        f.write(f"    95th %ile: {stats.get('percentile_95', 0):.2f}\n")
+
+                    hotspots = field_result.get('hotspots', [])
+                    if hotspots:
                         f.write(f"\n  Top Hotspots:\n")
-                        for hotspot in field_result['hotspots'][:5]:
+                        for hotspot in hotspots[:5]:
                             pos = hotspot['position']
                             f.write(f"    #{hotspot['rank']}: ({pos[0]:.1f}, {pos[1]:.1f}, {pos[2]:.1f}) nm "
                                   f"| E/E₀ = {hotspot['enhancement']:.2f}\n")
-                    
+
                     f.write("\n")
             
             # Write full spectrum data
@@ -342,13 +349,18 @@ class PostprocessManager:
             if field_analysis:
                 json_data['field_analysis_summary'] = []
                 for field_result in field_analysis:
+                    if field_result is None:
+                        continue
+
+                    stats = field_result.get('enhancement_stats', {})
+                    hotspots = field_result.get('hotspots', [])
                     summary = {
-                        'wavelength': field_result['wavelength'],
-                        'max_enhancement': field_result['enhancement_stats']['max'],
-                        'mean_enhancement': field_result['enhancement_stats']['mean'],
-                        'num_hotspots': len(field_result['hotspots']),
-                        'top_hotspot_position': field_result['hotspots'][0]['position'] if field_result['hotspots'] else None,
-                        'top_hotspot_enhancement': field_result['hotspots'][0]['enhancement'] if field_result['hotspots'] else None
+                        'wavelength': field_result.get('wavelength', 0),
+                        'max_enhancement': stats.get('max', 0),
+                        'mean_enhancement': stats.get('mean', 0),
+                        'num_hotspots': len(hotspots),
+                        'top_hotspot_position': hotspots[0]['position'] if hotspots else None,
+                        'top_hotspot_enhancement': hotspots[0]['enhancement'] if hotspots else None
                     }
                     json_data['field_analysis_summary'].append(summary)
         else:
