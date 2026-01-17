@@ -2664,8 +2664,19 @@ exit;
         For gap > 0 (capacitive coupling):
           - Removes brackets: [1, 2] → comparticle(..., 1, 2, op)
           - Each particle as separate surface
+
+        For n_spheres = 1 (single sphere):
+          - Gap is irrelevant, always use capacitive style (no brackets)
         """
         gap = self.config.get('gap', None)
+        n_spheres = self.config.get('n_spheres', 1)
+
+        # Single sphere: gap is irrelevant, always use capacitive style
+        if n_spheres == 1:
+            self._closed_args = "1"
+            return
+
+        # Multi-sphere: apply CTP logic based on gap
         use_conductive = gap is not None and gap <= 0.0
 
         # Find: closed = [1, 2];
