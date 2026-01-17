@@ -1604,13 +1604,9 @@ fprintf('Field grid: %d x %d x %d = %d points\\n', ...
 field_mindist = {field_mindist};  % Minimum distance from particle surface (nm)
 field_nmax = {field_nmax};        % Work off calculation in portions
 
-% Initialize field data structure
-field_data = struct();
-field_data.x = x_range;
-field_data.y = y_range;
-field_data.z = z_range;
-field_data.wavelengths = enei(unique_field_wavelength_indices);
-field_data.fields = {{}};
+% Initialize field data structure (same format as normal mode)
+field_data = struct([]);
+field_data_idx = 0;
 
 % Create meshfield object (handles mindist and nmax internally)
 fprintf('Creating meshfield for field calculation...\\n');
@@ -1698,16 +1694,20 @@ for iwl = 1:n_field_wavelengths
             E_tot_mag = sqrt(sum(abs(e_total_grid).^2, 3));
             enhancement_grid = E_tot_mag ./ max(E_inc_mag, 1e-30);
 
-            % Store results (already in grid form)
-            field_entry = struct();
-            field_entry.wavelength = current_wavelength;
-            field_entry.wavelength_idx = field_wavelength_idx;
-            field_entry.polarization = ipol;
-            field_entry.E_scattered = e_induced_grid;
-            field_entry.E_incoming = e_incoming_grid;
-            field_entry.E_total = e_total_grid;
-            field_entry.enhancement = enhancement_grid;
-            field_entry.max_enhancement = max(enhancement_grid(:));
+            % Store results (same format as normal mode)
+            field_data_idx = field_data_idx + 1;
+            field_data(field_data_idx).wavelength = current_wavelength;
+            field_data(field_data_idx).wavelength_idx = field_wavelength_idx;
+            field_data(field_data_idx).polarization = pol(ipol, :);
+            field_data(field_data_idx).polarization_idx = ipol;
+            field_data(field_data_idx).e_total = e_total_grid;
+            field_data(field_data_idx).e_induced = e_induced_grid;
+            field_data(field_data_idx).e_incoming = e_incoming_grid;
+            field_data(field_data_idx).enhancement = enhancement_grid;
+            field_data(field_data_idx).x_grid = x_range;
+            field_data(field_data_idx).y_grid = y_range;
+            field_data(field_data_idx).z_grid = z_range;
+            max_enh = max(enhancement_grid(:));
         else
             % Point-based: need to map to grid
             e_total = e_induced + e_incoming;
@@ -1733,21 +1733,23 @@ for iwl = 1:n_field_wavelengths
                 enhancement_grid(iy, ix, iz) = enhancement(ii);
             end
 
-            % Store results
-            field_entry = struct();
-            field_entry.wavelength = current_wavelength;
-            field_entry.wavelength_idx = field_wavelength_idx;
-            field_entry.polarization = ipol;
-            field_entry.E_scattered = E_scattered_grid;
-            field_entry.E_incoming = E_incoming_grid;
-            field_entry.E_total = E_total_grid;
-            field_entry.enhancement = enhancement_grid;
-            field_entry.max_enhancement = max(enhancement(:));
+            % Store results (same format as normal mode)
+            field_data_idx = field_data_idx + 1;
+            field_data(field_data_idx).wavelength = current_wavelength;
+            field_data(field_data_idx).wavelength_idx = field_wavelength_idx;
+            field_data(field_data_idx).polarization = pol(ipol, :);
+            field_data(field_data_idx).polarization_idx = ipol;
+            field_data(field_data_idx).e_total = E_total_grid;
+            field_data(field_data_idx).e_induced = E_scattered_grid;
+            field_data(field_data_idx).e_incoming = E_incoming_grid;
+            field_data(field_data_idx).enhancement = enhancement_grid;
+            field_data(field_data_idx).x_grid = x_range;
+            field_data(field_data_idx).y_grid = y_range;
+            field_data(field_data_idx).z_grid = z_range;
+            max_enh = max(enhancement(:));
         end
 
-        field_data.fields{{end+1}} = field_entry;
-
-        fprintf('      Max enhancement: %.2f\\n', field_entry.max_enhancement);
+        fprintf('      Max enhancement: %.2f\\n', max_enh);
     end
 
     field_time = toc(field_start);
