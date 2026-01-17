@@ -1606,6 +1606,7 @@ field_nmax = {field_nmax};        % Work off calculation in portions
 
 % Initialize field data structure (same format as normal mode)
 field_data = struct([]);
+surface_charge = struct([]);  % Initialize surface charge storage
 field_data_idx = 0;
 
 % Create meshfield object (handles mindist and nmax internally)
@@ -1750,6 +1751,43 @@ for iwl = 1:n_field_wavelengths
         end
 
         fprintf('      Max enhancement: %.2f\\n', max_enh);
+
+        %% SAVE SURFACE CHARGE (for plasmon mode analysis)
+        % Extract surface charge from BEM solution
+        try
+            if exist('sig', 'var') && ~isempty(sig)
+                % Get surface charge values
+                if iscell(sig.sig)
+                    charge_values_all = sig.sig{{1}};
+                else
+                    charge_values_all = sig.sig;
+                end
+
+                % Handle polarization dimension
+                if size(charge_values_all, 2) >= ipol
+                    charge_values = charge_values_all(:, ipol);
+                else
+                    charge_values = charge_values_all(:, 1);
+                end
+
+                % Store surface charge data
+                surface_charge(field_data_idx).wavelength = current_wavelength;
+                surface_charge(field_data_idx).wavelength_idx = field_wavelength_idx;
+                surface_charge(field_data_idx).polarization = pol(ipol, :);
+                surface_charge(field_data_idx).polarization_idx = ipol;
+                surface_charge(field_data_idx).vertices = p_field.verts;
+                surface_charge(field_data_idx).faces = p_field.faces;
+                surface_charge(field_data_idx).centroids = p_field.pos;
+                surface_charge(field_data_idx).normals = p_field.nvec;
+                surface_charge(field_data_idx).areas = p_field.area;
+                surface_charge(field_data_idx).charge = charge_values;
+
+                fprintf('      -> Stored surface_charge(%d): %d faces\\n', ...
+                        field_data_idx, size(p_field.faces, 1));
+            end
+        catch ME
+            fprintf('      -> Surface charge extraction failed: %s\\n', ME.message);
+        end
     end
 
     field_time = toc(field_start);
