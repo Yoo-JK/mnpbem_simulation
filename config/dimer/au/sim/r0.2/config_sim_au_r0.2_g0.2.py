@@ -164,7 +164,7 @@ args['field_hotspot_count'] = 10  # Number of hotspots to identify
 args['field_hotspot_min_distance'] = 3  # Minimum distance between hotspots (grid points)
 
 # ============================================================================
-, # OUTPUT SETTINGS
+# OUTPUT SETTINGS
 # ============================================================================
 
 # Output directory for results
