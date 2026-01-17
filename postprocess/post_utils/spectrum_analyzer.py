@@ -28,6 +28,32 @@ class SpectrumAnalyzer:
         """
         results = {}
 
+        # Check if spectrum analysis should be skipped
+        # Case 1: cross sections not calculated (field-only mode)
+        # Case 2: field_wavelength_idx is a list (user already specified wavelengths)
+        calculate_cross_sections = self.config.get('calculate_cross_sections', True)
+        field_wavelength_idx = self.config.get('field_wavelength_idx', 'middle')
+
+        skip_analysis = False
+        skip_reason = None
+
+        if not calculate_cross_sections:
+            skip_analysis = True
+            skip_reason = "calculate_cross_sections=False"
+        elif isinstance(field_wavelength_idx, list):
+            skip_analysis = True
+            skip_reason = f"field_wavelength_idx is a list ({len(field_wavelength_idx)} wavelengths specified)"
+
+        if skip_analysis:
+            if self.verbose:
+                print(f"  [!] {skip_reason}, skipping spectrum analysis")
+            results['field_only_mode'] = True
+            results['peak_wavelengths'] = []
+            results['peak_values'] = []
+            results['peak_indices'] = []
+            results['fwhm'] = []
+            return results
+
         # Find peaks for each polarization
         peak_wavelengths, peak_values, peak_indices = self._find_peaks(
             data['wavelength'],
