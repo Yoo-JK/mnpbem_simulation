@@ -271,25 +271,83 @@ class DataExporter:
         # Determine plane type and flatten data
         plane_type = self._determine_plane_type(x_grid, y_grid, z_grid)
 
-        # FIX: Convert each grid to numpy array individually before flattening
-        # Handle scalars, 0D arrays, and regular arrays separately
-        def to_flat_array(val):
+        # FIX: Convert grids to 1D arrays of unique values
+        def to_1d_array(val):
             if val is None:
                 return np.array([0])
             if not isinstance(val, np.ndarray):
                 return np.array([val])
             if val.ndim == 0:
                 return np.array([val.item()])
-            return val.flatten()
+            # Get unique values (sorted) for coordinate array
+            return np.unique(val)
 
-        x_flat = to_flat_array(x_grid)
-        y_flat = to_flat_array(y_grid)
-        z_flat = to_flat_array(z_grid)
-        enh_flat = to_flat_array(enhancement)
-        int_flat = to_flat_array(intensity) if intensity is not None else np.zeros_like(enh_flat)
+        x_coords = to_1d_array(x_grid)
+        y_coords = to_1d_array(y_grid)
+        z_coords = to_1d_array(z_grid)
+
+        # FIX: Create proper meshgrid based on plane type and enhancement shape
+        enh_arr = enhancement if isinstance(enhancement, np.ndarray) else np.array([[enhancement]])
+        if enh_arr.ndim == 1:
+            enh_arr = enh_arr.reshape(1, -1)
+
+        int_arr = intensity if intensity is not None else None
+        if int_arr is not None:
+            if not isinstance(int_arr, np.ndarray):
+                int_arr = np.array([[int_arr]])
+            if int_arr.ndim == 1:
+                int_arr = int_arr.reshape(1, -1)
+
+        # Determine which coordinates to use based on enhancement shape and plane type
+        n_total = enh_arr.size
+
+        if plane_type == 'xz':
+            # y is constant, x and z vary
+            if len(x_coords) * len(z_coords) == n_total:
+                X, Z = np.meshgrid(x_coords, z_coords)
+                Y = np.full_like(X, y_coords[0] if len(y_coords) > 0 else 0)
+            else:
+                # Fallback: just broadcast
+                X = np.broadcast_to(x_coords.reshape(1, -1), enh_arr.shape) if len(x_coords) > 1 else np.full(enh_arr.shape, x_coords[0])
+                Z = np.broadcast_to(z_coords.reshape(-1, 1), enh_arr.shape) if len(z_coords) > 1 else np.full(enh_arr.shape, z_coords[0])
+                Y = np.full(enh_arr.shape, y_coords[0] if len(y_coords) > 0 else 0)
+        elif plane_type == 'xy':
+            # z is constant, x and y vary
+            if len(x_coords) * len(y_coords) == n_total:
+                X, Y = np.meshgrid(x_coords, y_coords)
+                Z = np.full_like(X, z_coords[0] if len(z_coords) > 0 else 0)
+            else:
+                X = np.broadcast_to(x_coords.reshape(1, -1), enh_arr.shape) if len(x_coords) > 1 else np.full(enh_arr.shape, x_coords[0])
+                Y = np.broadcast_to(y_coords.reshape(-1, 1), enh_arr.shape) if len(y_coords) > 1 else np.full(enh_arr.shape, y_coords[0])
+                Z = np.full(enh_arr.shape, z_coords[0] if len(z_coords) > 0 else 0)
+        elif plane_type == 'yz':
+            # x is constant, y and z vary
+            if len(y_coords) * len(z_coords) == n_total:
+                Y, Z = np.meshgrid(y_coords, z_coords)
+                X = np.full_like(Y, x_coords[0] if len(x_coords) > 0 else 0)
+            else:
+                Y = np.broadcast_to(y_coords.reshape(1, -1), enh_arr.shape) if len(y_coords) > 1 else np.full(enh_arr.shape, y_coords[0])
+                Z = np.broadcast_to(z_coords.reshape(-1, 1), enh_arr.shape) if len(z_coords) > 1 else np.full(enh_arr.shape, z_coords[0])
+                X = np.full(enh_arr.shape, x_coords[0] if len(x_coords) > 0 else 0)
+        else:
+            # 3D or point - use original grids if they match, otherwise best effort
+            if isinstance(x_grid, np.ndarray) and x_grid.shape == enh_arr.shape:
+                X, Y, Z = x_grid, y_grid, z_grid
+            else:
+                # Create simple coordinate arrays
+                X = np.broadcast_to(x_coords.reshape(-1, 1, 1) if enh_arr.ndim == 3 else x_coords.reshape(1, -1), enh_arr.shape)
+                Y = np.broadcast_to(y_coords.reshape(1, -1, 1) if enh_arr.ndim == 3 else y_coords.reshape(-1, 1), enh_arr.shape)
+                Z = np.broadcast_to(z_coords.reshape(1, 1, -1) if enh_arr.ndim == 3 else np.array([[z_coords[0]]]), enh_arr.shape)
+
+        # Flatten all arrays
+        x_flat = X.flatten()
+        y_flat = Y.flatten()
+        z_flat = Z.flatten()
+        enh_flat = enh_arr.flatten()
+        int_flat = int_arr.flatten() if int_arr is not None else np.zeros_like(enh_flat)
 
         # Create header
-        grid_shape = enhancement.shape if isinstance(enhancement, np.ndarray) else (1, 1)
+        grid_shape = enh_arr.shape
         header_lines = [
             f'# Field Data - {description}',
             f'# Wavelength: {wavelength:.1f} nm',
