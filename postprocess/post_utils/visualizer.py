@@ -269,10 +269,11 @@ class Visualizer:
             if enhancement_file:
                 saved_files.extend(enhancement_file)
 
-            # Intensity plot
-            intensity_file = self._plot_field_intensity(field_data, pol_idx, wl_idx)
-            if intensity_file:
-                saved_files.extend(intensity_file)
+            # Intensity plot (skip if no intensity data)
+            if 'intensity' in field_data and field_data['intensity'] is not None:
+                intensity_file = self._plot_field_intensity(field_data, pol_idx, wl_idx)
+                if intensity_file:
+                    saved_files.extend(intensity_file)
 
             # Vector field plot (optional, for 2D slices)
             if self._is_2d_slice(field_data):
