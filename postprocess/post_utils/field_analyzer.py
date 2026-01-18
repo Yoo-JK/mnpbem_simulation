@@ -717,8 +717,7 @@ class FieldAnalyzer:
     def _get_cluster_spheres(self, config, geometry):
         """Get sphere boundaries for sphere cluster aggregate.
 
-        Always returns only the first sphere (center sphere at origin for N>=4,
-        or the first sphere for N=1~3) for consistent integration.
+        Returns all spheres in the cluster for integration.
         """
         n_spheres = config.get('n_spheres', 1)
         diameter = config.get('diameter', 50.0)
@@ -733,10 +732,8 @@ class FieldAnalyzer:
         # Convert to sphere list
         spheres = [(pos[0], pos[1], pos[2], radius) for pos in positions]
 
-        # Always use only the first sphere (center sphere for N>=4, first sphere for N<4)
-        spheres = [spheres[0]]
         if self.verbose:
-            print(f"    Using single sphere only (r={radius:.1f} nm)")
+            print(f"    Using all {len(spheres)} spheres (r={radius:.1f} nm)")
 
         return spheres
     
@@ -829,8 +826,7 @@ class FieldAnalyzer:
             diameter = config.get('diameter', 50.0)
             gap = config.get('gap', -0.1)
             f.write(f"  Total spheres in cluster: {n_spheres}\n")
-            if n_spheres >= 4:
-                f.write(f"  Integration target: CENTER SPHERE ONLY (at origin)\n")
+            f.write(f"  Integration target: ALL SPHERES\n")
             f.write(f"  Sphere diameter: {diameter:.1f} nm\n")
             f.write(f"  Gap: {gap:.3f} nm\n")
         
