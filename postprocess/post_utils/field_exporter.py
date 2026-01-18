@@ -285,33 +285,33 @@ class FieldExporter:
         y_grid = field_data['y_grid']
         z_grid = field_data['z_grid']
 
-        if not isinstance(x_grid, np.ndarray):
-            # Single point - convert to array
-            x_grid = np.array([[x_grid]])
-            y_grid = np.array([[y_grid]])
-            z_grid = np.array([[z_grid]])
-        elif x_grid.ndim == 0:
-            # 0D array - convert to 2D
-            x_grid = np.array([[x_grid.item()]])
-            y_grid = np.array([[y_grid.item()]])
-            z_grid = np.array([[z_grid.item()]])
-        elif x_grid.ndim == 1:
-            # 1D array - convert to 2D
-            x_grid = x_grid.reshape(1, -1)
-            y_grid = y_grid.reshape(1, -1)
-            z_grid = z_grid.reshape(1, -1)
-        
+        # FIX: Handle each grid individually - they may have different types/shapes
+        def to_2d_array(val):
+            if val is None:
+                return np.array([[0]])
+            if not isinstance(val, np.ndarray):
+                return np.array([[val]])
+            if val.ndim == 0:
+                return np.array([[val.item()]])
+            if val.ndim == 1:
+                return val.reshape(1, -1)
+            return val
+
+        x_grid = to_2d_array(x_grid)
+        y_grid = to_2d_array(y_grid)
+        z_grid = to_2d_array(z_grid)
+
         grid_info = {
             'shape': list(x_grid.shape),
             'x_range': [float(x_grid.min()), float(x_grid.max())],
             'y_range': [float(y_grid.min()), float(y_grid.max())],
             'z_range': [float(z_grid.min()), float(z_grid.max())],
         }
-        
+
         # Grid spacing
         if x_grid.ndim == 2 and x_grid.shape[1] > 1:
             grid_info['x_spacing'] = float(np.abs(x_grid[0, 1] - x_grid[0, 0]))
         if y_grid.ndim == 2 and y_grid.shape[0] > 1:
             grid_info['y_spacing'] = float(np.abs(y_grid[1, 0] - y_grid[0, 0]))
-        
+
         return grid_info
