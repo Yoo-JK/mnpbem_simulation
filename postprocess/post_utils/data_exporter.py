@@ -301,43 +301,66 @@ class DataExporter:
         # Determine which coordinates to use based on enhancement shape and plane type
         n_total = enh_arr.size
 
+        # Helper function to safely create coordinate grids matching enhancement shape
+        def make_coord_grid(coords, target_shape, is_row_varying):
+            """Create coordinate grid matching target shape.
+
+            is_row_varying: if True, coords vary along rows (axis 0), else along columns (axis 1)
+            """
+            if len(coords) == 1:
+                return np.full(target_shape, coords[0])
+
+            try:
+                if is_row_varying:
+                    # Coords vary along rows - reshape to column and broadcast
+                    reshaped = coords.reshape(-1, 1)
+                    return np.broadcast_to(reshaped, target_shape).copy()
+                else:
+                    # Coords vary along columns - reshape to row and broadcast
+                    reshaped = coords.reshape(1, -1)
+                    return np.broadcast_to(reshaped, target_shape).copy()
+            except ValueError:
+                # If broadcast fails, just tile/repeat to match size
+                repeated = np.tile(coords, (n_total // len(coords)) + 1)[:n_total]
+                return repeated.reshape(target_shape)
+
         if plane_type == 'xz':
             # y is constant, x and z vary
             if len(x_coords) * len(z_coords) == n_total:
                 X, Z = np.meshgrid(x_coords, z_coords)
-                Y = np.full_like(X, y_coords[0] if len(y_coords) > 0 else 0)
+                Y = np.full_like(X, y_coords[0] if len(y_coords) > 0 else 0, dtype=float)
             else:
-                # Fallback: just broadcast
-                X = np.broadcast_to(x_coords.reshape(1, -1), enh_arr.shape) if len(x_coords) > 1 else np.full(enh_arr.shape, x_coords[0])
-                Z = np.broadcast_to(z_coords.reshape(-1, 1), enh_arr.shape) if len(z_coords) > 1 else np.full(enh_arr.shape, z_coords[0])
-                Y = np.full(enh_arr.shape, y_coords[0] if len(y_coords) > 0 else 0)
+                # Fallback: use safe coordinate grid creation
+                X = make_coord_grid(x_coords, enh_arr.shape, is_row_varying=False)
+                Z = make_coord_grid(z_coords, enh_arr.shape, is_row_varying=True)
+                Y = np.full(enh_arr.shape, y_coords[0] if len(y_coords) > 0 else 0, dtype=float)
         elif plane_type == 'xy':
             # z is constant, x and y vary
             if len(x_coords) * len(y_coords) == n_total:
                 X, Y = np.meshgrid(x_coords, y_coords)
-                Z = np.full_like(X, z_coords[0] if len(z_coords) > 0 else 0)
+                Z = np.full_like(X, z_coords[0] if len(z_coords) > 0 else 0, dtype=float)
             else:
-                X = np.broadcast_to(x_coords.reshape(1, -1), enh_arr.shape) if len(x_coords) > 1 else np.full(enh_arr.shape, x_coords[0])
-                Y = np.broadcast_to(y_coords.reshape(-1, 1), enh_arr.shape) if len(y_coords) > 1 else np.full(enh_arr.shape, y_coords[0])
-                Z = np.full(enh_arr.shape, z_coords[0] if len(z_coords) > 0 else 0)
+                X = make_coord_grid(x_coords, enh_arr.shape, is_row_varying=False)
+                Y = make_coord_grid(y_coords, enh_arr.shape, is_row_varying=True)
+                Z = np.full(enh_arr.shape, z_coords[0] if len(z_coords) > 0 else 0, dtype=float)
         elif plane_type == 'yz':
             # x is constant, y and z vary
             if len(y_coords) * len(z_coords) == n_total:
                 Y, Z = np.meshgrid(y_coords, z_coords)
-                X = np.full_like(Y, x_coords[0] if len(x_coords) > 0 else 0)
+                X = np.full_like(Y, x_coords[0] if len(x_coords) > 0 else 0, dtype=float)
             else:
-                Y = np.broadcast_to(y_coords.reshape(1, -1), enh_arr.shape) if len(y_coords) > 1 else np.full(enh_arr.shape, y_coords[0])
-                Z = np.broadcast_to(z_coords.reshape(-1, 1), enh_arr.shape) if len(z_coords) > 1 else np.full(enh_arr.shape, z_coords[0])
-                X = np.full(enh_arr.shape, x_coords[0] if len(x_coords) > 0 else 0)
+                Y = make_coord_grid(y_coords, enh_arr.shape, is_row_varying=False)
+                Z = make_coord_grid(z_coords, enh_arr.shape, is_row_varying=True)
+                X = np.full(enh_arr.shape, x_coords[0] if len(x_coords) > 0 else 0, dtype=float)
         else:
             # 3D or point - use original grids if they match, otherwise best effort
             if isinstance(x_grid, np.ndarray) and x_grid.shape == enh_arr.shape:
-                X, Y, Z = x_grid, y_grid, z_grid
+                X, Y, Z = x_grid.copy(), y_grid.copy(), z_grid.copy()
             else:
-                # Create simple coordinate arrays
-                X = np.broadcast_to(x_coords.reshape(-1, 1, 1) if enh_arr.ndim == 3 else x_coords.reshape(1, -1), enh_arr.shape)
-                Y = np.broadcast_to(y_coords.reshape(1, -1, 1) if enh_arr.ndim == 3 else y_coords.reshape(-1, 1), enh_arr.shape)
-                Z = np.broadcast_to(z_coords.reshape(1, 1, -1) if enh_arr.ndim == 3 else np.array([[z_coords[0]]]), enh_arr.shape)
+                # Simple fallback: tile coordinates to match size
+                X = np.tile(x_coords, (n_total // len(x_coords)) + 1)[:n_total].reshape(enh_arr.shape)
+                Y = np.tile(y_coords, (n_total // len(y_coords)) + 1)[:n_total].reshape(enh_arr.shape)
+                Z = np.tile(z_coords, (n_total // len(z_coords)) + 1)[:n_total].reshape(enh_arr.shape)
 
         # Flatten all arrays
         x_flat = X.flatten()
