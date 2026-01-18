@@ -43,25 +43,30 @@ class FieldExporter:
         
         for i, (field_data, analysis) in enumerate(zip(field_data_list, field_analysis_list)):
             # FIX: Handle complex wavelength value
-            wl = field_data['wavelength']
+            wl = field_data.get('wavelength', 0)
             if np.iscomplexobj(wl):
                 wl = np.abs(wl)
 
+            # Handle polarization
+            pol = field_data.get('polarization')
+            if pol is not None and hasattr(pol, 'tolist'):
+                pol = pol.tolist()
+
             field_dict = {
                 'polarization_index': i + 1,
-                'polarization': field_data['polarization'].tolist() if hasattr(field_data['polarization'], 'tolist') else field_data['polarization'],
+                'polarization': pol,
                 'wavelength_nm': float(wl),
-                
+
                 # Grid information
                 'grid': self._extract_grid_info(field_data),
-                
-                # Analysis results
-                'analysis': analysis,
-                
+
+                # Analysis results (may be None)
+                'analysis': analysis if analysis is not None else {},
+
                 # Note about full field data
                 'note': 'Full field arrays (enhancement, intensity, E-field components) are in field_data.mat'
             }
-            
+
             json_data['fields'].append(field_dict)
         
         # Save to file
@@ -181,27 +186,34 @@ class FieldExporter:
     def _is_data_concentrated(self, data, threshold=0.8):
         """
         Check if data is concentrated in a small region (possible bug indicator).
-        
+
         Returns True if >80% of non-NaN values are in <20% of the grid.
         """
+        # Handle non-2D data
+        if data.ndim != 2:
+            return False
+
         # Count non-NaN, non-zero values
         valid_mask = np.isfinite(data) & (data > 0)
         n_valid = np.sum(valid_mask)
-        
+
         if n_valid == 0:
             return False
-        
+
         # Check concentration in corners (typical bug pattern)
         h, w = data.shape
+        if h < 5 or w < 5:
+            return False
+
         corner_size_h = h // 5
         corner_size_w = w // 5
-        
+
         # Count values in bottom-left corner
         corner_mask = valid_mask[:corner_size_h, :corner_size_w]
         n_corner = np.sum(corner_mask)
-        
+
         concentration_ratio = n_corner / n_valid
-        
+
         return concentration_ratio > threshold
     
     def _adaptive_downsample(self, data, x_grid, y_grid, z_grid, max_points=2500):
