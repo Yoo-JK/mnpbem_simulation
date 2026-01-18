@@ -235,11 +235,22 @@ class FieldAnalyzer:
         if enhancement.ndim == 0:
             enhancement = np.array([enhancement.item()])
         
+        # Ensure all grids are numpy arrays
         if not isinstance(x_grid, np.ndarray):
             x_grid = np.array([x_grid])
+        if not isinstance(y_grid, np.ndarray):
             y_grid = np.array([y_grid])
+        if not isinstance(z_grid, np.ndarray):
             z_grid = np.array([z_grid])
-        
+
+        # Handle 0D arrays
+        if x_grid.ndim == 0:
+            x_grid = np.array([x_grid.item()])
+        if y_grid.ndim == 0:
+            y_grid = np.array([y_grid.item()])
+        if z_grid.ndim == 0:
+            z_grid = np.array([z_grid.item()])
+
         if enhancement.ndim == 1:
             enhancement = enhancement.reshape(1, -1)
             x_grid = x_grid.reshape(1, -1) if x_grid.ndim == 1 else x_grid
