@@ -271,19 +271,22 @@ class DataExporter:
         # Determine plane type and flatten data
         plane_type = self._determine_plane_type(x_grid, y_grid, z_grid)
 
-        # Flatten grids and data
-        if isinstance(x_grid, np.ndarray):
-            x_flat = x_grid.flatten()
-            y_flat = y_grid.flatten()
-            z_flat = z_grid.flatten()
-            enh_flat = enhancement.flatten()
-            int_flat = intensity.flatten() if intensity is not None else np.zeros_like(enh_flat)
-        else:
-            x_flat = np.array([x_grid])
-            y_flat = np.array([y_grid])
-            z_flat = np.array([z_grid])
-            enh_flat = np.array([enhancement])
-            int_flat = np.array([intensity]) if intensity is not None else np.array([0])
+        # FIX: Convert each grid to numpy array individually before flattening
+        # Handle scalars, 0D arrays, and regular arrays separately
+        def to_flat_array(val):
+            if val is None:
+                return np.array([0])
+            if not isinstance(val, np.ndarray):
+                return np.array([val])
+            if val.ndim == 0:
+                return np.array([val.item()])
+            return val.flatten()
+
+        x_flat = to_flat_array(x_grid)
+        y_flat = to_flat_array(y_grid)
+        z_flat = to_flat_array(z_grid)
+        enh_flat = to_flat_array(enhancement)
+        int_flat = to_flat_array(intensity) if intensity is not None else np.zeros_like(enh_flat)
 
         # Create header
         grid_shape = enhancement.shape if isinstance(enhancement, np.ndarray) else (1, 1)
