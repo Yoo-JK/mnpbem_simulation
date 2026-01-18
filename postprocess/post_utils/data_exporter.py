@@ -61,8 +61,21 @@ class DataExporter:
         - spectra_all.txt (combined file)
         """
         exported_files = []
-        wavelength = data['wavelength']
-        n_pol = data['n_polarizations']
+        wavelength = data.get('wavelength')
+        n_pol = data.get('n_polarizations', 0)
+
+        # FIX: Skip spectrum export if no valid spectrum data (field-only mode)
+        extinction = data.get('extinction')
+        if wavelength is None or extinction is None:
+            return exported_files
+        if not isinstance(extinction, np.ndarray) or extinction.size == 0:
+            return exported_files
+        # Check if wavelength and extinction have compatible shapes
+        if isinstance(wavelength, np.ndarray) and len(wavelength) > 0:
+            if extinction.ndim == 1 and len(extinction) != len(wavelength):
+                return exported_files
+            elif extinction.ndim == 2 and extinction.shape[0] != len(wavelength):
+                return exported_files
 
         # Get polarization labels
         polarizations = data.get('polarizations', self.config.get('polarizations', []))
