@@ -945,19 +945,28 @@ class Visualizer:
 
     def _determine_plane(self, x_grid, y_grid, z_grid):
         """Determine which 2D plane is being plotted."""
+        # Ensure all grids are numpy arrays
         if not isinstance(x_grid, np.ndarray):
             x_grid = np.array([[x_grid]])
+        if not isinstance(y_grid, np.ndarray):
             y_grid = np.array([[y_grid]])
+        if not isinstance(z_grid, np.ndarray):
             z_grid = np.array([[z_grid]])
-        
+
+        # Handle 0D arrays
         if x_grid.ndim == 0:
             x_grid = np.array([[x_grid.item()]])
+        if y_grid.ndim == 0:
             y_grid = np.array([[y_grid.item()]])
+        if z_grid.ndim == 0:
             z_grid = np.array([[z_grid.item()]])
-        
+
+        # Handle 1D arrays
         if x_grid.ndim == 1:
             x_grid = x_grid.reshape(1, -1)
+        if y_grid.ndim == 1:
             y_grid = y_grid.reshape(1, -1)
+        if z_grid.ndim == 1:
             z_grid = z_grid.reshape(1, -1)
         
         x_constant = len(np.unique(x_grid)) == 1
