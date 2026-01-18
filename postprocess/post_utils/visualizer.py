@@ -41,13 +41,19 @@ class Visualizer:
         """Create all visualization plots."""
         plots_created = []
 
-        # Spectrum plots
-        if 'wavelength' in data and 'extinction' in data:
+        # Spectrum plots (skip if no cross section data)
+        has_spectrum_data = (
+            'wavelength' in data and
+            'extinction' in data and
+            data['extinction'] is not None and
+            data['extinction'].size > 0
+        )
+        if has_spectrum_data:
             spectrum_file = self.plot_spectrum(data)
             plots_created.append(spectrum_file)
 
         # Polarization comparison
-        if 'wavelength' in data and data['extinction'].shape[1] > 1:
+        if has_spectrum_data and data['extinction'].shape[1] > 1:
             pol_file = self.plot_polarization_comparison(data)
             plots_created.append(pol_file)
 
