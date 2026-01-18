@@ -241,10 +241,10 @@ class FieldAnalyzer:
             z_grid = np.array([z_grid])
         
         if enhancement.ndim == 1:
-            enhancement = enhancement.reshape(1, 1)
-            x_grid = x_grid.reshape(1, 1) if x_grid.ndim == 1 else x_grid
-            y_grid = y_grid.reshape(1, 1) if y_grid.ndim == 1 else y_grid
-            z_grid = z_grid.reshape(1, 1) if z_grid.ndim == 1 else z_grid
+            enhancement = enhancement.reshape(1, -1)
+            x_grid = x_grid.reshape(1, -1) if x_grid.ndim == 1 else x_grid
+            y_grid = y_grid.reshape(1, -1) if y_grid.ndim == 1 else y_grid
+            z_grid = z_grid.reshape(1, -1) if z_grid.ndim == 1 else z_grid
 
         # Calculate grid spacing (assuming uniform)
         if enhancement.ndim == 2:
