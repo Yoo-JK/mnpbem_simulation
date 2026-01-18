@@ -489,6 +489,17 @@ class Visualizer:
         if e_total is None:
             return []
 
+        # FIX: Skip vector plot if e_total doesn't have expected 3D shape for vector components
+        # e_total should be (rows, cols, 3) for x, y, z components
+        if not isinstance(e_total, np.ndarray):
+            return []
+        if e_total.ndim < 3:
+            # e_total is 2D or less - cannot extract vector components
+            return []
+        if e_total.shape[-1] < 3:
+            # Last dimension should have at least 3 components (x, y, z)
+            return []
+
         x_grid = field_data['x_grid']
         y_grid = field_data['y_grid']
         z_grid = field_data['z_grid']
