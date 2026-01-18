@@ -555,17 +555,22 @@ class FieldAnalyzer:
             
             return self._empty_integration_result(method)
         
-        # Calculate sums (center sphere only, no per-sphere division needed)
+        # Calculate sums
         enh_sum = float(np.sum(enh_in_region))
         enh_mean = float(np.mean(enh_in_region))
+
+        # Per-sphere statistics
+        enh_per_sphere = enh_sum / n_spheres if n_spheres > 0 else 0.0
 
         if self.verbose:
             print(f"        Enhancement sum: {enh_sum:.3f}")
             print(f"        Enhancement mean: {enh_mean:.3f}")
+            print(f"        Per-sphere: {enh_per_sphere:.3f}")
 
         result = {
             'enhancement_sum': enh_sum,
             'enhancement_mean': enh_mean,
+            'enhancement_per_sphere': enh_per_sphere,
             'valid_points': int(np.sum(final_mask)),
         }
 
@@ -574,12 +579,15 @@ class FieldAnalyzer:
             int_in_region = intensity[final_mask]
             int_sum = float(np.sum(int_in_region))
             int_mean = float(np.mean(int_in_region))
+            int_per_sphere = int_sum / n_spheres if n_spheres > 0 else 0.0
 
             result['intensity_sum'] = int_sum
             result['intensity_mean'] = int_mean
+            result['intensity_per_sphere'] = int_per_sphere
         else:
             result['intensity_sum'] = None
             result['intensity_mean'] = None
+            result['intensity_per_sphere'] = None
 
         # Calculate energy ratio: sum(|E|²) / sum(|E0|²)
         # This is different from intensity_sum which is sum(|E/E0|²)
@@ -601,25 +609,31 @@ class FieldAnalyzer:
 
                 if e0_sq_sum > 1e-20:  # Avoid division by zero
                     energy_ratio = e_sq_sum / e0_sq_sum
+                    energy_ratio_per_sphere = energy_ratio / n_spheres if n_spheres > 0 else 0.0
                 else:
                     energy_ratio = None
+                    energy_ratio_per_sphere = None
                     e_sq_sum = None
                     e0_sq_sum = None
 
                 result['e_sq_sum'] = e_sq_sum
                 result['e0_sq_sum'] = e0_sq_sum
                 result['energy_ratio'] = energy_ratio
+                result['energy_ratio_per_sphere'] = energy_ratio_per_sphere
 
                 if self.verbose:
                     print(f"        Energy ratio: sum(|E|²)/sum(|E0|²) = {energy_ratio:.6f}")
+                    print(f"        Per-sphere energy ratio: {energy_ratio_per_sphere:.6f}")
             else:
                 result['e_sq_sum'] = None
                 result['e0_sq_sum'] = None
                 result['energy_ratio'] = None
+                result['energy_ratio_per_sphere'] = None
         else:
             result['e_sq_sum'] = None
             result['e0_sq_sum'] = None
             result['energy_ratio'] = None
+            result['energy_ratio_per_sphere'] = None
 
         if method == 'conservative':
             result['excluded_outliers'] = excluded_outliers
@@ -717,8 +731,7 @@ class FieldAnalyzer:
     def _get_cluster_spheres(self, config, geometry):
         """Get sphere boundaries for sphere cluster aggregate.
 
-        Always returns only the first sphere (center sphere at origin for N>=4,
-        or the first sphere for N=1~3) for consistent integration.
+        Returns all spheres in the cluster for integration.
         """
         n_spheres = config.get('n_spheres', 1)
         diameter = config.get('diameter', 50.0)
@@ -733,10 +746,8 @@ class FieldAnalyzer:
         # Convert to sphere list
         spheres = [(pos[0], pos[1], pos[2], radius) for pos in positions]
 
-        # Always use only the first sphere (center sphere for N>=4, first sphere for N<4)
-        spheres = [spheres[0]]
         if self.verbose:
-            print(f"    Using single sphere only (r={radius:.1f} nm)")
+            print(f"    Using all {len(spheres)} spheres (r={radius:.1f} nm)")
 
         return spheres
     
@@ -779,11 +790,14 @@ class FieldAnalyzer:
         result = {
             'enhancement_sum': 0.0,
             'enhancement_mean': 0.0,
+            'enhancement_per_sphere': 0.0,
             'intensity_sum': 0.0,
             'intensity_mean': 0.0,
+            'intensity_per_sphere': 0.0,
             'e_sq_sum': None,
             'e0_sq_sum': None,
             'energy_ratio': None,
+            'energy_ratio_per_sphere': None,
             'valid_points': 0,
         }
         if method == 'conservative':
@@ -829,8 +843,7 @@ class FieldAnalyzer:
             diameter = config.get('diameter', 50.0)
             gap = config.get('gap', -0.1)
             f.write(f"  Total spheres in cluster: {n_spheres}\n")
-            if n_spheres >= 4:
-                f.write(f"  Integration target: CENTER SPHERE ONLY (at origin)\n")
+            f.write(f"  Integration target: ALL SPHERES\n")
             f.write(f"  Sphere diameter: {diameter:.1f} nm\n")
             f.write(f"  Gap: {gap:.3f} nm\n")
         
@@ -873,30 +886,38 @@ class FieldAnalyzer:
                         f.write(f"Integration depth: {depth:.1f} nm (interior)\n")
                         f.write(f"  Number of spheres: {n_spheres}\n\n")
                         
-                        # Strict filtering results (center sphere only)
+                        # Strict filtering results
                         strict = depth_data['strict']
                         f.write("  Strict filtering (Inf only):\n")
                         f.write(f"    Enhancement sum:         {strict['enhancement_sum']:15.3f}  [sum(|E/E0|)]\n")
+                        f.write(f"    Enhancement per sphere:  {strict['enhancement_per_sphere']:15.3f}\n")
                         if strict['intensity_sum'] is not None:
                             f.write(f"    Intensity sum:           {strict['intensity_sum']:15.3f}  [sum(|E/E0|^2)]\n")
+                            f.write(f"    Intensity per sphere:    {strict['intensity_per_sphere']:15.3f}\n")
                         # Energy ratio: sum(|E|²)/sum(|E0|²)
                         if strict.get('energy_ratio') is not None:
                             f.write(f"    Energy ratio:            {strict['energy_ratio']:15.6f}  [sum(|E|^2)/sum(|E0|^2)]\n")
+                            if strict.get('energy_ratio_per_sphere') is not None:
+                                f.write(f"    Energy ratio per sphere: {strict['energy_ratio_per_sphere']:15.6f}\n")
                         f.write(f"    Valid points in region:  {strict['valid_points']:15d}\n")
                         f.write(f"    Mean enhancement:        {strict['enhancement_mean']:15.3f}\n")
                         if strict['intensity_mean'] is not None:
                             f.write(f"    Mean intensity:          {strict['intensity_mean']:15.3f}\n")
                         f.write("\n")
 
-                        # Conservative filtering results (center sphere only)
+                        # Conservative filtering results
                         cons = depth_data['conservative']
                         f.write("  Conservative filtering (Inf + outliers):\n")
                         f.write(f"    Enhancement sum:         {cons['enhancement_sum']:15.3f}  [sum(|E/E0|)]\n")
+                        f.write(f"    Enhancement per sphere:  {cons['enhancement_per_sphere']:15.3f}\n")
                         if cons['intensity_sum'] is not None:
                             f.write(f"    Intensity sum:           {cons['intensity_sum']:15.3f}  [sum(|E/E0|^2)]\n")
+                            f.write(f"    Intensity per sphere:    {cons['intensity_per_sphere']:15.3f}\n")
                         # Energy ratio: sum(|E|²)/sum(|E0|²)
                         if cons.get('energy_ratio') is not None:
                             f.write(f"    Energy ratio:            {cons['energy_ratio']:15.6f}  [sum(|E|^2)/sum(|E0|^2)]\n")
+                            if cons.get('energy_ratio_per_sphere') is not None:
+                                f.write(f"    Energy ratio per sphere: {cons['energy_ratio_per_sphere']:15.6f}\n")
                         f.write(f"    Valid points in region:  {cons['valid_points']:15d}\n")
                         f.write(f"    Excluded outliers:       {cons['excluded_outliers']:15d}\n")
                         f.write(f"    Mean enhancement:        {cons['enhancement_mean']:15.3f}\n")
