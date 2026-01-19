@@ -82,6 +82,10 @@ Available structures:
     - 'dimer_core_shell_cube'  : Two core-shell cubes
     - 'advanced_dimer_cube'    : Multi-shell dimer with transformations
 
+  Advanced Single:
+    - 'advanced_monomer_cube'  : Single cube with multi-shell support
+                                 (identical geometry to advanced_dimer_cube)
+
 Geometry parameters by structure:
 
   Sphere:
@@ -129,6 +133,14 @@ Geometry parameters by structure:
     args['shell_thickness'] = 5  # nm
     args['gap'] = 10  # nm
     args['rounding'] = 0.25
+
+  Advanced monomer cube (single cube, multi-shell):
+    args['core_size'] = 30  # nm
+    args['shell_layers'] = [5, 3]  # [inner→outer] shell thicknesses
+    args['materials'] = ['gold', 'silver', 'agcl']  # [core, inner, outer]
+    args['roundings'] = [0.25, 0.2, 0.15]  # per-layer rounding
+    # OR use single rounding: args['rounding'] = 0.25
+    # Identical geometry to one cube in advanced_dimer_cube
 
 Mesh density guidelines:
   - Spheres, ellipsoids, rods: 144 (recommended)
@@ -615,7 +627,24 @@ args['refractive_index_paths'] = {
 }
 
 --------------------------------------------------------------------------------
-Example 8: DDA with custom refractive indices
+Example 8: Advanced monomer cube (single cube, same geometry as dimer)
+--------------------------------------------------------------------------------
+
+args = {}
+args['structure_name'] = 'au_ag_agcl_monomer'
+args['structure'] = 'advanced_monomer_cube'
+args['core_size'] = 30
+args['shell_layers'] = [5, 3]
+args['materials'] = ['gold', 'silver', 'agcl']  # [core, inner, outer]
+args['roundings'] = [0.25, 0.2, 0.15]  # Progressive sharpening
+args['mesh_density'] = 12
+args['medium'] = 'water'
+
+# Use this to test single cube before running dimer simulations
+# Geometry is 100% identical to one cube in advanced_dimer_cube
+
+--------------------------------------------------------------------------------
+Example 9: DDA with custom refractive indices
 --------------------------------------------------------------------------------
 
 args = {}
