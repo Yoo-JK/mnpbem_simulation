@@ -232,6 +232,68 @@ args['rotation_angle'] = 0  # degrees, particle 2 rotation around z-axis
 # args['rotation_angle'] = 0
 
 # ============================================================================
+# SECTION 4.1: ADVANCED MONOMER CUBE (Single Cube)
+# ============================================================================
+# Single cube version of advanced_dimer_cube with IDENTICAL geometry
+# Use this to test single cube behavior before dimer simulations
+# Features:
+#   - Multiple shell layers (Au@Ag@AgCl, etc.)
+#   - Per-layer rounding control
+#   - 100% same geometry as one cube in advanced_dimer_cube
+
+# args['structure'] = 'advanced_monomer_cube'
+
+# --- Core and Shells (inner → outer) ---
+# args['core_size'] = 30  # Au core size (nm)
+# args['shell_layers'] = [5, 3]  # [inner→outer] shell thickness (nm)
+# Example: [5, 3] means:
+#   - First shell (inner): 5 nm
+#   - Second shell (outer): 3 nm
+# For single shell: [5]
+# For triple shell: [5, 3, 2]
+
+# --- Materials (inner → outer) ---
+# args['materials'] = ['gold', 'silver', 'agcl']  # [core, inner_shell, outer_shell]
+# Order: core → inner shells → outer shells
+# Length must equal: 1 (core) + number of shells
+
+# --- Per-Layer Rounding (inner → outer) ---
+# args['roundings'] = [0.25, 0.2, 0.15]  # [core, inner, outer]
+# Order matches materials: [core, shell1, shell2, ...]
+# OR use single value for all layers:
+# args['rounding'] = 0.2
+
+# --- Mesh Density ---
+# args['mesh_density'] = 3  # element size in nm (smaller = finer mesh)
+# Recommended: 2-5 nm for cubes
+
+# --- Example Configurations ---
+
+# Example 1: Simple Au@Ag monomer
+# args['structure'] = 'advanced_monomer_cube'
+# args['core_size'] = 40
+# args['shell_layers'] = [5]
+# args['materials'] = ['gold', 'silver']
+# args['rounding'] = 0.2  # same for all
+# args['mesh_density'] = 3
+
+# Example 2: Au@Ag@AgCl triple layer
+# args['structure'] = 'advanced_monomer_cube'
+# args['core_size'] = 30
+# args['shell_layers'] = [5, 3]
+# args['materials'] = ['gold', 'silver', 'agcl']
+# args['roundings'] = [0.25, 0.2, 0.15]
+# args['mesh_density'] = 3
+
+# Example 3: Single Au cube (no shell) - for baseline testing
+# args['structure'] = 'advanced_monomer_cube'
+# args['core_size'] = 40
+# args['shell_layers'] = []  # no shells
+# args['materials'] = ['gold']  # core only
+# args['rounding'] = 0.25
+# args['mesh_density'] = 3
+
+# ============================================================================
 # SECTION 4.5: SPHERE CLUSTER AGGREGATE
 # ============================================================================
 # Compact close-packed sphere clusters (1-7 spheres in contact)
@@ -364,6 +426,9 @@ args['use_substrate'] = False
 # Advanced Dimer Cube:
 #   core_size, shell_layers, materials, roundings (or rounding),
 #   gap, offset, tilt_angle, tilt_axis, rotation_angle, mesh_density
+#
+# Advanced Monomer Cube (single cube, same geometry as dimer):
+#   core_size, shell_layers, materials, roundings (or rounding), mesh_density
 
 # Sphere Cluster Aggregate:
 #   n_spheres (1-7), diameter, gap, mesh_density
@@ -400,9 +465,9 @@ args['use_substrate'] = False
 # 4. Material Order:
 #    - Built-in structures: always [shell, core] or [outer→inner]
 #    - DDA: matches mat_type indices [1→N]
-#    - Advanced dimer: [core, inner→outer]
+#    - Advanced dimer/monomer cube: [core, inner→outer]
 #
-# 5. Transformation Order (advanced_dimer_cube):
+# 5. Transformation Order (advanced_dimer_cube only):
 #    - Design tip: think "rotate flat, then tilt up, then move to position"
 #    - For T-shape: tilt_angle=90, rotation_angle=0
 #    - For twisted: use both tilt and rotation
