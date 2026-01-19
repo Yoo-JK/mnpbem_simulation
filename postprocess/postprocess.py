@@ -252,47 +252,71 @@ class PostprocessManager:
                                   f"| E/E₀ = {hotspot['enhancement']:.2f}\n")
 
                     f.write("\n")
-            
-            # Write full spectrum data
-            f.write("\nFULL SPECTRUM DATA\n")
-            f.write("-"*60 + "\n\n")
-            f.write("Wavelength(nm)\t")
-            
-            n_pol = data['extinction'].shape[1]
-            for i in range(n_pol):
-                f.write(f"Ext_pol{i+1}\t")
-            for i in range(n_pol):
-                f.write(f"Sca_pol{i+1}\t")
-            for i in range(n_pol):
-                f.write(f"Abs_pol{i+1}")
-                if i < n_pol - 1:
-                    f.write("\t")
-            f.write("\n")
-            
-            for i, wl in enumerate(data['wavelength']):
-                f.write(f"{wl:.2f}\t")
-                for pol in range(n_pol):
-                    f.write(f"{data['extinction'][i, pol]:.6e}\t")
-                for pol in range(n_pol):
-                    f.write(f"{data['scattering'][i, pol]:.6e}\t")
-                for pol in range(n_pol):
-                    f.write(f"{data['absorption'][i, pol]:.6e}")
-                    if pol < n_pol - 1:
+
+            # Write full spectrum data - FIX: check if extinction data exists
+            extinction = data.get('extinction')
+            has_spectrum = (
+                extinction is not None and
+                isinstance(extinction, np.ndarray) and
+                extinction.size > 0
+            )
+
+            if has_spectrum:
+                f.write("\nFULL SPECTRUM DATA\n")
+                f.write("-"*60 + "\n\n")
+                f.write("Wavelength(nm)\t")
+
+                n_pol = data['extinction'].shape[1] if data['extinction'].ndim == 2 else 1
+                for i in range(n_pol):
+                    f.write(f"Ext_pol{i+1}\t")
+                for i in range(n_pol):
+                    f.write(f"Sca_pol{i+1}\t")
+                for i in range(n_pol):
+                    f.write(f"Abs_pol{i+1}")
+                    if i < n_pol - 1:
                         f.write("\t")
                 f.write("\n")
+
+                for i, wl in enumerate(data['wavelength']):
+                    f.write(f"{wl:.2f}\t")
+                    for pol in range(n_pol):
+                        f.write(f"{data['extinction'][i, pol]:.6e}\t")
+                    for pol in range(n_pol):
+                        f.write(f"{data['scattering'][i, pol]:.6e}\t")
+                    for pol in range(n_pol):
+                        f.write(f"{data['absorption'][i, pol]:.6e}")
+                        if pol < n_pol - 1:
+                            f.write("\t")
+                    f.write("\n")
+            else:
+                f.write("\n[No spectrum data - field-only mode]\n")
         
         if self.verbose:
             print(f"  Saved: {filepath}")
     
     def _save_csv(self, data, analysis):
         """Save processed data as CSV file."""
+        # FIX: Check if spectrum data exists
+        extinction = data.get('extinction')
+        has_spectrum = (
+            extinction is not None and
+            isinstance(extinction, np.ndarray) and
+            extinction.size > 0
+        )
+
+        if not has_spectrum:
+            # Skip CSV export in field-only mode
+            if self.verbose:
+                print("  [Skipped CSV - no spectrum data]")
+            return
+
         filepath = os.path.join(self.output_dir, 'simulation_processed.csv')
-        
+
         with open(filepath, 'w', newline='') as f:
             writer = csv.writer(f)
-            
+
             # Header
-            n_pol = data['extinction'].shape[1]
+            n_pol = data['extinction'].shape[1] if data['extinction'].ndim == 2 else 1
             header = ['Wavelength(nm)']
             for i in range(n_pol):
                 header.append(f'Extinction_pol{i+1}')
@@ -300,9 +324,9 @@ class PostprocessManager:
                 header.append(f'Scattering_pol{i+1}')
             for i in range(n_pol):
                 header.append(f'Absorption_pol{i+1}')
-            
+
             writer.writerow(header)
-            
+
             # Data
             for i, wl in enumerate(data['wavelength']):
                 row = [wl]
@@ -313,20 +337,30 @@ class PostprocessManager:
                 for pol in range(n_pol):
                     row.append(data['absorption'][i, pol])
                 writer.writerow(row)
-        
+
         if self.verbose:
             print(f"  Saved: {filepath}")
     
     def _save_json(self, data, analysis, field_analysis):
         """Save processed data as JSON file."""
         filepath = os.path.join(self.output_dir, 'simulation_processed.json')
-        
+
+        # FIX: Helper to safely convert to list
+        def safe_tolist(arr):
+            if arr is None:
+                return []
+            if isinstance(arr, np.ndarray):
+                if arr.size == 0:
+                    return []
+                return arr.tolist()
+            return arr
+
         # Prepare JSON-serializable data
         json_data = {
-            'wavelength': data['wavelength'].tolist(),
-            'extinction': data['extinction'].tolist(),
-            'scattering': data['scattering'].tolist(),
-            'absorption': data['absorption'].tolist(),
+            'wavelength': safe_tolist(data.get('wavelength')),
+            'extinction': safe_tolist(data.get('extinction')),
+            'scattering': safe_tolist(data.get('scattering')),
+            'absorption': safe_tolist(data.get('absorption')),
             'analysis': {}
         }
         
