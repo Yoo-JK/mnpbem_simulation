@@ -38,7 +38,7 @@ args['mnpbem_path'] = os.path.join(Path.home(), 'workspace/MNPBEM')
 # SIMULATION NAME (IDENTIFIER)
 # ============================================================================
 # Give your simulation a descriptive name
-args['simulation_name'] = 'au_r0.2_g0.2_mesh24'
+args['simulation_name'] = 'ag_r0.2'
 
 # ============================================================================
 # SIMULATION TYPE
@@ -136,7 +136,7 @@ args['relcutoff'] = 3
 args['calculate_cross_sections'] = True
 
 # Calculate electric field distribution
-args['calculate_fields'] = True
+args['calculate_fields'] = False
 
 # Field calculation region (only used if calculate_fields=True)
 args['field_region'] = {
@@ -173,14 +173,14 @@ args['output_dir'] = os.path.join(Path.home(), 'research/mnpbem/dimer')
 # Data file save formats (for postprocessing)
 # Available: 'txt', 'csv', 'json'
 # Note: MATLAB always saves 'txt' and 'mat' formats automatically
-args['output_formats'] = ['txt']
+args['output_formats'] = ['txt', 'csv', 'json']
 
 # Generate plots
 args['save_plots'] = True
 
 # Plot formats
 # Available: 'png', 'pdf', 'eps', 'svg'
-args['plot_format'] = ['png']
+args['plot_format'] = ['png', 'pdf']
 
 # Plot DPI (resolution)
 args['plot_dpi'] = 300
