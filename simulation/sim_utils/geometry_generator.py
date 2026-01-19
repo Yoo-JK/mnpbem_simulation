@@ -1943,6 +1943,7 @@ class GeometryGenerator:
             'core_shell_rod': self._core_shell_rod,
             'dimer_core_shell_cube': self._dimer_core_shell_cube,
             'advanced_dimer_cube': self._advanced_dimer_cube,
+            'advanced_monomer_cube': self._advanced_monomer_cube,
             'sphere_cluster_aggregate': self._sphere_cluster_aggregate,
             'from_shape': self._from_shape,
         }
@@ -2244,7 +2245,7 @@ fprintf('  Total boundaries after cover layers: %d\\n', length(particles));
         materials = self.config.get('materials', [])
         n_layers = len(materials)
 
-        if structure == 'advanced_dimer_cube':
+        if structure in ['advanced_dimer_cube', 'advanced_monomer_cube']:
             shell_layers = self.config.get('shell_layers', [])
             mesh = self.config.get('mesh_density', 12)
 
@@ -2255,11 +2256,13 @@ fprintf('  Total boundaries after cover layers: %d\\n', length(particles));
                 roundings = [rounding] * n_layers
             outermost_rounding = roundings[outermost_idx] if outermost_idx < len(roundings) else 0.25
 
+            structure_name = 'advanced_monomer_cube' if structure == 'advanced_monomer_cube' else 'advanced_dimer_cube'
+
             if n_layers == 1:
                 # Single material (no shell) - apply cover to all cubes
                 core_size = self.config.get('core_size', 30)
                 code = f"""
-% Apply nonlocal cover layers to advanced_dimer_cube (single material: {outermost_metal})
+% Apply nonlocal cover layers to {structure_name} (single material: {outermost_metal})
 d_cover = {d};
 particles_with_cover = {{}};
 
@@ -2299,7 +2302,7 @@ mesh = {mesh};
 outermost_rounding = {outermost_rounding};
 particles_with_cover = {{}};
 
-n_particles = length(particles) / n_layers;  % number of particles (2 for dimer)
+n_particles = length(particles) / n_layers;  % number of particles (1 for monomer, 2 for dimer)
 
 for p_idx = 1:n_particles
     base_idx = (p_idx - 1) * n_layers;
@@ -3099,6 +3102,76 @@ shift_distance = {shift_distance};
                 code += f"p2_shell{shell_num} = shift(p2_shell{shell_num}, [shift_distance, 0, 0]);\n"
                 code += f"p2_shell{shell_num} = shift(p2_shell{shell_num}, [{offset[0]}, {offset[1]}, {offset[2]}]);\n"
                 particles_list.append(f"p2_shell{shell_num}")
+
+        particles_str = ", ".join(particles_list)
+        code += f"\n%% Combine all particles\nparticles = {{{particles_str}}};\n"
+
+        return code
+
+    def _advanced_monomer_cube(self):
+        """Generate advanced monomer cube with full control.
+
+        Single cube version of advanced_dimer_cube with identical geometry.
+        Supports multi-layer core-shell structure with per-material rounding.
+
+        Mesh mode: mesh_density = element size in nm
+        All layers get the same element size, resulting in consistent mesh quality.
+        """
+        core_size = self.config.get('core_size', 30)
+        shell_layers = self.config.get('shell_layers', [])
+        materials = self.config.get('materials', [])
+        element_size = self.config.get('mesh_density', 2.0)
+
+        if len(materials) != 1 + len(shell_layers):
+            raise ValueError(
+                f"materials length ({len(materials)}) must equal "
+                f"1 (core) + {len(shell_layers)} (shells) = {1 + len(shell_layers)}"
+            )
+
+        if 'roundings' in self.config:
+            roundings = self.config.get('roundings')
+            if len(roundings) != len(materials):
+                raise ValueError(
+                    f"roundings length ({len(roundings)}) must equal "
+                    f"materials length ({len(materials)})"
+                )
+        elif 'rounding' in self.config:
+            single_rounding = self.config.get('rounding', 0.25)
+            roundings = [single_rounding] * len(materials)
+        else:
+            roundings = [0.25] * len(materials)
+
+        sizes = [core_size]
+        for thickness in shell_layers:
+            sizes.append(sizes[-1] + 2 * thickness)
+
+        # Calculate mesh subdivision for each layer based on element size
+        mesh_subdivs = [self._element_size_to_n_cube(element_size, size) for size in sizes]
+
+        if self.verbose:
+            print(f"  Advanced monomer cube mesh (element_size={element_size}nm):")
+            for i, (size, mesh) in enumerate(zip(sizes, mesh_subdivs)):
+                layer_name = "core" if i == 0 else f"shell{i}"
+                print(f"    {layer_name}: size={size}nm → n={mesh}")
+
+        code = f"""
+%% Geometry: Advanced Monomer Cube
+%% element_size={element_size}nm (uniform element size across all layers)
+
+"""
+
+        particles_list = []
+
+        for i, (size, material, rounding, mesh) in enumerate(zip(sizes, materials, roundings, mesh_subdivs)):
+            if i == 0:
+                code += f"% Core: {material} (n={mesh}, ~{size/mesh:.2f}nm elements)\n"
+                code += f"p_core = tricube({mesh}, {size}, 'e', {rounding});\n"
+                particles_list.append("p_core")
+            else:
+                shell_num = i
+                code += f"\n% Shell {shell_num}: {material} (n={mesh}, ~{size/mesh:.2f}nm elements)\n"
+                code += f"p_shell{shell_num} = tricube({mesh}, {size}, 'e', {rounding});\n"
+                particles_list.append(f"p_shell{shell_num}")
 
         particles_str = ", ".join(particles_list)
         code += f"\n%% Combine all particles\nparticles = {{{particles_str}}};\n"
