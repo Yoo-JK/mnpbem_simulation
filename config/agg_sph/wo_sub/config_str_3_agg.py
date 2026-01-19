@@ -19,7 +19,7 @@ args['structure'] = 'sphere_cluster_aggregate'
 # --- Cluster Parameters ---
 args['n_spheres'] = 3  # Change to 1, 2, 3, 4, 5, 6, or 7
 args['diameter'] = 50  # nm
-args['gap'] = 2  # negative = 0.1nm overlap (conduction contact)
+args['gap'] = 3  # negative = 0.1nm overlap (conduction contact)
 args['mesh_density'] = 5  # standard for spheres
 
 # Structure type: N=5 → Pentagon (3 bottom, 2 top)
