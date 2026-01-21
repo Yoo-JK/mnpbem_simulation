@@ -542,6 +542,7 @@ end
             'core_shell_rod': self._inout_core_shell_single,
             'dimer_core_shell_cube': self._inout_dimer_core_shell,
             'advanced_dimer_cube': self._inout_advanced_dimer_cube,
+            'connected_dimer_cube': self._inout_single,  # Single fused mesh
             'advanced_monomer_cube': self._inout_advanced_monomer_cube,
             'from_shape': self._inout_from_shape
         }
@@ -878,6 +879,7 @@ end
             'dimer_core_shell_cube': "closed = [1, 2, 3, 4];",
             'sphere_cluster_aggregate': self._closed_sphere_cluster_aggregate,
             'advanced_dimer_cube': self._closed_advanced_dimer_cube,
+            'connected_dimer_cube': "closed = 1;",  # Single fused mesh
             'advanced_monomer_cube': self._closed_advanced_monomer_cube,
             'from_shape': self._closed_from_shape
         }
