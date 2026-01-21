@@ -1,7 +1,7 @@
 import os
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.colors import LogNorm
+from matplotlib.colors import LogNorm, PowerNorm
 from matplotlib.patches import Circle, Rectangle
 from .geometry_cross_section import GeometryCrossSection
 
@@ -1758,9 +1758,14 @@ class Visualizer:
         Create surface charge distribution plots for plasmon mode analysis.
 
         Generates:
-        - 3D surface mesh with charge colormap
-        - 6-view 2D projections (+x, -x, +y, -y, +z, -z)
+        - 3D surface mesh with charge colormap (3 normalization methods)
+        - 8-view 2D projections (+x, -x, +y, -y, +z, -z, gap+, gap-)
         - Moments analysis (dipole, quadrupole)
+
+        Normalization methods:
+        - linear: charge / max(|charge|)
+        - percentile: charge / percentile(95), with clipping
+        - power: PowerNorm(gamma=0.2) for enhanced visibility
         """
         if 'surface_charge' not in data or not data['surface_charge']:
             if self.verbose:
@@ -1777,6 +1782,7 @@ class Visualizer:
             vertices = sc_data['vertices']
             faces = sc_data['faces']
             centroids = sc_data['centroids']
+            normals = sc_data.get('normals')
             charge = sc_data['charge']
 
             # Skip if critical data is missing
@@ -1791,17 +1797,24 @@ class Visualizer:
             # Calculate moments
             moments = self._calculate_moments(centroids, charge, sc_data.get('areas'))
 
-            # Create 3D plot
-            files_3d = self._plot_surface_charge_3d(
-                vertices, faces, charge, wavelength, polarization, pol_idx, moments
-            )
-            saved_files.extend(files_3d)
+            # Detect gap facing faces for 8-view plot
+            gap_faces = self._detect_gap_facing_faces(centroids, normals)
 
-            # Create 6-view 2D projections
-            files_2d = self._plot_surface_charge_2d_6views(
-                centroids, charge, wavelength, polarization, pol_idx, moments
-            )
-            saved_files.extend(files_2d)
+            # Create 3D plots (3 normalization methods)
+            for norm_method in ['linear', 'percentile', 'power']:
+                files_3d = self._plot_surface_charge_3d(
+                    vertices, faces, charge, wavelength, polarization,
+                    pol_idx, moments, norm_method
+                )
+                saved_files.extend(files_3d)
+
+            # Create 8-view 2D projections (3 normalization methods)
+            for norm_method in ['linear', 'percentile', 'power']:
+                files_2d = self._plot_surface_charge_2d_8views(
+                    centroids, charge, wavelength, polarization,
+                    pol_idx, moments, gap_faces, norm_method
+                )
+                saved_files.extend(files_2d)
 
         return saved_files
 
@@ -1852,8 +1865,13 @@ class Visualizer:
             'center': center,
         }
 
-    def _plot_surface_charge_3d(self, vertices, faces, charge, wavelength, polarization, pol_idx, moments):
-        """Create 3D surface mesh plot with charge colormap."""
+    def _plot_surface_charge_3d(self, vertices, faces, charge, wavelength, polarization,
+                                  pol_idx, moments, norm_method='linear'):
+        """Create 3D surface mesh plot with charge colormap.
+
+        Args:
+            norm_method: 'linear', 'percentile', or 'power'
+        """
         from mpl_toolkits.mplot3d import Axes3D
         from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
@@ -1873,15 +1891,18 @@ class Visualizer:
         if np.iscomplexobj(charge_plot):
             charge_plot = np.real(charge_plot)
 
-        # Normalize charge for colormap
-        charge_max = np.max(np.abs(charge_plot))
-        charge_normalized = charge_plot / (charge_max + 1e-10)
+        # Normalize charge based on method
+        charge_normalized, norm, vmin, vmax = self._normalize_charge(charge_plot, norm_method)
 
         # Create 3D polygon collection
         poly = Poly3DCollection(verts_tri, alpha=0.9, edgecolor='k', linewidth=0.3)
         poly.set_array(charge_normalized)
         poly.set_cmap('RdBu_r')  # Red = positive, Blue = negative
-        poly.set_clim(-1, 1)
+
+        if norm is not None:
+            poly.set_norm(norm)
+        else:
+            poly.set_clim(vmin, vmax)
 
         ax.add_collection3d(poly)
 
@@ -1896,8 +1917,9 @@ class Visualizer:
 
         # Format polarization label
         pol_str = self._format_vector_label(polarization)
+        norm_label = {'linear': 'Linear', 'percentile': 'Percentile (95%)', 'power': 'Power (γ=0.2)'}
         ax.set_title(f'Surface Charge Distribution (Plasmon Mode)\n'
-                     f'λ = {wavelength:.1f} nm, Polarization = {pol_str}',
+                     f'λ = {wavelength:.1f} nm, Pol = {pol_str}, Norm: {norm_label[norm_method]}',
                      fontsize=12, fontweight='bold')
 
         # Add colorbar
@@ -1911,50 +1933,52 @@ class Visualizer:
                  fontsize=10, verticalalignment='top',
                  bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
 
-        # Equal aspect ratio
-        ax.set_box_aspect([1, 1, 1])
+        # Equal aspect ratio - use actual data ranges for proper scaling
+        x_range = vertices[:, 0].max() - vertices[:, 0].min()
+        y_range = vertices[:, 1].max() - vertices[:, 1].min()
+        z_range = vertices[:, 2].max() - vertices[:, 2].min()
+        max_range = max(x_range, y_range, z_range)
+        # Normalize to max_range to maintain proportions
+        ax.set_box_aspect([x_range / max_range, y_range / max_range, z_range / max_range])
 
         plt.tight_layout()
 
-        # Save
-        base_filename = f'surface_charge_3d_pol{pol_idx}_lambda{wavelength:.0f}nm'
+        # Save with normalization method in filename
+        base_filename = f'surface_charge_3d_pol{pol_idx}_lambda{wavelength:.0f}nm_{norm_method}'
         saved = self._save_figure(fig, base_filename)
         plt.close(fig)
 
         return saved
 
-    def _plot_surface_charge_2d_6views(self, centroids, charge, wavelength, polarization, pol_idx, moments):
-        """Create 6-view 2D projections (+x, -x, +y, -y, +z, -z)."""
-        fig, axes = plt.subplots(2, 3, figsize=(18, 12))
+    def _plot_surface_charge_2d_8views(self, centroids, charge, wavelength, polarization,
+                                        pol_idx, moments, gap_faces, norm_method='linear'):
+        """Create 8-view 2D projections (+x, -x, +y, -y, +z, -z, gap+, gap-).
+
+        Args:
+            gap_faces: dict with 'particle1' and 'particle2' face indices for gap-facing surfaces
+            norm_method: 'linear', 'percentile', or 'power'
+        """
+        fig, axes = plt.subplots(2, 4, figsize=(24, 12))
 
         # Convert complex charge to real (MNPBEM returns complex surface charge)
         if np.iscomplexobj(charge):
             charge = np.real(charge)
 
-        # Normalize charge for colormap
-        charge_max = np.max(np.abs(charge))
-        charge_normalized = charge / (charge_max + 1e-10)
+        # Normalize charge based on method
+        charge_normalized, norm, vmin, vmax = self._normalize_charge(charge, norm_method)
 
-        # Define views: (view_name, axis_indices for projection, view_angle)
-        views = [
-            ('+X view', (1, 2), centroids[:, 0].max()),  # Looking from +x
-            ('-X view', (1, 2), centroids[:, 0].min()),  # Looking from -x
-            ('+Y view', (0, 2), centroids[:, 1].max()),  # Looking from +y
-            ('-Y view', (0, 2), centroids[:, 1].min()),  # Looking from -y
-            ('+Z view', (0, 1), centroids[:, 2].max()),  # Looking from +z (top)
-            ('-Z view', (0, 1), centroids[:, 2].min()),  # Looking from -z (bottom)
+        # Define standard 6 views: (view_name, axis_indices for projection)
+        standard_views = [
+            ('+X view', (1, 2), 'y (nm)', 'z (nm)'),
+            ('-X view', (1, 2), 'y (nm)', 'z (nm)'),
+            ('+Y view', (0, 2), 'x (nm)', 'z (nm)'),
+            ('-Y view', (0, 2), 'x (nm)', 'z (nm)'),
+            ('+Z view', (0, 1), 'x (nm)', 'y (nm)'),
+            ('-Z view', (0, 1), 'x (nm)', 'y (nm)'),
         ]
 
-        axis_labels = [
-            ('y (nm)', 'z (nm)'),
-            ('y (nm)', 'z (nm)'),
-            ('x (nm)', 'z (nm)'),
-            ('x (nm)', 'z (nm)'),
-            ('x (nm)', 'y (nm)'),
-            ('x (nm)', 'y (nm)'),
-        ]
-
-        for idx, ((view_name, axes_idx, _), (xlabel, ylabel)) in enumerate(zip(views, axis_labels)):
+        # Plot standard 6 views
+        for idx, (view_name, axes_idx, xlabel, ylabel) in enumerate(standard_views):
             ax = axes.flat[idx]
 
             # Project to 2D
@@ -1962,8 +1986,12 @@ class Visualizer:
             y_proj = centroids[:, axes_idx[1]]
 
             # Scatter plot with charge colormap
-            scatter = ax.scatter(x_proj, y_proj, c=charge_normalized, cmap='RdBu_r',
-                                s=50, vmin=-1, vmax=1, edgecolors='k', linewidth=0.3)
+            if norm is not None:
+                scatter = ax.scatter(x_proj, y_proj, c=charge_normalized, cmap='RdBu_r',
+                                    s=50, norm=norm, edgecolors='k', linewidth=0.3)
+            else:
+                scatter = ax.scatter(x_proj, y_proj, c=charge_normalized, cmap='RdBu_r',
+                                    s=50, vmin=vmin, vmax=vmax, edgecolors='k', linewidth=0.3)
 
             ax.set_xlabel(xlabel, fontsize=10)
             ax.set_ylabel(ylabel, fontsize=10)
@@ -1971,16 +1999,52 @@ class Visualizer:
             ax.set_aspect('equal')
             ax.grid(True, alpha=0.3)
 
+        # Plot Gap views (indices 6 and 7)
+        gap_view_configs = [
+            ('Gap+ (P1→Gap)', gap_faces.get('particle1', []), (1, 2), 'y (nm)', 'z (nm)'),
+            ('Gap- (P2→Gap)', gap_faces.get('particle2', []), (1, 2), 'y (nm)', 'z (nm)'),
+        ]
+
+        for idx, (view_name, face_indices, axes_idx, xlabel, ylabel) in enumerate(gap_view_configs):
+            ax = axes.flat[6 + idx]
+
+            if len(face_indices) > 0:
+                # Filter centroids and charge for gap-facing faces
+                gap_centroids = centroids[face_indices]
+                gap_charge = charge_normalized[face_indices]
+
+                # Project to 2D
+                x_proj = gap_centroids[:, axes_idx[0]]
+                y_proj = gap_centroids[:, axes_idx[1]]
+
+                # Scatter plot
+                if norm is not None:
+                    scatter = ax.scatter(x_proj, y_proj, c=gap_charge, cmap='RdBu_r',
+                                        s=80, norm=norm, edgecolors='k', linewidth=0.3)
+                else:
+                    scatter = ax.scatter(x_proj, y_proj, c=gap_charge, cmap='RdBu_r',
+                                        s=80, vmin=vmin, vmax=vmax, edgecolors='k', linewidth=0.3)
+            else:
+                ax.text(0.5, 0.5, 'No gap faces\ndetected', ha='center', va='center',
+                       transform=ax.transAxes, fontsize=12, color='gray')
+
+            ax.set_xlabel(xlabel, fontsize=10)
+            ax.set_ylabel(ylabel, fontsize=10)
+            ax.set_title(view_name, fontsize=11, fontweight='bold', color='darkred')
+            ax.set_aspect('equal')
+            ax.grid(True, alpha=0.3)
+
         # Add colorbar
         fig.subplots_adjust(right=0.92)
-        cbar_ax = fig.add_axes([0.94, 0.15, 0.015, 0.7])
+        cbar_ax = fig.add_axes([0.94, 0.15, 0.012, 0.7])
         cbar = fig.colorbar(scatter, cax=cbar_ax)
         cbar.set_label('Normalized Charge', fontsize=11)
 
         # Overall title
         pol_str = self._format_vector_label(polarization)
-        fig.suptitle(f'Surface Charge Distribution - 6 Views\n'
-                     f'λ = {wavelength:.1f} nm, Pol = {pol_str}',
+        norm_label = {'linear': 'Linear', 'percentile': 'Percentile (95%)', 'power': 'Power (γ=0.2)'}
+        fig.suptitle(f'Surface Charge Distribution - 8 Views\n'
+                     f'λ = {wavelength:.1f} nm, Pol = {pol_str}, Norm: {norm_label[norm_method]}',
                      fontsize=13, fontweight='bold')
 
         # Add moments info
@@ -1992,12 +2056,104 @@ class Visualizer:
 
         plt.tight_layout(rect=[0, 0.05, 0.92, 0.96])
 
-        # Save
-        base_filename = f'surface_charge_6views_pol{pol_idx}_lambda{wavelength:.0f}nm'
+        # Save with normalization method in filename
+        base_filename = f'surface_charge_8views_pol{pol_idx}_lambda{wavelength:.0f}nm_{norm_method}'
         saved = self._save_figure(fig, base_filename)
         plt.close(fig)
 
         return saved
+
+    def _normalize_charge(self, charge, method='linear'):
+        """
+        Normalize surface charge using different methods.
+
+        Args:
+            charge: Real-valued charge array
+            method: 'linear', 'percentile', or 'power'
+
+        Returns:
+            tuple: (charge_normalized, norm_object, vmin, vmax)
+                - For linear/percentile: norm_object is None, use vmin/vmax
+                - For power: norm_object is PowerNorm, vmin/vmax are None
+        """
+        if method == 'linear':
+            # Standard linear normalization: charge / max(|charge|)
+            charge_max = np.max(np.abs(charge))
+            charge_normalized = charge / (charge_max + 1e-10)
+            return charge_normalized, None, -1, 1
+
+        elif method == 'percentile':
+            # Percentile-based normalization: use 95th percentile as max
+            # Values above 95th percentile are clipped to ±1 (still colored)
+            percentile_95 = np.percentile(np.abs(charge), 95)
+            if percentile_95 < 1e-10:
+                percentile_95 = np.max(np.abs(charge))
+            charge_normalized = charge / (percentile_95 + 1e-10)
+            # Clip to [-1, 1] so gap regions (above 95th percentile) show as max color
+            charge_normalized = np.clip(charge_normalized, -1, 1)
+            return charge_normalized, None, -1, 1
+
+        elif method == 'power':
+            # Power normalization: enhances visibility of small values
+            # gamma < 1 compresses large values and expands small values
+            charge_max = np.max(np.abs(charge))
+            charge_normalized = charge / (charge_max + 1e-10)
+            # PowerNorm requires positive values, so we handle sign separately
+            # Use symmetric power scaling: sign(x) * |x|^gamma
+            gamma = 0.2
+            charge_power = np.sign(charge_normalized) * np.abs(charge_normalized) ** gamma
+            # PowerNorm for colorbar (applied to already power-transformed data)
+            return charge_power, None, -1, 1
+
+        else:
+            raise ValueError(f"Unknown normalization method: {method}")
+
+    def _detect_gap_facing_faces(self, centroids, normals):
+        """
+        Detect faces that are facing the gap region in a dimer structure.
+
+        Gap direction is assumed to be along x-axis (standard dimer configuration).
+        - Particle 1: located at x < 0, gap-facing surface has normal ≈ [+1, 0, 0]
+        - Particle 2: located at x > 0, gap-facing surface has normal ≈ [-1, 0, 0]
+
+        Args:
+            centroids: Face centroids (N x 3)
+            normals: Face normal vectors (N x 3), can be None
+
+        Returns:
+            dict: {'particle1': indices, 'particle2': indices}
+        """
+        if normals is None:
+            # Cannot detect without normals
+            return {'particle1': [], 'particle2': []}
+
+        # Find the gap center (approximately at x=0 for symmetric dimer)
+        x_coords = centroids[:, 0]
+        x_min, x_max = x_coords.min(), x_coords.max()
+        gap_center_x = (x_min + x_max) / 2
+
+        # Threshold for considering a face as "gap-facing"
+        # Normal should be pointing towards the gap (dot product with gap direction)
+        normal_threshold = 0.5  # cos(60°) - face normal within 60° of gap direction
+
+        # Gap direction vectors
+        gap_dir_p1 = np.array([1, 0, 0])   # Particle 1 faces +x (towards gap)
+        gap_dir_p2 = np.array([-1, 0, 0])  # Particle 2 faces -x (towards gap)
+
+        # Normalize normals
+        normals_normalized = normals / (np.linalg.norm(normals, axis=1, keepdims=True) + 1e-10)
+
+        # Particle 1: x < gap_center and normal pointing towards +x
+        p1_mask = (x_coords < gap_center_x) & (np.dot(normals_normalized, gap_dir_p1) > normal_threshold)
+
+        # Particle 2: x > gap_center and normal pointing towards -x
+        p2_mask = (x_coords > gap_center_x) & (np.dot(normals_normalized, gap_dir_p2) > normal_threshold)
+
+        # Get indices
+        p1_indices = np.where(p1_mask)[0]
+        p2_indices = np.where(p2_mask)[0]
+
+        return {'particle1': p1_indices, 'particle2': p2_indices}
 
     def _process_faces_for_plotting(self, faces):
         """
