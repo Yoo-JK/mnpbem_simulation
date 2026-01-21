@@ -1811,7 +1811,7 @@ class Visualizer:
             # Create 8-view 2D projections (3 normalization methods)
             for norm_method in ['linear', 'percentile', 'power']:
                 files_2d = self._plot_surface_charge_2d_8views(
-                    centroids, charge, wavelength, polarization,
+                    centroids, normals, charge, wavelength, polarization,
                     pol_idx, moments, gap_faces, norm_method
                 )
                 saved_files.extend(files_2d)
@@ -1950,15 +1950,30 @@ class Visualizer:
 
         return saved
 
-    def _plot_surface_charge_2d_8views(self, centroids, charge, wavelength, polarization,
+    def _plot_surface_charge_2d_8views(self, centroids, normals, charge, wavelength, polarization,
                                         pol_idx, moments, gap_faces, norm_method='linear'):
         """Create 8-view 2D projections (+x, -x, +y, -y, +z, -z, gap+, gap-).
 
         Args:
+            centroids: Face centroids (N x 3)
+            normals: Face normal vectors (N x 3), can be None
+            charge: Surface charge values (N,)
+            wavelength: Wavelength in nm
+            polarization: Polarization vector
+            pol_idx: Polarization index
+            moments: Dipole and quadrupole moments dict
             gap_faces: dict with 'particle1' and 'particle2' face indices for gap-facing surfaces
             norm_method: 'linear', 'percentile', or 'power'
         """
-        fig, axes = plt.subplots(2, 4, figsize=(24, 12))
+        # Create figure with GridSpec for different subplot heights
+        # Row 0 (height=1): +X, -X
+        # Row 1 (height=2): +Y, -Y, +Z, -Z  (larger for better visualization)
+        # Row 2 (height=1): Gap+, Gap-
+        from matplotlib.gridspec import GridSpec
+
+        fig = plt.figure(figsize=(24, 14))
+        gs = GridSpec(3, 4, figure=fig, height_ratios=[1, 2, 1],
+                     hspace=0.25, wspace=0.3)
 
         # Convert complex charge to real (MNPBEM returns complex surface charge)
         if np.iscomplexobj(charge):
@@ -1967,31 +1982,44 @@ class Visualizer:
         # Normalize charge based on method
         charge_normalized, norm, vmin, vmax = self._normalize_charge(charge, norm_method)
 
-        # Define standard 6 views: (view_name, axis_indices for projection)
+        # Define standard 6 views: (view_name, direction, GridSpec position, axis_indices, labels)
+        # GridSpec positions: (row, col) for 3x4 grid with height_ratios=[1, 2, 1]
         standard_views = [
-            ('+X view', (1, 2), 'y (nm)', 'z (nm)'),
-            ('-X view', (1, 2), 'y (nm)', 'z (nm)'),
-            ('+Y view', (0, 2), 'x (nm)', 'z (nm)'),
-            ('-Y view', (0, 2), 'x (nm)', 'z (nm)'),
-            ('+Z view', (0, 1), 'x (nm)', 'y (nm)'),
-            ('-Z view', (0, 1), 'x (nm)', 'y (nm)'),
+            ('+X view', 'x+', (0, 0), (1, 2), 'y (nm)', 'z (nm)'),  # Row 0: small height
+            ('-X view', 'x-', (0, 1), (1, 2), 'y (nm)', 'z (nm)'),  # Row 0: small height
+            ('+Y view', 'y+', (1, 0), (0, 2), 'x (nm)', 'z (nm)'),  # Row 1: large height
+            ('-Y view', 'y-', (1, 1), (0, 2), 'x (nm)', 'z (nm)'),  # Row 1: large height
+            ('+Z view', 'z+', (1, 2), (0, 1), 'x (nm)', 'y (nm)'),  # Row 1: large height
+            ('-Z view', 'z-', (1, 3), (0, 1), 'x (nm)', 'y (nm)'),  # Row 1: large height
         ]
 
         # Plot standard 6 views
-        for idx, (view_name, axes_idx, xlabel, ylabel) in enumerate(standard_views):
-            ax = axes.flat[idx]
+        for view_name, direction, gs_pos, axes_idx, xlabel, ylabel in standard_views:
+            ax = fig.add_subplot(gs[gs_pos[0], gs_pos[1]])
 
-            # Project to 2D
-            x_proj = centroids[:, axes_idx[0]]
-            y_proj = centroids[:, axes_idx[1]]
+            # Filter outer surface faces for this view direction
+            outer_indices = self._detect_outer_surface_faces(centroids, normals, direction)
 
-            # Scatter plot with charge colormap
-            if norm is not None:
-                scatter = ax.scatter(x_proj, y_proj, c=charge_normalized, cmap='RdBu_r',
-                                    s=50, norm=norm, edgecolors='k', linewidth=0.3)
+            if len(outer_indices) > 0:
+                # Get filtered centroids and charge
+                filtered_centroids = centroids[outer_indices]
+                filtered_charge = charge_normalized[outer_indices]
+
+                # Project to 2D
+                x_proj = filtered_centroids[:, axes_idx[0]]
+                y_proj = filtered_centroids[:, axes_idx[1]]
+
+                # Scatter plot with charge colormap
+                if norm is not None:
+                    scatter = ax.scatter(x_proj, y_proj, c=filtered_charge, cmap='RdBu_r',
+                                        s=50, norm=norm, edgecolors='k', linewidth=0.3)
+                else:
+                    scatter = ax.scatter(x_proj, y_proj, c=filtered_charge, cmap='RdBu_r',
+                                        s=50, vmin=vmin, vmax=vmax, edgecolors='k', linewidth=0.3)
             else:
-                scatter = ax.scatter(x_proj, y_proj, c=charge_normalized, cmap='RdBu_r',
-                                    s=50, vmin=vmin, vmax=vmax, edgecolors='k', linewidth=0.3)
+                # No faces detected - show warning
+                ax.text(0.5, 0.5, 'No outer surface\nfaces detected', ha='center', va='center',
+                       transform=ax.transAxes, fontsize=12, color='gray')
 
             ax.set_xlabel(xlabel, fontsize=10)
             ax.set_ylabel(ylabel, fontsize=10)
@@ -1999,14 +2027,15 @@ class Visualizer:
             ax.set_aspect('equal')
             ax.grid(True, alpha=0.3)
 
-        # Plot Gap views (indices 6 and 7)
+        # Plot Gap views in Row 2 (small height)
+        # GridSpec positions: (row, col)
         gap_view_configs = [
-            ('Gap+ (P1→Gap)', gap_faces.get('particle1', []), (1, 2), 'y (nm)', 'z (nm)'),
-            ('Gap- (P2→Gap)', gap_faces.get('particle2', []), (1, 2), 'y (nm)', 'z (nm)'),
+            ('Gap+ (P1→Gap)', gap_faces.get('particle1', []), (2, 0), (1, 2), 'y (nm)', 'z (nm)'),
+            ('Gap- (P2→Gap)', gap_faces.get('particle2', []), (2, 1), (1, 2), 'y (nm)', 'z (nm)'),
         ]
 
-        for idx, (view_name, face_indices, axes_idx, xlabel, ylabel) in enumerate(gap_view_configs):
-            ax = axes.flat[6 + idx]
+        for view_name, face_indices, gs_pos, axes_idx, xlabel, ylabel in gap_view_configs:
+            ax = fig.add_subplot(gs[gs_pos[0], gs_pos[1]])
 
             if len(face_indices) > 0:
                 # Filter centroids and charge for gap-facing faces
@@ -2154,6 +2183,86 @@ class Visualizer:
         p2_indices = np.where(p2_mask)[0]
 
         return {'particle1': p1_indices, 'particle2': p2_indices}
+
+    def _detect_outer_surface_faces(self, centroids, normals, direction, position_threshold=0.5):
+        """
+        Detect faces on the outer surface for a given viewing direction.
+        Uses the same approach as gap view: position + normal vector filtering.
+
+        Args:
+            centroids: Face centroids (N x 3)
+            normals: Face normal vectors (N x 3), can be None
+            direction: 'x+', 'x-', 'y+', 'y-', 'z+', 'z-'
+            position_threshold: Distance threshold in nm from the extreme surface (default: 0.5 nm)
+
+        Returns:
+            np.ndarray: Indices of outer surface faces
+        """
+        if normals is None:
+            # Without normals, use position-only filtering
+            return self._detect_outer_surface_position_only(centroids, direction, position_threshold)
+
+        # Configuration for each direction
+        direction_config = {
+            'x+': (0, np.array([1, 0, 0]), 1),   # axis=0, normal=[1,0,0], max side
+            'x-': (0, np.array([-1, 0, 0]), -1), # axis=0, normal=[-1,0,0], min side
+            'y+': (1, np.array([0, 1, 0]), 1),
+            'y-': (1, np.array([0, -1, 0]), -1),
+            'z+': (2, np.array([0, 0, 1]), 1),
+            'z-': (2, np.array([0, 0, -1]), -1),
+        }
+
+        if direction not in direction_config:
+            raise ValueError(f"Invalid direction: {direction}")
+
+        axis, normal_dir, sign = direction_config[direction]
+        coords = centroids[:, axis]
+
+        # Threshold for considering a face as "outer surface"
+        normal_threshold = 0.5  # cos(60°) - same as gap view
+
+        # Normalize normals
+        normals_normalized = normals / (np.linalg.norm(normals, axis=1, keepdims=True) + 1e-10)
+
+        # Position condition: near the extreme value
+        if sign > 0:  # + direction: near maximum
+            coord_max = coords.max()
+            position_mask = coords >= (coord_max - position_threshold)
+        else:  # - direction: near minimum
+            coord_min = coords.min()
+            position_mask = coords <= (coord_min + position_threshold)
+
+        # Normal condition: pointing towards the viewing direction
+        normal_mask = np.dot(normals_normalized, normal_dir) > normal_threshold
+
+        # Combine both conditions
+        final_mask = position_mask & normal_mask
+        indices = np.where(final_mask)[0]
+
+        return indices
+
+    def _detect_outer_surface_position_only(self, centroids, direction, position_threshold=0.5):
+        """
+        Fallback method when normals are not available.
+        Uses only position-based filtering.
+        """
+        direction_to_axis = {
+            'x+': (0, 1), 'x-': (0, -1),
+            'y+': (1, 1), 'y-': (1, -1),
+            'z+': (2, 1), 'z-': (2, -1),
+        }
+
+        axis, sign = direction_to_axis[direction]
+        coords = centroids[:, axis]
+
+        if sign > 0:
+            coord_extreme = coords.max()
+            mask = coords >= (coord_extreme - position_threshold)
+        else:
+            coord_extreme = coords.min()
+            mask = coords <= (coord_extreme + position_threshold)
+
+        return np.where(mask)[0]
 
     def _process_faces_for_plotting(self, faces):
         """
