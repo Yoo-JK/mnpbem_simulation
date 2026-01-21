@@ -52,21 +52,19 @@ class SimulationManager:
         folder_name = sim_name  # ← 타임스탬프 제거!
         
         self.run_folder = base_output_dir / folder_name
-        
-        # If folder already exists, remove it and create new one
+
+        # If folder already exists, preserve existing results (for incremental runs like field_only)
         if self.run_folder.exists():
             if self.verbose:
-                print(f"\n⚠ Folder already exists, will be overwritten: {self.run_folder}")
-            shutil.rmtree(self.run_folder)
-        
-        # Create the folder
-        self.run_folder.mkdir(parents=True, exist_ok=True)
-        
-        # Create logs subfolder
+                print(f"\n✓ Using existing folder (preserving previous results): {self.run_folder}")
+        else:
+            # Create the folder
+            self.run_folder.mkdir(parents=True, exist_ok=True)
+            if self.verbose:
+                print(f"\n✓ Created run folder: {self.run_folder}")
+
+        # Create logs subfolder (if not exists)
         (self.run_folder / 'logs').mkdir(exist_ok=True)
-        
-        if self.verbose:
-            print(f"\n✓ Created run folder: {self.run_folder}")
         
         # Update config to use this run folder
         self.config['output_dir'] = str(self.run_folder)

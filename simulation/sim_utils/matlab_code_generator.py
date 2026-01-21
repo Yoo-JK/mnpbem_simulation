@@ -2511,7 +2511,23 @@ fprintf('\\n');
 fprintf('================================================================\\n');
 fprintf('Saving results...\\n');
 
-results = struct();
+% Load existing results if available (for incremental runs like spectrum -> field_only)
+if exist('simulation_results.mat', 'file')
+    fprintf('  Loading existing results for merging...\\n');
+    old_data = load('simulation_results.mat');
+    if isfield(old_data, 'results')
+        results = old_data.results;
+        fprintf('  [OK] Existing data loaded - will merge with new results\\n');
+    else
+        results = struct();
+        fprintf('  [!] Existing file has unexpected format - creating new results\\n');
+    end
+    clear old_data;
+else
+    results = struct();
+end
+
+% Update/overwrite with new data (same keys get replaced, new keys get added)
 results.wavelength = enei;
 results.polarizations = pol;
 results.propagation_dirs = dir;
@@ -2528,11 +2544,22 @@ results.absorption = abs_cross;
         else:
             code += """
 % Cross sections not calculated (field-only mode)
-results.scattering = [];
-results.extinction = [];
-results.absorption = [];
+% Preserve existing spectrum data if available from previous run
+if ~isfield(results, 'scattering') || isempty(results.scattering)
+    results.scattering = [];
+end
+if ~isfield(results, 'extinction') || isempty(results.extinction)
+    results.extinction = [];
+end
+if ~isfield(results, 'absorption') || isempty(results.absorption)
+    results.absorption = [];
+end
 results.field_only_mode = true;
-fprintf('  [!] Cross sections not calculated (field-only mode)\\n');
+if isfield(results, 'extinction') && ~isempty(results.extinction)
+    fprintf('  [OK] Preserved existing spectrum data from previous run\\n');
+else
+    fprintf('  [!] Cross sections not calculated (field-only mode)\\n');
+end
 """
 
         if calculate_fields:
