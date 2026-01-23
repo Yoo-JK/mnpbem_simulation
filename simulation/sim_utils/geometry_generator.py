@@ -3135,6 +3135,13 @@ shift_distance = {shift_distance};
         tilt_axis = self.config.get('tilt_axis', [0, 1, 0])
         rotation_angle = self.config.get('rotation_angle', 0)
 
+        # Validate gap: must be <= 0 for connected structure
+        if gap > 0:
+            raise ValueError(
+                f"connected_dimer_cube requires gap <= 0 (got gap={gap}). "
+                f"For gap > 0, cubes are not connected. Use 'advanced_dimer_cube' instead."
+            )
+
         mesh_n = self._element_size_to_n_cube(element_size, core_size)
         shift_distance = (core_size + gap) / 2
 
