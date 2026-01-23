@@ -1,10 +1,10 @@
 #!/bin/bash
-#SBATCH --job-name=auag02
+#SBATCH --job-name=au_mono
 #SBATCH --account=yoojk20-ic
 #SBATCH --partition=IllinoisComputes
 #SBATCH --time=72:00:00
 #SBATCH --nodes=1
-#SBATCH --ntasks=36
+#SBATCH --ntasks=12
 #SBATCH --cpus-per-task=1
 #SBATCH --export=NONE
 
@@ -17,9 +17,9 @@ conda activate mnpbem
 
 echo "Job started on $(date)"
 
-echo "---------- Start simulation: AuAg dimer 0.2 nm gap ----------"
+echo "---------- Start simulation: Ag monomer gap ----------"
 cd /u/yoojk20/workspace/mnpbem_simulation
-./master.sh --str-conf ./config/dimer/auag_monomer/str/r0.2/config_str_auag_r0.2.py --sim-conf ./config/dimer/auag_monomer/sim/r0.2/config_sim_auag_r0.2.py --verbose
+./master.sh --str-conf ./config/dimer/monomer/str/r0.2/config_str_au_r0.2.py --sim-conf ./config/dimer/monomer/sim/r0.2/config_sim_au_r0.2.py --verbose
 
 echo "Job finished on $(date)"
 

@@ -19,7 +19,7 @@ echo "Job started on $(date)"
 
 echo "---------- Start simulation: Ag monomer gap ----------"
 cd /u/yoojk20/workspace/mnpbem_simulation
-./master.sh --str-conf ./config/dimer/auag_monomer/str/r0.2/config_str_ag_r0.2.py --sim-conf ./config/dimer/auag_monomer/sim/r0.2/config_sim_ag_r0.2.py --verbose
+./master.sh --str-conf ./config/dimer/monomer/str/r0.2/config_str_ag_r0.2.py --sim-conf ./config/dimer/monomer/sim/r0.2/config_sim_ag_r0.2.py --verbose
 
 echo "Job finished on $(date)"
 

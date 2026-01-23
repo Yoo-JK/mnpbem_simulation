@@ -17,7 +17,7 @@ args['use_parallel'] = True  # Set to False to disable parallel computing
 # args['num_workers'] = 'env'  # Recommended for Slurm clusters
 
 # Alternative: specify exact number
-args['num_workers'] = 5
+args['num_workers'] = 4
 args['max_comp_threads'] = 1
 args['wavelength_chunk_size'] = 10
 
@@ -38,7 +38,7 @@ args['mnpbem_path'] = os.path.join(Path.home(), 'workspace/MNPBEM')
 # SIMULATION NAME (IDENTIFIER)
 # ============================================================================
 # Give your simulation a descriptive name
-args['simulation_name'] = 'auag_r0.2_g0.4'
+args['simulation_name'] = 'au_r0.2'
 
 # ============================================================================
 # SIMULATION TYPE
@@ -148,7 +148,7 @@ args['field_region'] = {
 # Field calculation options
 args['field_mindist'] = 0.5     # Minimum distance from particle surface (nm)
 args['field_nmax'] = 2000       # Work off calculation in portions (for large grids)
-args['field_wavelength_idx'] = 'peak'  # Which wavelength to calculate fields: 'middle', 'peak', or integer index
+args['field_wavelength_idx'] = 'peak_sca'  # Which wavelength to calculate fields: 'middle', 'peak', or integer index
 
 # ============================================================================
 # FIELD DATA EXPORT OPTIONS (NEW)
@@ -173,14 +173,14 @@ args['output_dir'] = os.path.join(Path.home(), 'research/mnpbem/dimer')
 # Data file save formats (for postprocessing)
 # Available: 'txt', 'csv', 'json'
 # Note: MATLAB always saves 'txt' and 'mat' formats automatically
-args['output_formats'] = ['txt', 'csv', 'json']
+args['output_formats'] = ['txt']
 
 # Generate plots
 args['save_plots'] = True
 
 # Plot formats
 # Available: 'png', 'pdf', 'eps', 'svg'
-args['plot_format'] = ['png', 'pdf']
+args['plot_format'] = ['png']
 
 # Plot DPI (resolution)
 args['plot_dpi'] = 300
@@ -201,7 +201,7 @@ args['use_mirror_symmetry'] = False
 # Iterative solver (for very large structures with >10,000 elements)
 # Uses less memory but may be slower
 # Enable if you encounter out-of-memory errors
-args['use_iterative_solver'] = True
+args['use_iterative_solver'] = False
 
 # Nonlocal effects (advanced, for very small particles <5nm)
 # Includes quantum effects at metal surfaces
