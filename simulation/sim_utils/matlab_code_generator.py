@@ -3011,6 +3011,10 @@ for ichunk = 1:n_chunks
             catch ME
                 fprintf('    [ERROR] lambda %d (%.1f nm): %s\\n', ...
                         ien, enei_local(ien), ME.message);
+                if ~isempty(ME.stack)
+                    fprintf('           Location: %s (line %d)\\n', ...
+                            ME.stack(1).name, ME.stack(1).line);
+                end
                 sca_chunk(i_local, :) = zeros(1, n_polarizations);
                 ext_chunk(i_local, :) = zeros(1, n_polarizations);
                 abs_chunk(i_local, :) = zeros(1, n_polarizations);
@@ -3042,6 +3046,10 @@ for ichunk = 1:n_chunks
             catch ME
                 fprintf('    [ERROR] lambda %d (%.1f nm): %s\\n', ...
                         ien, enei(ien), ME.message);
+                if ~isempty(ME.stack)
+                    fprintf('           Location: %s (line %d)\\n', ...
+                            ME.stack(1).name, ME.stack(1).line);
+                end
                 sca(ien, :) = zeros(1, n_polarizations);
                 ext(ien, :) = zeros(1, n_polarizations);
                 abs_cross(ien, :) = zeros(1, n_polarizations);
@@ -3077,13 +3085,17 @@ for ichunk = 1:n_chunks
         catch ME
             fprintf('    [ERROR] lambda %d (%.1f nm): %s\\n', ...
                     ien, enei(ien), ME.message);
+            if ~isempty(ME.stack)
+                fprintf('           Location: %s (line %d)\\n', ...
+                        ME.stack(1).name, ME.stack(1).line);
+            end
             sca(ien, :) = zeros(1, n_polarizations);
             ext(ien, :) = zeros(1, n_polarizations);
             abs_cross(ien, :) = zeros(1, n_polarizations);
         end
     end
 """
-        
+
         # Chunk timing
         code += """    
     chunk_time = toc(chunk_start);
