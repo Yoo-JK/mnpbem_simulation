@@ -294,6 +294,76 @@ args['rotation_angle'] = 0  # degrees, particle 2 rotation around z-axis
 # args['mesh_density'] = 3
 
 # ============================================================================
+# SECTION 4.2: CONNECTED DIMER CUBE (Fused Single Mesh)
+# ============================================================================
+# Two cubes fused into a single continuous mesh
+# Enables proper charge transfer plasmon simulations
+# Features:
+#   - Two cubes merged with internal faces removed
+#   - Natural "neck" formation from rounding geometry
+#   - Support for offset, tilt, rotation
+#   - Single material (fused structure)
+
+# args['structure'] = 'connected_dimer_cube'
+
+# --- Core Parameters ---
+# args['core_size'] = 40  # Size of each cube (nm)
+# args['gap'] = 0  # Surface-to-surface distance (nm)
+#                  # gap = 0: cubes touching
+#                  # gap < 0: cubes overlapping (smaller neck)
+#                  # gap > 0: cubes separated (larger neck, still connected via rounding)
+# args['rounding'] = 0.25  # Edge rounding parameter
+#                          # Larger rounding = larger neck
+
+# --- Materials ---
+# args['materials'] = ['gold']  # Single material for fused structure
+
+# --- Mesh Density ---
+# args['mesh_density'] = 3  # element size in nm
+
+# --- Transformations (Particle 2) ---
+# args['offset'] = [0, 0, 0]  # [x, y, z] shift for particle 2
+# args['tilt_angle'] = 0  # degrees
+# args['tilt_axis'] = [0, 1, 0]
+# args['rotation_angle'] = 0  # degrees (z-axis)
+
+# --- Example Configurations ---
+
+# Example 1: Simple connected dimer (gap=0)
+# args['structure'] = 'connected_dimer_cube'
+# args['core_size'] = 40
+# args['gap'] = 0
+# args['rounding'] = 0.25
+# args['materials'] = ['gold']
+# args['mesh_density'] = 3
+
+# Example 2: Strongly coupled (overlapping)
+# args['structure'] = 'connected_dimer_cube'
+# args['core_size'] = 40
+# args['gap'] = -2  # 2nm overlap
+# args['rounding'] = 0.25
+# args['materials'] = ['gold']
+# args['mesh_density'] = 2  # finer mesh for neck region
+
+# Example 3: Large neck (large rounding)
+# args['structure'] = 'connected_dimer_cube'
+# args['core_size'] = 40
+# args['gap'] = 0
+# args['rounding'] = 0.4  # larger rounding = larger neck
+# args['materials'] = ['gold']
+# args['mesh_density'] = 3
+
+# Example 4: Tilted connected dimer
+# args['structure'] = 'connected_dimer_cube'
+# args['core_size'] = 40
+# args['gap'] = -1
+# args['rounding'] = 0.25
+# args['materials'] = ['gold']
+# args['tilt_angle'] = 15
+# args['tilt_axis'] = [0, 1, 0]
+# args['mesh_density'] = 3
+
+# ============================================================================
 # SECTION 4.5: SPHERE CLUSTER AGGREGATE
 # ============================================================================
 # Compact close-packed sphere clusters (1-7 spheres in contact)
