@@ -1943,6 +1943,7 @@ class GeometryGenerator:
             'core_shell_rod': self._core_shell_rod,
             'dimer_core_shell_cube': self._dimer_core_shell_cube,
             'advanced_dimer_cube': self._advanced_dimer_cube,
+            'connected_dimer_cube': self._connected_dimer_cube,
             'advanced_monomer_cube': self._advanced_monomer_cube,
             'sphere_cluster_aggregate': self._sphere_cluster_aggregate,
             'from_shape': self._from_shape,
@@ -3105,6 +3106,268 @@ shift_distance = {shift_distance};
 
         particles_str = ", ".join(particles_list)
         code += f"\n%% Combine all particles\nparticles = {{{particles_str}}};\n"
+
+        return code
+
+    def _connected_dimer_cube(self):
+        """Generate connected dimer cube - two cubes fused into a single mesh.
+
+        Creates two tricubes, removes internal/overlapping faces, and merges
+        into a single continuous mesh. This enables proper charge transfer
+        plasmon simulations.
+
+        Parameters:
+            core_size: Size of each cube (nm)
+            gap: Surface-to-surface distance (can be 0 or negative for overlap)
+            rounding: Edge rounding parameter
+            offset: [x, y, z] additional shift for particle 2
+            tilt_angle: Tilt angle for particle 2 (degrees)
+            tilt_axis: Axis for tilt rotation
+            rotation_angle: Z-axis rotation for particle 2 (degrees)
+            mesh_density: Element size in nm
+        """
+        core_size = self.config.get('core_size', 30)
+        element_size = self.config.get('mesh_density', 2.0)
+        rounding = self.config.get('rounding', 0.25)
+        gap = self.config.get('gap', 0)
+        offset = self.config.get('offset', [0, 0, 0])
+        tilt_angle = self.config.get('tilt_angle', 0)
+        tilt_axis = self.config.get('tilt_axis', [0, 1, 0])
+        rotation_angle = self.config.get('rotation_angle', 0)
+
+        mesh_n = self._element_size_to_n_cube(element_size, core_size)
+        shift_distance = (core_size + gap) / 2
+
+        if self.verbose:
+            print(f"  Connected dimer cube:")
+            print(f"    core_size={core_size}nm, gap={gap}nm, rounding={rounding}")
+            print(f"    mesh: n={mesh_n} (~{core_size/mesh_n:.2f}nm elements)")
+            if tilt_angle != 0 or rotation_angle != 0:
+                print(f"    transforms: tilt={tilt_angle}°, rotation={rotation_angle}°")
+
+        code = f"""
+%% Geometry: Connected Dimer Cube (Fused Single Mesh)
+%% Two cubes merged with internal faces removed
+%% element_size={element_size}nm, gap={gap}nm, rounding={rounding}
+fprintf('\\n=== Creating Connected Dimer Cube ===\\n');
+fprintf('  Core size: %.1f nm\\n', {core_size});
+fprintf('  Gap: %.1f nm\\n', {gap});
+fprintf('  Rounding: %.2f\\n', {rounding});
+
+cube_size = {core_size};
+gap = {gap};
+rounding_param = {rounding};
+shift_distance = {shift_distance};
+mesh_n = {mesh_n};
+
+%% Create two separate tricubes first
+fprintf('  Creating individual cubes...\\n');
+
+% Particle 1 (Left)
+p1 = tricube(mesh_n, cube_size, 'e', rounding_param);
+p1 = shift(p1, [-shift_distance, 0, 0]);
+
+% Particle 2 (Right with transformations)
+p2 = tricube(mesh_n, cube_size, 'e', rounding_param);
+p2 = rot(p2, {rotation_angle}, [0, 0, 1]);
+p2 = rot(p2, {tilt_angle}, [{tilt_axis[0]}, {tilt_axis[1]}, {tilt_axis[2]}]);
+p2 = shift(p2, [shift_distance, 0, 0]);
+p2 = shift(p2, [{offset[0]}, {offset[1]}, {offset[2]}]);
+
+%% Extract mesh data
+verts1 = p1.verts;
+faces1 = p1.faces;
+verts2 = p2.verts;
+faces2 = p2.faces;
+
+fprintf('  Cube 1: %d vertices, %d faces\\n', size(verts1, 1), size(faces1, 1));
+fprintf('  Cube 2: %d vertices, %d faces\\n', size(verts2, 1), size(faces2, 1));
+
+%% Remove internal faces (faces whose centroid is inside the other mesh)
+fprintf('  Detecting and removing internal faces...\\n');
+
+% Calculate face centroids for both meshes
+centroids1 = zeros(size(faces1, 1), 3);
+centroids2 = zeros(size(faces2, 1), 3);
+
+for i = 1:size(faces1, 1)
+    face_verts = faces1(i, :);
+    face_verts = face_verts(~isnan(face_verts));
+    centroids1(i, :) = mean(verts1(face_verts, :), 1);
+end
+
+for i = 1:size(faces2, 1)
+    face_verts = faces2(i, :);
+    face_verts = face_verts(~isnan(face_verts));
+    centroids2(i, :) = mean(verts2(face_verts, :), 1);
+end
+
+% Check which faces are inside the other mesh using ray casting
+% A point is inside if a ray from it intersects the mesh an odd number of times
+inside1 = false(size(faces1, 1), 1);  % faces of p1 inside p2
+inside2 = false(size(faces2, 1), 1);  % faces of p2 inside p1
+
+% Test centroids1 against mesh2
+for i = 1:size(centroids1, 1)
+    pt = centroids1(i, :);
+    inside1(i) = point_in_mesh(pt, verts2, faces2);
+end
+
+% Test centroids2 against mesh1
+for i = 1:size(centroids2, 1)
+    pt = centroids2(i, :);
+    inside2(i) = point_in_mesh(pt, verts1, faces1);
+end
+
+fprintf('    Faces of cube1 inside cube2: %d\\n', sum(inside1));
+fprintf('    Faces of cube2 inside cube1: %d\\n', sum(inside2));
+
+% Keep only external faces
+keep1 = ~inside1;
+keep2 = ~inside2;
+
+faces1_kept = faces1(keep1, :);
+faces2_kept = faces2(keep2, :);
+
+fprintf('  After removal: cube1 has %d faces, cube2 has %d faces\\n', ...
+        size(faces1_kept, 1), size(faces2_kept, 1));
+
+%% Merge into single mesh
+fprintf('  Merging into single mesh...\\n');
+
+% Combine vertices (offset face indices for mesh2)
+n_verts1 = size(verts1, 1);
+merged_verts = [verts1; verts2];
+
+% Offset face indices for mesh2
+faces2_offset = faces2_kept;
+for i = 1:size(faces2_offset, 1)
+    for j = 1:size(faces2_offset, 2)
+        if ~isnan(faces2_offset(i, j))
+            faces2_offset(i, j) = faces2_offset(i, j) + n_verts1;
+        end
+    end
+end
+
+merged_faces = [faces1_kept; faces2_offset];
+
+fprintf('  Merged mesh: %d vertices, %d faces\\n', ...
+        size(merged_verts, 1), size(merged_faces, 1));
+
+%% Remove duplicate/unused vertices and create final particle
+fprintf('  Cleaning up merged mesh...\\n');
+
+% Find used vertices
+used_verts = unique(merged_faces(~isnan(merged_faces)));
+used_verts = used_verts(:);
+
+% Create vertex mapping (old index -> new index)
+vert_map = zeros(size(merged_verts, 1), 1);
+vert_map(used_verts) = 1:length(used_verts);
+
+% Update faces with new vertex indices
+clean_faces = merged_faces;
+for i = 1:size(clean_faces, 1)
+    for j = 1:size(clean_faces, 2)
+        if ~isnan(clean_faces(i, j))
+            clean_faces(i, j) = vert_map(clean_faces(i, j));
+        end
+    end
+end
+
+clean_verts = merged_verts(used_verts, :);
+
+fprintf('  Final mesh: %d vertices, %d faces\\n', ...
+        size(clean_verts, 1), size(clean_faces, 1));
+
+%% Create final particle
+% Use 'curv' for smooth interpolation on rounded edges
+p_connected = particle(clean_verts, clean_faces, op, 'interp', 'curv');
+
+fprintf('  [OK] Connected dimer cube created successfully\\n');
+
+particles = {{p_connected}};
+
+%% Helper function: Point in mesh test using ray casting
+function inside = point_in_mesh(point, verts, faces)
+    % Ray casting algorithm to test if point is inside closed mesh
+    % Cast ray in +x direction and count intersections
+
+    ray_dir = [1, 0, 0];  % Ray direction
+    ray_origin = point;
+
+    intersect_count = 0;
+
+    for fi = 1:size(faces, 1)
+        face_idx = faces(fi, :);
+        face_idx = face_idx(~isnan(face_idx));
+
+        if length(face_idx) < 3
+            continue;
+        end
+
+        % Get triangle vertices (handle quads by splitting)
+        v0 = verts(face_idx(1), :);
+        v1 = verts(face_idx(2), :);
+        v2 = verts(face_idx(3), :);
+
+        % Moller-Trumbore ray-triangle intersection
+        if ray_triangle_intersect(ray_origin, ray_dir, v0, v1, v2)
+            intersect_count = intersect_count + 1;
+        end
+
+        % If quad, test second triangle
+        if length(face_idx) == 4
+            v2 = verts(face_idx(3), :);
+            v3 = verts(face_idx(4), :);
+            if ray_triangle_intersect(ray_origin, ray_dir, v0, v2, v3)
+                intersect_count = intersect_count + 1;
+            end
+        end
+    end
+
+    % Odd number of intersections means inside
+    inside = mod(intersect_count, 2) == 1;
+end
+
+function hit = ray_triangle_intersect(ray_origin, ray_dir, v0, v1, v2)
+    % Moller-Trumbore algorithm
+    EPSILON = 1e-10;
+
+    edge1 = v1 - v0;
+    edge2 = v2 - v0;
+
+    h = cross(ray_dir, edge2);
+    a = dot(edge1, h);
+
+    if abs(a) < EPSILON
+        hit = false;
+        return;
+    end
+
+    f = 1.0 / a;
+    s = ray_origin - v0;
+    u = f * dot(s, h);
+
+    if u < 0.0 || u > 1.0
+        hit = false;
+        return;
+    end
+
+    q = cross(s, edge1);
+    v = f * dot(ray_dir, q);
+
+    if v < 0.0 || u + v > 1.0
+        hit = false;
+        return;
+    end
+
+    t = f * dot(edge2, q);
+
+    % Ray intersection (t > EPSILON means intersection in positive direction)
+    hit = t > EPSILON;
+end
+"""
 
         return code
 
