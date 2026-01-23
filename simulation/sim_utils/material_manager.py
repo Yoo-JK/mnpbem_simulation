@@ -453,7 +453,12 @@ end
                     custom_path = str(Path(custom_value).expanduser())
                     if self.verbose:
                         print(f"Using custom refractive index path for '{material}': {custom_path}")
-                    return f"epstable('{custom_path}')"
+
+                    # Convert wavelength(nm) format to energy(eV) format for MNPBEM epstable
+                    # epstable expects: energy(eV) n k
+                    # Our files have: wavelength(nm) n k
+                    converted_path = self._convert_to_energy_format(custom_path, material_lower)
+                    return f"epstable('{converted_path}')"
                 
                 else:
                     raise ValueError(
@@ -525,7 +530,74 @@ end
                 values.append(f"{real_part:.6f}{imag_part:.6f}i")
         
         return "[" + ", ".join(values) + "]"
-    
+
+    def _convert_to_energy_format(self, filepath, material_name):
+        """
+        Convert refractive index file from wavelength(nm) to energy(eV) format.
+
+        MNPBEM's epstable() expects: energy(eV) n k
+        Our input files have: wavelength(nm) n k
+
+        Conversion: E(eV) = 1239.84193 / wavelength(nm)
+
+        Args:
+            filepath: Path to the original wavelength-based file
+            material_name: Material name for the output filename
+
+        Returns:
+            str: Path to the converted file in the output directory
+        """
+        # Planck constant * speed of light in eV*nm
+        EV_NM_CONVERSION = 1239.84193
+
+        try:
+            # Load the wavelength-based file
+            loader = RefractiveIndexLoader(filepath, verbose=self.verbose)
+
+            # Convert wavelength to energy (reverse order for ascending energy)
+            # Sort by energy (ascending) = sort by wavelength (descending)
+            sort_idx = np.argsort(loader.wavelengths)[::-1]  # Descending wavelength = ascending energy
+            wavelengths_sorted = loader.wavelengths[sort_idx]
+            n_sorted = loader.n_values[sort_idx]
+            k_sorted = loader.k_values[sort_idx]
+
+            # Convert wavelength(nm) to energy(eV)
+            energies = EV_NM_CONVERSION / wavelengths_sorted
+
+            # Create output directory if needed
+            output_dir = Path(self.config.get('output_dir', '.')).expanduser()
+            output_dir.mkdir(parents=True, exist_ok=True)
+
+            # Save converted file
+            converted_filename = f"{material_name}_epstable.dat"
+            converted_path = output_dir / converted_filename
+
+            # Write in MNPBEM epstable format: energy(eV) n k
+            with open(converted_path, 'w') as f:
+                f.write(f"% Converted from {filepath}\n")
+                f.write(f"% Format: energy(eV) n k\n")
+                f.write(f"% Wavelength range: {wavelengths_sorted[-1]:.1f} - {wavelengths_sorted[0]:.1f} nm\n")
+                f.write(f"% Energy range: {energies[0]:.4f} - {energies[-1]:.4f} eV\n")
+                for e, n, k in zip(energies, n_sorted, k_sorted):
+                    f.write(f"{e:.8f} {n:.8f} {k:.8f}\n")
+
+            if self.verbose:
+                print(f"  Converted '{material_name}' refractive index to energy(eV) format")
+                print(f"    Input: {filepath}")
+                print(f"    Output: {converted_path}")
+                print(f"    Wavelength range: {wavelengths_sorted[-1]:.1f} - {wavelengths_sorted[0]:.1f} nm")
+                print(f"    Energy range: {energies[0]:.4f} - {energies[-1]:.4f} eV")
+                print(f"    Data points: {len(energies)}")
+
+            return str(converted_path)
+
+        except Exception as e:
+            raise RuntimeError(
+                f"Error converting refractive index file for '{material_name}': {e}\n"
+                f"File: {filepath}\n"
+                f"Expected format: wavelength(nm) n k"
+            )
+
     def _generate_inout(self):
         """Generate inout matrix based on structure."""
         structure_inout_map = {
