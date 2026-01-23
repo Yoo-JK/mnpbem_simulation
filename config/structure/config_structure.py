@@ -309,9 +309,10 @@ args['rotation_angle'] = 0  # degrees, particle 2 rotation around z-axis
 # --- Core Parameters ---
 # args['core_size'] = 40  # Size of each cube (nm)
 # args['gap'] = 0  # Surface-to-surface distance (nm)
-#                  # gap = 0: cubes touching
-#                  # gap < 0: cubes overlapping (smaller neck)
-#                  # gap > 0: cubes separated (larger neck, still connected via rounding)
+#                  # gap = 0: cubes touching (connected via rounding)
+#                  # gap < 0: cubes overlapping (larger neck)
+#                  # NOTE: gap > 0 is NOT allowed (cubes would be separated, not connected)
+#                  #       Use 'advanced_dimer_cube' instead for separated dimers
 # args['rounding'] = 0.25  # Edge rounding parameter
 #                          # Larger rounding = larger neck
 
