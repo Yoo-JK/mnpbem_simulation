@@ -292,9 +292,12 @@ except Exception as e:
     
     # Run MATLAB with dynamic MNPBEM path
     cd "$RUN_FOLDER"
-    
+
     # Start MATLAB in background to avoid tee pipe issues
-    matlab -nodisplay -nodesktop -r "addpath(genpath('$MNPBEM_PATH')); run('simulation_script.m')" > "logs/matlab.log" 2>&1 &
+    # NOTE: Using '-end' flag to add MNPBEM path at the END of MATLAB's search path
+    # This prevents MNPBEM's vecnorm.m from overriding MATLAB's built-in vecnorm (R2017b+)
+    # The built-in vecnorm is found first, avoiding the "Assertion failed" errors
+    matlab -nodisplay -nodesktop -r "addpath(genpath('$MNPBEM_PATH'), '-end'); run('simulation_script.m')" > "logs/matlab.log" 2>&1 &
     MATLAB_PID=$!
     
     if [ "$VERBOSE" = true ]; then
