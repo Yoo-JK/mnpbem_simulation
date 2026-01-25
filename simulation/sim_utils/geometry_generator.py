@@ -3288,8 +3288,10 @@ fprintf('  Final mesh: %d vertices, %d faces\\n', ...
         size(clean_verts, 1), size(clean_faces, 1));
 
 %% Create final particle
-% Use 'curv' for smooth interpolation on rounded edges
-p_connected = particle(clean_verts, clean_faces, op, 'interp', 'curv');
+% Use 'flat' interpolation because the merged mesh loses curved element data (faces2)
+% from the original tricubes during the manual face removal and vertex merging process.
+% The curved interpolation requires the faces2 array which is not preserved.
+p_connected = particle(clean_verts, clean_faces, op, 'interp', 'flat');
 
 fprintf('  [OK] Connected dimer cube created successfully\\n');
 
