@@ -3297,46 +3297,66 @@ fprintf('  [OK] Connected dimer cube created successfully\\n');
 
 particles = {{p_connected}};
 
-%% Helper function: Point in mesh test using ray casting
+%% Helper function: Point in mesh test using ray casting with multiple directions
 function inside = point_in_mesh(point, verts, faces)
-    % Ray casting algorithm to test if point is inside closed mesh
-    % Cast ray in +x direction and count intersections
+    % Robust ray casting using multiple directions and majority vote
+    % This avoids edge cases when ray passes through vertices/edges
 
-    ray_dir = [1, 0, 0];  % Ray direction
-    ray_origin = point;
+    % Use 7 different ray directions for robustness
+    ray_dirs = [
+        1, 0, 0;           % +x
+        0, 1, 0;           % +y
+        0, 0, 1;           % +z
+        0.577, 0.577, 0.577;   % diagonal
+        -0.577, 0.577, 0.577;  % diagonal variant
+        0.577, -0.577, 0.577;  % diagonal variant
+        0.707, 0.707, 0;       % xy diagonal
+    ];
 
-    intersect_count = 0;
+    inside_votes = 0;
+    total_votes = size(ray_dirs, 1);
 
-    for fi = 1:size(faces, 1)
-        face_idx = faces(fi, :);
-        face_idx = face_idx(~isnan(face_idx));
+    for ri = 1:total_votes
+        ray_dir = ray_dirs(ri, :);
+        ray_origin = point;
+        intersect_count = 0;
 
-        if length(face_idx) < 3
-            continue;
-        end
+        for fi = 1:size(faces, 1)
+            face_idx = faces(fi, :);
+            face_idx = face_idx(~isnan(face_idx));
 
-        % Get triangle vertices (handle quads by splitting)
-        v0 = verts(face_idx(1), :);
-        v1 = verts(face_idx(2), :);
-        v2 = verts(face_idx(3), :);
+            if length(face_idx) < 3
+                continue;
+            end
 
-        % Moller-Trumbore ray-triangle intersection
-        if ray_triangle_intersect(ray_origin, ray_dir, v0, v1, v2)
-            intersect_count = intersect_count + 1;
-        end
-
-        % If quad, test second triangle
-        if length(face_idx) == 4
+            % Get triangle vertices (handle quads by splitting)
+            v0 = verts(face_idx(1), :);
+            v1 = verts(face_idx(2), :);
             v2 = verts(face_idx(3), :);
-            v3 = verts(face_idx(4), :);
-            if ray_triangle_intersect(ray_origin, ray_dir, v0, v2, v3)
+
+            % Moller-Trumbore ray-triangle intersection
+            if ray_triangle_intersect(ray_origin, ray_dir, v0, v1, v2)
                 intersect_count = intersect_count + 1;
             end
+
+            % If quad, test second triangle
+            if length(face_idx) == 4
+                v2 = verts(face_idx(3), :);
+                v3 = verts(face_idx(4), :);
+                if ray_triangle_intersect(ray_origin, ray_dir, v0, v2, v3)
+                    intersect_count = intersect_count + 1;
+                end
+            end
+        end
+
+        % Odd intersections = inside for this ray
+        if mod(intersect_count, 2) == 1
+            inside_votes = inside_votes + 1;
         end
     end
 
-    % Odd number of intersections means inside
-    inside = mod(intersect_count, 2) == 1;
+    % Majority vote: consider inside if more than half agree
+    inside = inside_votes > (total_votes / 2);
 end
 
 function hit = ray_triangle_intersect(ray_origin, ray_dir, v0, v1, v2)
