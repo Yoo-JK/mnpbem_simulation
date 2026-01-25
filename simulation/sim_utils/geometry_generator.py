@@ -3209,21 +3209,38 @@ for i = 1:size(faces2, 1)
     centroids2(i, :) = mean(verts2(face_verts, :), 1);
 end
 
-% Check which faces are inside the other mesh using ray casting
-% A point is inside if a ray from it intersects the mesh an odd number of times
+% Check which faces are inside the other mesh
+% First use bounding box check to avoid false positives on outer faces
 inside1 = false(size(faces1, 1), 1);  % faces of p1 inside p2
 inside2 = false(size(faces2, 1), 1);  % faces of p2 inside p1
 
-% Test centroids1 against mesh2
+% Calculate bounding boxes with small margin
+margin = 0.1;  % Small margin for numerical tolerance
+bbox1_min = min(verts1) - margin;
+bbox1_max = max(verts1) + margin;
+bbox2_min = min(verts2) - margin;
+bbox2_max = max(verts2) + margin;
+
+% Test centroids1 against mesh2 (only if within bbox2)
 for i = 1:size(centroids1, 1)
     pt = centroids1(i, :);
-    inside1(i) = point_in_mesh(pt, verts2, faces2);
+    % First check: is the point within the bounding box of mesh2?
+    if all(pt >= bbox2_min) && all(pt <= bbox2_max)
+        % Only then do the expensive point-in-mesh test
+        inside1(i) = point_in_mesh(pt, verts2, faces2);
+    end
+    % If outside bounding box, inside1(i) stays false (cannot be inside)
 end
 
-% Test centroids2 against mesh1
+% Test centroids2 against mesh1 (only if within bbox1)
 for i = 1:size(centroids2, 1)
     pt = centroids2(i, :);
-    inside2(i) = point_in_mesh(pt, verts1, faces1);
+    % First check: is the point within the bounding box of mesh1?
+    if all(pt >= bbox1_min) && all(pt <= bbox1_max)
+        % Only then do the expensive point-in-mesh test
+        inside2(i) = point_in_mesh(pt, verts1, faces1);
+    end
+    % If outside bounding box, inside2(i) stays false (cannot be inside)
 end
 
 fprintf('    Faces of cube1 inside cube2: %d\\n', sum(inside1));
