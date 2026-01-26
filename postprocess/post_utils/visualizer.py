@@ -1965,15 +1965,7 @@ class Visualizer:
             gap_faces: dict with 'particle1' and 'particle2' face indices for gap-facing surfaces
             norm_method: 'linear', 'percentile', or 'power'
         """
-        # Create figure with GridSpec for different subplot heights
-        # Row 0 (height=1): +X, -X
-        # Row 1 (height=2): +Y, -Y, +Z, -Z  (larger for better visualization)
-        # Row 2 (height=1): Gap+, Gap-
-        from matplotlib.gridspec import GridSpec
-
-        fig = plt.figure(figsize=(24, 14))
-        gs = GridSpec(3, 4, figure=fig, height_ratios=[1, 2, 1],
-                     hspace=0.25, wspace=0.3)
+        fig, axes = plt.subplots(2, 4, figsize=(24, 12))
 
         # Convert complex charge to real (MNPBEM returns complex surface charge)
         if np.iscomplexobj(charge):
@@ -1982,20 +1974,19 @@ class Visualizer:
         # Normalize charge based on method
         charge_normalized, norm, vmin, vmax = self._normalize_charge(charge, norm_method)
 
-        # Define standard 6 views: (view_name, direction, GridSpec position, axis_indices, labels)
-        # GridSpec positions: (row, col) for 3x4 grid with height_ratios=[1, 2, 1]
+        # Define standard 6 views: (view_name, direction, axis_indices, labels)
         standard_views = [
-            ('+X view', 'x+', (0, 0), (1, 2), 'y (nm)', 'z (nm)'),  # Row 0: small height
-            ('-X view', 'x-', (0, 1), (1, 2), 'y (nm)', 'z (nm)'),  # Row 0: small height
-            ('+Y view', 'y+', (1, 0), (0, 2), 'x (nm)', 'z (nm)'),  # Row 1: large height
-            ('-Y view', 'y-', (1, 1), (0, 2), 'x (nm)', 'z (nm)'),  # Row 1: large height
-            ('+Z view', 'z+', (1, 2), (0, 1), 'x (nm)', 'y (nm)'),  # Row 1: large height
-            ('-Z view', 'z-', (1, 3), (0, 1), 'x (nm)', 'y (nm)'),  # Row 1: large height
+            ('+X view', 'x+', (1, 2), 'y (nm)', 'z (nm)'),
+            ('-X view', 'x-', (1, 2), 'y (nm)', 'z (nm)'),
+            ('+Y view', 'y+', (0, 2), 'x (nm)', 'z (nm)'),
+            ('-Y view', 'y-', (0, 2), 'x (nm)', 'z (nm)'),
+            ('+Z view', 'z+', (0, 1), 'x (nm)', 'y (nm)'),
+            ('-Z view', 'z-', (0, 1), 'x (nm)', 'y (nm)'),
         ]
 
         # Plot standard 6 views
-        for view_name, direction, gs_pos, axes_idx, xlabel, ylabel in standard_views:
-            ax = fig.add_subplot(gs[gs_pos[0], gs_pos[1]])
+        for idx, (view_name, direction, axes_idx, xlabel, ylabel) in enumerate(standard_views):
+            ax = axes.flat[idx]
 
             # Filter outer surface faces for this view direction
             outer_indices = self._detect_outer_surface_faces(centroids, normals, direction)
@@ -2027,15 +2018,14 @@ class Visualizer:
             ax.set_aspect('equal')
             ax.grid(True, alpha=0.3)
 
-        # Plot Gap views in Row 2 (small height)
-        # GridSpec positions: (row, col)
+        # Plot Gap views (indices 6 and 7)
         gap_view_configs = [
-            ('Gap+ (P1→Gap)', gap_faces.get('particle1', []), (2, 0), (1, 2), 'y (nm)', 'z (nm)'),
-            ('Gap- (P2→Gap)', gap_faces.get('particle2', []), (2, 1), (1, 2), 'y (nm)', 'z (nm)'),
+            ('Gap+ (P1→Gap)', gap_faces.get('particle1', []), (1, 2), 'y (nm)', 'z (nm)'),
+            ('Gap- (P2→Gap)', gap_faces.get('particle2', []), (1, 2), 'y (nm)', 'z (nm)'),
         ]
 
-        for view_name, face_indices, gs_pos, axes_idx, xlabel, ylabel in gap_view_configs:
-            ax = fig.add_subplot(gs[gs_pos[0], gs_pos[1]])
+        for idx, (view_name, face_indices, axes_idx, xlabel, ylabel) in enumerate(gap_view_configs):
+            ax = axes.flat[6 + idx]
 
             if len(face_indices) > 0:
                 # Filter centroids and charge for gap-facing faces
