@@ -365,6 +365,77 @@ args['rotation_angle'] = 0  # degrees, particle 2 rotation around z-axis
 # args['mesh_density'] = 3
 
 # ============================================================================
+# SECTION 4.3: CONNECTED DIMER CORE-SHELL CUBE
+# ============================================================================
+# Two core-shell cubes with fused shells (overlap removed)
+# Enables charge transfer plasmon simulations for core-shell dimers
+# Features:
+#   - Shells fused into single mesh (internal faces removed)
+#   - Cores remain separate OR fused (depending on gap)
+#   - Support for offset, tilt, rotation
+#   - Per-layer rounding control
+#
+# Automatic Core Fusion Detection:
+#   core_gap = gap + 2 * shell_thickness
+#   - If core_gap > 0: Cores remain separate
+#   - If core_gap <= 0: Cores are also fused
+
+# args['structure'] = 'connected_dimer_core_shell_cube'
+
+# --- Core Parameters ---
+# args['core_size'] = 30  # Size of each core cube (nm)
+# args['shell_layers'] = [5]  # Shell thickness (nm) - MUST be exactly 1 layer
+# args['gap'] = -2  # Surface-to-surface distance of SHELLS (nm)
+#                   # gap <= 0 required for connected structure
+#                   # gap > 0: Use 'advanced_dimer_cube' instead
+
+# --- Materials ---
+# args['materials'] = ['gold', 'silver']  # [core_material, shell_material]
+
+# --- Rounding ---
+# args['rounding'] = 0.25  # Same rounding for core and shell
+# OR
+# args['roundings'] = [0.2, 0.3]  # [core_rounding, shell_rounding]
+
+# --- Mesh Density ---
+# args['mesh_density'] = 2  # element size in nm
+
+# --- Transformations (Particle 2) ---
+# args['offset'] = [0, 0, 0]
+# args['tilt_angle'] = 0
+# args['tilt_axis'] = [0, 1, 0]
+# args['rotation_angle'] = 0
+
+# --- Example Configurations ---
+
+# Example 1: Au@Ag dimer with fused Ag shells (cores separate)
+# args['structure'] = 'connected_dimer_core_shell_cube'
+# args['core_size'] = 30
+# args['shell_layers'] = [5]  # shell_size = 40nm
+# args['gap'] = -2  # shell overlap = 2nm, core_gap = 8nm (separate)
+# args['materials'] = ['gold', 'silver']
+# args['rounding'] = 0.25
+# args['mesh_density'] = 2
+
+# Example 2: Au@Ag dimer with BOTH cores and shells fused
+# args['structure'] = 'connected_dimer_core_shell_cube'
+# args['core_size'] = 30
+# args['shell_layers'] = [5]  # shell_size = 40nm
+# args['gap'] = -15  # shell overlap = 15nm, core_gap = -5nm (fused!)
+# args['materials'] = ['gold', 'silver']
+# args['rounding'] = 0.25
+# args['mesh_density'] = 2
+
+# Example 3: Per-layer rounding control
+# args['structure'] = 'connected_dimer_core_shell_cube'
+# args['core_size'] = 30
+# args['shell_layers'] = [5]
+# args['gap'] = -2
+# args['materials'] = ['gold', 'silver']
+# args['roundings'] = [0.15, 0.35]  # core less rounded, shell more rounded
+# args['mesh_density'] = 2
+
+# ============================================================================
 # SECTION 4.5: SPHERE CLUSTER AGGREGATE
 # ============================================================================
 # Compact close-packed sphere clusters (1-7 spheres in contact)
