@@ -543,6 +543,7 @@ end
             'dimer_core_shell_cube': self._inout_dimer_core_shell,
             'advanced_dimer_cube': self._inout_advanced_dimer_cube,
             'connected_dimer_cube': self._inout_single,  # Single fused mesh
+            'connected_dimer_core_shell_cube': self._inout_connected_dimer_core_shell,
             'advanced_monomer_cube': self._inout_advanced_monomer_cube,
             'from_shape': self._inout_from_shape
         }
@@ -718,6 +719,45 @@ end
         code += "inout = [\n" + "\n".join(inout_lines) + "\n];"
         return code
 
+    def _inout_connected_dimer_core_shell(self):
+        """Inout for connected dimer core-shell cube.
+
+        Two cases depending on core_gap:
+        1. core_gap > 0: particles = {core1, core2, fused_shell}
+        2. core_gap <= 0: particles = {fused_core, fused_shell}
+
+        Materials: [core_material, shell_material]
+        epstab: {medium(1), core(2), shell(3)}
+        """
+        shell_layers = self.config.get('shell_layers', [5])
+        gap = self.config.get('gap', 0)
+        core_size = self.config.get('core_size', 30)
+
+        if len(shell_layers) != 1:
+            raise ValueError("connected_dimer_core_shell_cube requires exactly 1 shell layer")
+
+        shell_thickness = shell_layers[0]
+        core_gap = gap + 2 * shell_thickness
+        fuse_cores = core_gap <= 0
+
+        if fuse_cores:
+            # particles = {fused_core, fused_shell}
+            code = f"""% Core gap = {core_gap}nm (cores fused)
+inout = [
+    2, 3;  % Fused Core: inside=core(2), outside=shell(3)
+    3, 1   % Fused Shell: inside=shell(3), outside=medium(1)
+];"""
+        else:
+            # particles = {core1, core2, fused_shell}
+            code = f"""% Core gap = {core_gap}nm (cores separate)
+inout = [
+    2, 3;  % Core 1: inside=core(2), outside=shell(3)
+    2, 3;  % Core 2: inside=core(2), outside=shell(3)
+    3, 1   % Fused Shell: inside=shell(3), outside=medium(1)
+];"""
+
+        return code
+
     def _inout_advanced_monomer_cube(self):
         """Inout for advanced monomer cube with multi-shell structure.
 
@@ -880,6 +920,7 @@ end
             'sphere_cluster_aggregate': self._closed_sphere_cluster_aggregate,
             'advanced_dimer_cube': self._closed_advanced_dimer_cube,
             'connected_dimer_cube': "closed = 1;",  # Single fused mesh
+            'connected_dimer_core_shell_cube': self._closed_connected_dimer_core_shell,
             'advanced_monomer_cube': self._closed_advanced_monomer_cube,
             'from_shape': self._closed_from_shape
         }
@@ -955,6 +996,27 @@ end
 
         closed_indices = list(range(1, n_boundaries_total + 1))
         return f"closed = [{', '.join(map(str, closed_indices))}];"
+
+    def _closed_connected_dimer_core_shell(self):
+        """Closed surfaces for connected dimer core-shell cube.
+
+        Two cases depending on core_gap:
+        1. core_gap > 0: particles = {core1, core2, fused_shell} -> closed = [1, 2, 3]
+        2. core_gap <= 0: particles = {fused_core, fused_shell} -> closed = [1, 2]
+        """
+        shell_layers = self.config.get('shell_layers', [5])
+        gap = self.config.get('gap', 0)
+
+        shell_thickness = shell_layers[0]
+        core_gap = gap + 2 * shell_thickness
+        fuse_cores = core_gap <= 0
+
+        if fuse_cores:
+            # particles = {fused_core, fused_shell}
+            return "closed = [1, 2];"
+        else:
+            # particles = {core1, core2, fused_shell}
+            return "closed = [1, 2, 3];"
 
     def _closed_advanced_monomer_cube(self, use_nonlocal=False, outermost_idx=None):
         """Closed surfaces for advanced monomer cube.
