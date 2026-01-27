@@ -2174,7 +2174,7 @@ class Visualizer:
 
         return {'particle1': p1_indices, 'particle2': p2_indices}
 
-    def _detect_outer_surface_faces(self, centroids, normals, direction, position_threshold=0.5):
+    def _detect_outer_surface_faces(self, centroids, normals, direction, position_threshold=None):
         """
         Detect faces on the outer surface for a given viewing direction.
         Uses the same approach as gap view: position + normal vector filtering.
@@ -2183,11 +2183,21 @@ class Visualizer:
             centroids: Face centroids (N x 3)
             normals: Face normal vectors (N x 3), can be None
             direction: 'x+', 'x-', 'y+', 'y-', 'z+', 'z-'
-            position_threshold: Distance threshold in nm from the extreme surface (default: 0.5 nm)
+            position_threshold: Distance threshold in nm from the extreme surface.
+                               If None, automatically calculated as 15% of the structure's
+                               minimum extent to properly include rounded edges/corners.
 
         Returns:
             np.ndarray: Indices of outer surface faces
         """
+        # Auto-calculate threshold based on structure extent if not specified
+        # This ensures rounded edges/corners are properly included
+        if position_threshold is None:
+            extent = centroids.max(axis=0) - centroids.min(axis=0)
+            position_threshold = min(extent) * 0.15  # 15% of minimum extent
+            # Ensure minimum threshold of 1nm for small structures
+            position_threshold = max(position_threshold, 1.0)
+
         if normals is None:
             # Without normals, use position-only filtering
             return self._detect_outer_surface_position_only(centroids, direction, position_threshold)
@@ -2231,11 +2241,17 @@ class Visualizer:
 
         return indices
 
-    def _detect_outer_surface_position_only(self, centroids, direction, position_threshold=0.5):
+    def _detect_outer_surface_position_only(self, centroids, direction, position_threshold=None):
         """
         Fallback method when normals are not available.
         Uses only position-based filtering.
         """
+        # Auto-calculate threshold if not specified
+        if position_threshold is None:
+            extent = centroids.max(axis=0) - centroids.min(axis=0)
+            position_threshold = min(extent) * 0.15
+            position_threshold = max(position_threshold, 1.0)
+
         direction_to_axis = {
             'x+': (0, 1), 'x-': (0, -1),
             'y+': (1, 1), 'y-': (1, -1),
