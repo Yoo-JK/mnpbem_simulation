@@ -19,7 +19,7 @@ args['structure_name'] = 'auag_dimer'
 
 args['structure'] = 'connected_dimer_cube'
 args['core_size'] = 47
-args['shell_layers'] = [1]  # shell_size = 40nm, enables core-shell mode
+args['shell_layers'] = [4]  # shell_size = 40nm, enables core-shell mode
 args['gap'] = -0.1  # shell overlap = 2nm, core_gap = 8nm (separate)
 args['materials'] = ['gold', 'silver']  # [core, shell]
 args['roundings'] = [0.2, 0.2]

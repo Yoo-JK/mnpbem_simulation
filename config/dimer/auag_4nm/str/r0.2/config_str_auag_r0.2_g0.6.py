@@ -20,7 +20,7 @@ args['structure'] = 'advanced_dimer_cube'
 
 # --- Core and Shells (inner → outer) ---
 args['core_size'] = 47  # Au core: 30 nm
-args['shell_layers'] = [1]  # [Ag: 5nm, AgCl: 3nm]
+args['shell_layers'] = [4]  # [Ag: 5nm, AgCl: 3nm]
 
 # --- Materials (inner → outer) ---
 # AgCl will be defined as custom constant refractive index below
@@ -35,7 +35,7 @@ args['roundings'] = [0.2, 0.2]  # [Au: round, Ag: medium, AgCl: sharp]
 args['mesh_density'] = 2
 
 # --- Dimer Configuration ---
-args['gap'] = 0.2  # 5nm gap for strong coupling
+args['gap'] = 0.6  # 5nm gap for strong coupling
 args['offset'] = [0, 0, 0]  # End-to-end (no offset)
 args['tilt_angle'] = 0  # 15° tilt
 args['tilt_axis'] = [1, 0, 0] 

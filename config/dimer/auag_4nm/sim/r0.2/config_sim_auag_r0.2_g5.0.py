@@ -20,7 +20,6 @@ args['use_parallel'] = True  # Set to False to disable parallel computing
 args['num_workers'] = 5
 args['max_comp_threads'] = 1
 args['wavelength_chunk_size'] = 10
-
 # ============================================================================
 # MNPBEM TOOLBOX PATH (REQUIRED)
 # ============================================================================
@@ -38,7 +37,7 @@ args['mnpbem_path'] = os.path.join(Path.home(), 'workspace/MNPBEM')
 # SIMULATION NAME (IDENTIFIER)
 # ============================================================================
 # Give your simulation a descriptive name
-args['simulation_name'] = 'auag_r0.2_g0.6_1nm'
+args['simulation_name'] = 'auag_r0.2_g5.0'
 
 # ============================================================================
 # SIMULATION TYPE
@@ -205,6 +204,7 @@ args['use_iterative_solver'] = True
 
 # Nonlocal effects (advanced, for very small particles <5nm)
 # Includes quantum effects at metal surfaces
+# Requires additional setup
 args['use_nonlocality'] = False
 
 # ============================================================================

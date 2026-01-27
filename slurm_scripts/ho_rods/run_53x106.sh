@@ -19,7 +19,7 @@ echo "Job started on $(date)"
 
 echo "---------- Start simulation: 53x106_00 ----------"
 cd /u/yoojk20/workspace/mnpbem_simulation
-./master.sh --str-conf ./config/ho_rod/config_str_53x106_00.py --sim-conf ./config/ho_rod/config_sim_53x106_00.py --verbose
+#./master.sh --str-conf ./config/ho_rod/config_str_53x106_00.py --sim-conf ./config/ho_rod/config_sim_53x106_00.py --verbose
 
 echo "---------- Start simulation: 53x106_01 ----------"
 cd /u/yoojk20/workspace/mnpbem_simulation

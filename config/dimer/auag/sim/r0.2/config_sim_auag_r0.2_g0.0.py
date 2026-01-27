@@ -17,7 +17,7 @@ args['use_parallel'] = True  # Set to False to disable parallel computing
 # args['num_workers'] = 'env'  # Recommended for Slurm clusters
 
 # Alternative: specify exact number
-args['num_workers'] = 4
+args['num_workers'] = 5
 args['max_comp_threads'] = 1
 
 args['wavelength_chunk_size'] = 10
@@ -39,7 +39,7 @@ args['mnpbem_path'] = os.path.join(Path.home(), 'workspace/MNPBEM')
 # SIMULATION NAME (IDENTIFIER)
 # ============================================================================
 # Give your simulation a descriptive name
-args['simulation_name'] = 'auag_r0.2_g0.0'
+args['simulation_name'] = 'auag_r0.2_g0.0_1nm'
 
 # ============================================================================
 # SIMULATION TYPE

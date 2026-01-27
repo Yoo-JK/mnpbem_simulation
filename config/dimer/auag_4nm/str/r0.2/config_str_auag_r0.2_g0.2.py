@@ -20,7 +20,7 @@ args['structure'] = 'advanced_dimer_cube'
 
 # --- Core and Shells (inner → outer) ---
 args['core_size'] = 47  # Au core: 30 nm
-args['shell_layers'] = [1]  # [Ag: 5nm, AgCl: 3nm]
+args['shell_layers'] = [4]  # [Ag: 5nm, AgCl: 3nm]
 
 # --- Materials (inner → outer) ---
 # AgCl will be defined as custom constant refractive index below

@@ -38,7 +38,7 @@ args['mnpbem_path'] = os.path.join(Path.home(), 'workspace/MNPBEM')
 # SIMULATION NAME (IDENTIFIER)
 # ============================================================================
 # Give your simulation a descriptive name
-args['simulation_name'] = 'auag_r0.2_g0.4'
+args['simulation_name'] = 'auag_r0.2_g0.4_1nm'
 
 # ============================================================================
 # SIMULATION TYPE

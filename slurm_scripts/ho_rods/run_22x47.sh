@@ -19,23 +19,23 @@ echo "Job started on $(date)"
 
 echo "---------- Start simulation: 22x47_00 ----------"
 cd /u/yoojk20/workspace/mnpbem_simulation
-./master.sh --str-conf ./config/ho_rod/config_str_22x47_00.py --sim-conf ./config/ho_rod/config_sim_22x47_00.py --verbose
+#./master.sh --str-conf ./config/ho_rod/config_str_22x47_00.py --sim-conf ./config/ho_rod/config_sim_22x47_00.py --verbose
 
 echo "---------- Start simulation: 22x47_01 ----------"
 cd /u/yoojk20/workspace/mnpbem_simulation
-./master.sh --str-conf ./config/ho_rod/config_str_22x47_01.py --sim-conf ./config/ho_rod/config_sim_22x47_01.py --verbose
+#./master.sh --str-conf ./config/ho_rod/config_str_22x47_01.py --sim-conf ./config/ho_rod/config_sim_22x47_01.py --verbose
 
 echo "---------- Start simulation: 22x47_03 ----------"
 cd /u/yoojk20/workspace/mnpbem_simulation
-./master.sh --str-conf ./config/ho_rod/config_str_22x47_03.py --sim-conf ./config/ho_rod/config_sim_22x47_03.py --verbose
+#./master.sh --str-conf ./config/ho_rod/config_str_22x47_03.py --sim-conf ./config/ho_rod/config_sim_22x47_03.py --verbose
 
 echo "---------- Start simulation: 22x47_05 ----------"
 cd /u/yoojk20/workspace/mnpbem_simulation
-./master.sh --str-conf ./config/ho_rod/config_str_22x47_05.py --sim-conf ./config/ho_rod/config_sim_22x47_05.py --verbose
+#./master.sh --str-conf ./config/ho_rod/config_str_22x47_05.py --sim-conf ./config/ho_rod/config_sim_22x47_05.py --verbose
 
 echo "---------- Start simulation: 22x47_07 ----------"
 cd /u/yoojk20/workspace/mnpbem_simulation
-./master.sh --str-conf ./config/ho_rod/config_str_22x47_07.py --sim-conf ./config/ho_rod/config_sim_22x47_07.py --verbose
+#./master.sh --str-conf ./config/ho_rod/config_str_22x47_07.py --sim-conf ./config/ho_rod/config_sim_22x47_07.py --verbose
 
 echo "---------- Start simulation: 22x47_10 ----------"
 cd /u/yoojk20/workspace/mnpbem_simulation
