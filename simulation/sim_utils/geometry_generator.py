@@ -1944,6 +1944,7 @@ class GeometryGenerator:
             'dimer_core_shell_cube': self._dimer_core_shell_cube,
             'advanced_dimer_cube': self._advanced_dimer_cube,
             'connected_dimer_cube': self._connected_dimer_cube,
+            'connected_dimer_core_shell_cube': self._connected_dimer_core_shell_cube,
             'advanced_monomer_cube': self._advanced_monomer_cube,
             'sphere_cluster_aggregate': self._sphere_cluster_aggregate,
             'from_shape': self._from_shape,
@@ -3411,6 +3412,449 @@ function hit = ray_triangle_intersect(ray_origin, ray_dir, v0, v1, v2)
     t = f * dot(edge2, q);
 
     % Ray intersection (t > EPSILON means intersection in positive direction)
+    hit = t > EPSILON;
+end
+"""
+
+        return code
+
+    def _connected_dimer_core_shell_cube(self):
+        """Generate connected dimer core-shell cube - two core-shell cubes with fused shells.
+
+        Creates two core-shell tricubes where:
+        - Shells are fused into a single mesh (overlap removed)
+        - Cores remain as separate particles (or fused if gap is very negative)
+
+        This enables proper charge transfer plasmon simulations for core-shell dimers.
+
+        Parameters:
+            core_size: Size of core cube (nm)
+            shell_layers: List with single shell thickness [thickness]
+            materials: [core_material, shell_material]
+            gap: Surface-to-surface distance of shells (must be <= 0)
+            rounding: Edge rounding parameter (or roundings for per-layer)
+            offset: [x, y, z] additional shift for particle 2
+            tilt_angle: Tilt angle for particle 2 (degrees)
+            tilt_axis: Axis for tilt rotation
+            rotation_angle: Z-axis rotation for particle 2 (degrees)
+            mesh_density: Element size in nm
+        """
+        core_size = self.config.get('core_size', 30)
+        shell_layers = self.config.get('shell_layers', [5])
+        materials = self.config.get('materials', ['gold', 'silver'])
+        element_size = self.config.get('mesh_density', 2.0)
+        gap = self.config.get('gap', 0)
+        offset = self.config.get('offset', [0, 0, 0])
+        tilt_angle = self.config.get('tilt_angle', 0)
+        tilt_axis = self.config.get('tilt_axis', [0, 1, 0])
+        rotation_angle = self.config.get('rotation_angle', 0)
+
+        # Validate inputs
+        if len(shell_layers) != 1:
+            raise ValueError(
+                f"connected_dimer_core_shell_cube requires exactly 1 shell layer, got {len(shell_layers)}"
+            )
+        if len(materials) != 2:
+            raise ValueError(
+                f"connected_dimer_core_shell_cube requires exactly 2 materials [core, shell], got {len(materials)}"
+            )
+        if gap > 0:
+            raise ValueError(
+                f"connected_dimer_core_shell_cube requires gap <= 0 (got gap={gap}). "
+                f"For gap > 0, use 'advanced_dimer_cube' instead."
+            )
+
+        shell_thickness = shell_layers[0]
+        shell_size = core_size + 2 * shell_thickness
+
+        # Calculate core gap: if shell surfaces overlap by |gap|, cores are further apart
+        # Shell gap = gap (negative), Core gap = gap + 2 * shell_thickness
+        core_gap = gap + 2 * shell_thickness
+        fuse_cores = core_gap <= 0
+
+        # Handle rounding
+        if 'roundings' in self.config:
+            roundings = self.config.get('roundings')
+            if len(roundings) != 2:
+                raise ValueError(f"roundings must have 2 values [core, shell], got {len(roundings)}")
+            core_rounding = roundings[0]
+            shell_rounding = roundings[1]
+        else:
+            single_rounding = self.config.get('rounding', 0.25)
+            core_rounding = single_rounding
+            shell_rounding = single_rounding
+
+        # Calculate mesh subdivisions
+        core_mesh_n = self._element_size_to_n_cube(element_size, core_size)
+        shell_mesh_n = self._element_size_to_n_cube(element_size, shell_size)
+
+        # Shell shift distance (based on shell size and gap)
+        shell_shift = (shell_size + gap) / 2
+        # Core shift distance (based on core size and core_gap)
+        core_shift = (core_size + core_gap) / 2 if not fuse_cores else (core_size + core_gap) / 2
+
+        if self.verbose:
+            print(f"  Connected dimer core-shell cube:")
+            print(f"    core_size={core_size}nm, shell_thickness={shell_thickness}nm")
+            print(f"    shell_size={shell_size}nm, gap={gap}nm")
+            print(f"    core_gap={core_gap}nm → {'FUSE CORES' if fuse_cores else 'SEPARATE CORES'}")
+            print(f"    core_rounding={core_rounding}, shell_rounding={shell_rounding}")
+            print(f"    mesh: core_n={core_mesh_n}, shell_n={shell_mesh_n}")
+
+        code = f"""
+%% Geometry: Connected Dimer Core-Shell Cube
+%% Shells fused with internal faces removed, cores {'fused' if fuse_cores else 'separate'}
+%% core_size={core_size}nm, shell_thickness={shell_thickness}nm, gap={gap}nm
+%% core_gap={core_gap}nm
+fprintf('\\n=== Creating Connected Dimer Core-Shell Cube ===\\n');
+fprintf('  Core size: %.1f nm\\n', {core_size});
+fprintf('  Shell thickness: %.1f nm\\n', {shell_thickness});
+fprintf('  Shell gap: %.1f nm\\n', {gap});
+fprintf('  Core gap: %.1f nm ({('fused' if fuse_cores else 'separate')})\\n', {core_gap});
+
+core_size = {core_size};
+shell_size = {shell_size};
+gap = {gap};
+core_gap = {core_gap};
+core_rounding = {core_rounding};
+shell_rounding = {shell_rounding};
+shell_shift = {shell_shift};
+core_shift = {core_shift};
+core_mesh_n = {core_mesh_n};
+shell_mesh_n = {shell_mesh_n};
+
+%% ========== SHELL FUSION ==========
+fprintf('  Creating and fusing shells...\\n');
+
+% Shell 1 (Left)
+s1 = tricube(shell_mesh_n, shell_size, 'e', shell_rounding);
+s1 = shift(s1, [-shell_shift, 0, 0]);
+
+% Shell 2 (Right with transformations)
+s2 = tricube(shell_mesh_n, shell_size, 'e', shell_rounding);
+s2 = rot(s2, {rotation_angle}, [0, 0, 1]);
+s2 = rot(s2, {tilt_angle}, [{tilt_axis[0]}, {tilt_axis[1]}, {tilt_axis[2]}]);
+s2 = shift(s2, [shell_shift, 0, 0]);
+s2 = shift(s2, [{offset[0]}, {offset[1]}, {offset[2]}]);
+
+% Extract shell mesh data
+verts_s1 = s1.verts;
+faces_s1 = s1.faces;
+verts_s2 = s2.verts;
+faces_s2 = s2.faces;
+
+fprintf('    Shell 1: %d vertices, %d faces\\n', size(verts_s1, 1), size(faces_s1, 1));
+fprintf('    Shell 2: %d vertices, %d faces\\n', size(verts_s2, 1), size(faces_s2, 1));
+
+% Remove internal faces for shells
+centroids_s1 = zeros(size(faces_s1, 1), 3);
+centroids_s2 = zeros(size(faces_s2, 1), 3);
+
+for i = 1:size(faces_s1, 1)
+    face_verts = faces_s1(i, :);
+    face_verts = face_verts(~isnan(face_verts));
+    centroids_s1(i, :) = mean(verts_s1(face_verts, :), 1);
+end
+
+for i = 1:size(faces_s2, 1)
+    face_verts = faces_s2(i, :);
+    face_verts = face_verts(~isnan(face_verts));
+    centroids_s2(i, :) = mean(verts_s2(face_verts, :), 1);
+end
+
+% Bounding box pre-check for shells
+inside_s1 = false(size(faces_s1, 1), 1);
+inside_s2 = false(size(faces_s2, 1), 1);
+
+margin = 0.1;
+bbox_s1_min = min(verts_s1) - margin;
+bbox_s1_max = max(verts_s1) + margin;
+bbox_s2_min = min(verts_s2) - margin;
+bbox_s2_max = max(verts_s2) + margin;
+
+for i = 1:size(centroids_s1, 1)
+    pt = centroids_s1(i, :);
+    if all(pt >= bbox_s2_min) && all(pt <= bbox_s2_max)
+        inside_s1(i) = point_in_mesh(pt, verts_s2, faces_s2);
+    end
+end
+
+for i = 1:size(centroids_s2, 1)
+    pt = centroids_s2(i, :);
+    if all(pt >= bbox_s1_min) && all(pt <= bbox_s1_max)
+        inside_s2(i) = point_in_mesh(pt, verts_s1, faces_s1);
+    end
+end
+
+fprintf('    Shell1 faces inside Shell2: %d\\n', sum(inside_s1));
+fprintf('    Shell2 faces inside Shell1: %d\\n', sum(inside_s2));
+
+% Keep external shell faces
+keep_s1 = ~inside_s1;
+keep_s2 = ~inside_s2;
+faces_s1_kept = faces_s1(keep_s1, :);
+faces_s2_kept = faces_s2(keep_s2, :);
+
+% Merge shells into single mesh
+n_verts_s1 = size(verts_s1, 1);
+merged_shell_verts = [verts_s1; verts_s2];
+
+faces_s2_offset = faces_s2_kept;
+for i = 1:size(faces_s2_offset, 1)
+    for j = 1:size(faces_s2_offset, 2)
+        if ~isnan(faces_s2_offset(i, j))
+            faces_s2_offset(i, j) = faces_s2_offset(i, j) + n_verts_s1;
+        end
+    end
+end
+
+merged_shell_faces = [faces_s1_kept; faces_s2_offset];
+
+% Clean up shell mesh
+used_shell_verts = unique(merged_shell_faces(~isnan(merged_shell_faces)));
+used_shell_verts = used_shell_verts(:);
+shell_vert_map = zeros(size(merged_shell_verts, 1), 1);
+shell_vert_map(used_shell_verts) = 1:length(used_shell_verts);
+
+clean_shell_faces = merged_shell_faces;
+for i = 1:size(clean_shell_faces, 1)
+    for j = 1:size(clean_shell_faces, 2)
+        if ~isnan(clean_shell_faces(i, j))
+            clean_shell_faces(i, j) = shell_vert_map(clean_shell_faces(i, j));
+        end
+    end
+end
+
+clean_shell_verts = merged_shell_verts(used_shell_verts, :);
+p_fused_shell = particle(clean_shell_verts, clean_shell_faces, op, 'interp', 'flat');
+
+fprintf('    Fused shell: %d vertices, %d faces\\n', size(clean_shell_verts, 1), size(clean_shell_faces, 1));
+
+"""
+
+        if fuse_cores:
+            # Core fusion code
+            code += f"""
+%% ========== CORE FUSION (core_gap <= 0) ==========
+fprintf('  Creating and fusing cores...\\n');
+
+% Core 1 (Left)
+c1 = tricube(core_mesh_n, core_size, 'e', core_rounding);
+c1 = shift(c1, [-core_shift, 0, 0]);
+
+% Core 2 (Right with transformations)
+c2 = tricube(core_mesh_n, core_size, 'e', core_rounding);
+c2 = rot(c2, {rotation_angle}, [0, 0, 1]);
+c2 = rot(c2, {tilt_angle}, [{tilt_axis[0]}, {tilt_axis[1]}, {tilt_axis[2]}]);
+c2 = shift(c2, [core_shift, 0, 0]);
+c2 = shift(c2, [{offset[0]}, {offset[1]}, {offset[2]}]);
+
+% Extract core mesh data
+verts_c1 = c1.verts;
+faces_c1 = c1.faces;
+verts_c2 = c2.verts;
+faces_c2 = c2.faces;
+
+fprintf('    Core 1: %d vertices, %d faces\\n', size(verts_c1, 1), size(faces_c1, 1));
+fprintf('    Core 2: %d vertices, %d faces\\n', size(verts_c2, 1), size(faces_c2, 1));
+
+% Remove internal faces for cores
+centroids_c1 = zeros(size(faces_c1, 1), 3);
+centroids_c2 = zeros(size(faces_c2, 1), 3);
+
+for i = 1:size(faces_c1, 1)
+    face_verts = faces_c1(i, :);
+    face_verts = face_verts(~isnan(face_verts));
+    centroids_c1(i, :) = mean(verts_c1(face_verts, :), 1);
+end
+
+for i = 1:size(faces_c2, 1)
+    face_verts = faces_c2(i, :);
+    face_verts = face_verts(~isnan(face_verts));
+    centroids_c2(i, :) = mean(verts_c2(face_verts, :), 1);
+end
+
+% Bounding box pre-check for cores
+inside_c1 = false(size(faces_c1, 1), 1);
+inside_c2 = false(size(faces_c2, 1), 1);
+
+bbox_c1_min = min(verts_c1) - margin;
+bbox_c1_max = max(verts_c1) + margin;
+bbox_c2_min = min(verts_c2) - margin;
+bbox_c2_max = max(verts_c2) + margin;
+
+for i = 1:size(centroids_c1, 1)
+    pt = centroids_c1(i, :);
+    if all(pt >= bbox_c2_min) && all(pt <= bbox_c2_max)
+        inside_c1(i) = point_in_mesh(pt, verts_c2, faces_c2);
+    end
+end
+
+for i = 1:size(centroids_c2, 1)
+    pt = centroids_c2(i, :);
+    if all(pt >= bbox_c1_min) && all(pt <= bbox_c1_max)
+        inside_c2(i) = point_in_mesh(pt, verts_c1, faces_c1);
+    end
+end
+
+fprintf('    Core1 faces inside Core2: %d\\n', sum(inside_c1));
+fprintf('    Core2 faces inside Core1: %d\\n', sum(inside_c2));
+
+% Keep external core faces
+keep_c1 = ~inside_c1;
+keep_c2 = ~inside_c2;
+faces_c1_kept = faces_c1(keep_c1, :);
+faces_c2_kept = faces_c2(keep_c2, :);
+
+% Merge cores into single mesh
+n_verts_c1 = size(verts_c1, 1);
+merged_core_verts = [verts_c1; verts_c2];
+
+faces_c2_offset = faces_c2_kept;
+for i = 1:size(faces_c2_offset, 1)
+    for j = 1:size(faces_c2_offset, 2)
+        if ~isnan(faces_c2_offset(i, j))
+            faces_c2_offset(i, j) = faces_c2_offset(i, j) + n_verts_c1;
+        end
+    end
+end
+
+merged_core_faces = [faces_c1_kept; faces_c2_offset];
+
+% Clean up core mesh
+used_core_verts = unique(merged_core_faces(~isnan(merged_core_faces)));
+used_core_verts = used_core_verts(:);
+core_vert_map = zeros(size(merged_core_verts, 1), 1);
+core_vert_map(used_core_verts) = 1:length(used_core_verts);
+
+clean_core_faces = merged_core_faces;
+for i = 1:size(clean_core_faces, 1)
+    for j = 1:size(clean_core_faces, 2)
+        if ~isnan(clean_core_faces(i, j))
+            clean_core_faces(i, j) = core_vert_map(clean_core_faces(i, j));
+        end
+    end
+end
+
+clean_core_verts = merged_core_verts(used_core_verts, :);
+p_fused_core = particle(clean_core_verts, clean_core_faces, op, 'interp', 'flat');
+
+fprintf('    Fused core: %d vertices, %d faces\\n', size(clean_core_verts, 1), size(clean_core_faces, 1));
+
+fprintf('  [OK] Connected dimer core-shell cube created (both core and shell fused)\\n');
+
+particles = {{p_fused_core, p_fused_shell}};
+"""
+        else:
+            # Separate cores code
+            code += f"""
+%% ========== SEPARATE CORES (core_gap > 0) ==========
+fprintf('  Creating separate cores...\\n');
+
+% Core 1 (Left)
+p_core1 = tricube(core_mesh_n, core_size, 'e', core_rounding);
+p_core1 = shift(p_core1, [-core_shift, 0, 0]);
+
+% Core 2 (Right with transformations)
+p_core2 = tricube(core_mesh_n, core_size, 'e', core_rounding);
+p_core2 = rot(p_core2, {rotation_angle}, [0, 0, 1]);
+p_core2 = rot(p_core2, {tilt_angle}, [{tilt_axis[0]}, {tilt_axis[1]}, {tilt_axis[2]}]);
+p_core2 = shift(p_core2, [core_shift, 0, 0]);
+p_core2 = shift(p_core2, [{offset[0]}, {offset[1]}, {offset[2]}]);
+
+fprintf('  [OK] Connected dimer core-shell cube created (shell fused, cores separate)\\n');
+
+particles = {{p_core1, p_core2, p_fused_shell}};
+"""
+
+        # Add helper functions
+        code += """
+%% Helper function: Point in mesh test using ray casting with multiple directions
+function inside = point_in_mesh(point, verts, faces)
+    % Robust ray casting using multiple directions and majority vote
+    ray_dirs = [
+        1, 0, 0;
+        0, 1, 0;
+        0, 0, 1;
+        0.577, 0.577, 0.577;
+        -0.577, 0.577, 0.577;
+        0.577, -0.577, 0.577;
+        0.707, 0.707, 0;
+    ];
+
+    inside_votes = 0;
+    total_votes = size(ray_dirs, 1);
+
+    for ri = 1:total_votes
+        ray_dir = ray_dirs(ri, :);
+        ray_origin = point;
+        intersect_count = 0;
+
+        for fi = 1:size(faces, 1)
+            face_idx = faces(fi, :);
+            face_idx = face_idx(~isnan(face_idx));
+
+            if length(face_idx) < 3
+                continue;
+            end
+
+            v0 = verts(face_idx(1), :);
+            v1 = verts(face_idx(2), :);
+            v2 = verts(face_idx(3), :);
+
+            if ray_triangle_intersect(ray_origin, ray_dir, v0, v1, v2)
+                intersect_count = intersect_count + 1;
+            end
+
+            if length(face_idx) == 4
+                v2 = verts(face_idx(3), :);
+                v3 = verts(face_idx(4), :);
+                if ray_triangle_intersect(ray_origin, ray_dir, v0, v2, v3)
+                    intersect_count = intersect_count + 1;
+                end
+            end
+        end
+
+        if mod(intersect_count, 2) == 1
+            inside_votes = inside_votes + 1;
+        end
+    end
+
+    inside = inside_votes > (total_votes / 2);
+end
+
+function hit = ray_triangle_intersect(ray_origin, ray_dir, v0, v1, v2)
+    EPSILON = 1e-10;
+
+    edge1 = v1 - v0;
+    edge2 = v2 - v0;
+
+    h = cross(ray_dir, edge2);
+    a = dot(edge1, h);
+
+    if abs(a) < EPSILON
+        hit = false;
+        return;
+    end
+
+    f = 1.0 / a;
+    s = ray_origin - v0;
+    u = f * dot(s, h);
+
+    if u < 0.0 || u > 1.0
+        hit = false;
+        return;
+    end
+
+    q = cross(s, edge1);
+    v = f * dot(ray_dir, q);
+
+    if v < 0.0 || u + v > 1.0
+        hit = false;
+        return;
+    end
+
+    t = f * dot(edge2, q);
     hit = t > EPSILON;
 end
 """
