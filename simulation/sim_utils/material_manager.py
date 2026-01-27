@@ -542,8 +542,7 @@ end
             'core_shell_rod': self._inout_core_shell_single,
             'dimer_core_shell_cube': self._inout_dimer_core_shell,
             'advanced_dimer_cube': self._inout_advanced_dimer_cube,
-            'connected_dimer_cube': self._inout_single,  # Single fused mesh
-            'connected_dimer_core_shell_cube': self._inout_connected_dimer_core_shell,
+            'connected_dimer_cube': self._inout_connected_dimer_cube,
             'advanced_monomer_cube': self._inout_advanced_monomer_cube,
             'from_shape': self._inout_from_shape
         }
@@ -719,23 +718,25 @@ end
         code += "inout = [\n" + "\n".join(inout_lines) + "\n];"
         return code
 
-    def _inout_connected_dimer_core_shell(self):
-        """Inout for connected dimer core-shell cube.
+    def _inout_connected_dimer_cube(self):
+        """Inout for connected dimer cube.
 
-        Two cases depending on core_gap:
-        1. core_gap > 0: particles = {core1, core2, fused_shell}
-        2. core_gap <= 0: particles = {fused_core, fused_shell}
-
-        Materials: [core_material, shell_material]
-        epstab: {medium(1), core(2), shell(3)}
+        Two modes:
+        1. Single material (shell_layers empty): particles = {fused_cube}
+        2. Core-shell (shell_layers = [thickness]):
+           - core_gap > 0: particles = {core1, core2, fused_shell}
+           - core_gap <= 0: particles = {fused_core, fused_shell}
         """
-        shell_layers = self.config.get('shell_layers', [5])
+        shell_layers = self.config.get('shell_layers', [])
+        is_core_shell = len(shell_layers) > 0
+
+        if not is_core_shell:
+            # Single material mode: particles = {fused_cube}
+            code = "inout = [2, 1];  % Fused cube"
+            return code
+
+        # Core-shell mode
         gap = self.config.get('gap', 0)
-        core_size = self.config.get('core_size', 30)
-
-        if len(shell_layers) != 1:
-            raise ValueError("connected_dimer_core_shell_cube requires exactly 1 shell layer")
-
         shell_thickness = shell_layers[0]
         core_gap = gap + 2 * shell_thickness
         fuse_cores = core_gap <= 0
@@ -919,8 +920,7 @@ inout = [
             'dimer_core_shell_cube': "closed = [1, 2, 3, 4];",
             'sphere_cluster_aggregate': self._closed_sphere_cluster_aggregate,
             'advanced_dimer_cube': self._closed_advanced_dimer_cube,
-            'connected_dimer_cube': "closed = 1;",  # Single fused mesh
-            'connected_dimer_core_shell_cube': self._closed_connected_dimer_core_shell,
+            'connected_dimer_cube': self._closed_connected_dimer_cube,
             'advanced_monomer_cube': self._closed_advanced_monomer_cube,
             'from_shape': self._closed_from_shape
         }
@@ -997,16 +997,24 @@ inout = [
         closed_indices = list(range(1, n_boundaries_total + 1))
         return f"closed = [{', '.join(map(str, closed_indices))}];"
 
-    def _closed_connected_dimer_core_shell(self):
-        """Closed surfaces for connected dimer core-shell cube.
+    def _closed_connected_dimer_cube(self):
+        """Closed surfaces for connected dimer cube.
 
-        Two cases depending on core_gap:
-        1. core_gap > 0: particles = {core1, core2, fused_shell} -> closed = [1, 2, 3]
-        2. core_gap <= 0: particles = {fused_core, fused_shell} -> closed = [1, 2]
+        Two modes:
+        1. Single material (shell_layers empty): particles = {fused_cube} -> closed = 1
+        2. Core-shell (shell_layers = [thickness]):
+           - core_gap > 0: particles = {core1, core2, fused_shell} -> closed = [1, 2, 3]
+           - core_gap <= 0: particles = {fused_core, fused_shell} -> closed = [1, 2]
         """
-        shell_layers = self.config.get('shell_layers', [5])
-        gap = self.config.get('gap', 0)
+        shell_layers = self.config.get('shell_layers', [])
+        is_core_shell = len(shell_layers) > 0
 
+        if not is_core_shell:
+            # Single material mode
+            return "closed = 1;"
+
+        # Core-shell mode
+        gap = self.config.get('gap', 0)
         shell_thickness = shell_layers[0]
         core_gap = gap + 2 * shell_thickness
         fuse_cores = core_gap <= 0
