@@ -1944,7 +1944,6 @@ class GeometryGenerator:
             'dimer_core_shell_cube': self._dimer_core_shell_cube,
             'advanced_dimer_cube': self._advanced_dimer_cube,
             'connected_dimer_cube': self._connected_dimer_cube,
-            'connected_dimer_core_shell_cube': self._connected_dimer_core_shell_cube,
             'advanced_monomer_cube': self._advanced_monomer_cube,
             'sphere_cluster_aggregate': self._sphere_cluster_aggregate,
             'from_shape': self._from_shape,
@@ -3117,16 +3116,52 @@ shift_distance = {shift_distance};
         into a single continuous mesh. This enables proper charge transfer
         plasmon simulations.
 
+        Modes:
+            - Single material: shell_layers not specified or empty
+              → particles = {fused_cube}
+            - Core-shell: shell_layers = [thickness]
+              → shells fused, cores separate or fused depending on core_gap
+              → particles = {core1, core2, fused_shell} or {fused_core, fused_shell}
+
         Parameters:
             core_size: Size of each cube (nm)
+            shell_layers: Optional shell thickness list [thickness] for core-shell mode
+            materials: Material list (single or [core, shell])
             gap: Surface-to-surface distance (can be 0 or negative for overlap)
-            rounding: Edge rounding parameter
+            rounding: Edge rounding parameter (or roundings for per-layer)
             offset: [x, y, z] additional shift for particle 2
             tilt_angle: Tilt angle for particle 2 (degrees)
             tilt_axis: Axis for tilt rotation
             rotation_angle: Z-axis rotation for particle 2 (degrees)
             mesh_density: Element size in nm
         """
+        core_size = self.config.get('core_size', 30)
+        shell_layers = self.config.get('shell_layers', [])
+        materials = self.config.get('materials', ['gold'])
+        element_size = self.config.get('mesh_density', 2.0)
+        gap = self.config.get('gap', 0)
+        offset = self.config.get('offset', [0, 0, 0])
+        tilt_angle = self.config.get('tilt_angle', 0)
+        tilt_axis = self.config.get('tilt_axis', [0, 1, 0])
+        rotation_angle = self.config.get('rotation_angle', 0)
+
+        # Determine mode: core-shell or single material
+        is_core_shell = len(shell_layers) > 0
+
+        # Validate gap: must be <= 0 for connected structure
+        if gap > 0:
+            raise ValueError(
+                f"connected_dimer_cube requires gap <= 0 (got gap={gap}). "
+                f"For gap > 0, cubes are not connected. Use 'advanced_dimer_cube' instead."
+            )
+
+        if is_core_shell:
+            return self._connected_dimer_cube_core_shell()
+        else:
+            return self._connected_dimer_cube_single()
+
+    def _connected_dimer_cube_single(self):
+        """Generate connected dimer cube with single material (internal)."""
         core_size = self.config.get('core_size', 30)
         element_size = self.config.get('mesh_density', 2.0)
         rounding = self.config.get('rounding', 0.25)
@@ -3136,18 +3171,11 @@ shift_distance = {shift_distance};
         tilt_axis = self.config.get('tilt_axis', [0, 1, 0])
         rotation_angle = self.config.get('rotation_angle', 0)
 
-        # Validate gap: must be <= 0 for connected structure
-        if gap > 0:
-            raise ValueError(
-                f"connected_dimer_cube requires gap <= 0 (got gap={gap}). "
-                f"For gap > 0, cubes are not connected. Use 'advanced_dimer_cube' instead."
-            )
-
         mesh_n = self._element_size_to_n_cube(element_size, core_size)
         shift_distance = (core_size + gap) / 2
 
         if self.verbose:
-            print(f"  Connected dimer cube:")
+            print(f"  Connected dimer cube (single material):")
             print(f"    core_size={core_size}nm, gap={gap}nm, rounding={rounding}")
             print(f"    mesh: n={mesh_n} (~{core_size/mesh_n:.2f}nm elements)")
             if tilt_angle != 0 or rotation_angle != 0:
@@ -3306,138 +3334,22 @@ fprintf('  Final mesh: %d vertices, %d faces\\n', ...
         size(clean_verts, 1), size(clean_faces, 1));
 
 %% Create final particle
-% Use 'flat' interpolation because the merged mesh loses curved element data (faces2)
-% from the original tricubes during the manual face removal and vertex merging process.
-% The curved interpolation requires the faces2 array which is not preserved.
 p_connected = particle(clean_verts, clean_faces, op, 'interp', 'flat');
 
 fprintf('  [OK] Connected dimer cube created successfully\\n');
 
 particles = {{p_connected}};
 
-%% Helper function: Point in mesh test using ray casting with multiple directions
-function inside = point_in_mesh(point, verts, faces)
-    % Robust ray casting using multiple directions and majority vote
-    % This avoids edge cases when ray passes through vertices/edges
-
-    % Use 7 different ray directions for robustness
-    ray_dirs = [
-        1, 0, 0;           % +x
-        0, 1, 0;           % +y
-        0, 0, 1;           % +z
-        0.577, 0.577, 0.577;   % diagonal
-        -0.577, 0.577, 0.577;  % diagonal variant
-        0.577, -0.577, 0.577;  % diagonal variant
-        0.707, 0.707, 0;       % xy diagonal
-    ];
-
-    inside_votes = 0;
-    total_votes = size(ray_dirs, 1);
-
-    for ri = 1:total_votes
-        ray_dir = ray_dirs(ri, :);
-        ray_origin = point;
-        intersect_count = 0;
-
-        for fi = 1:size(faces, 1)
-            face_idx = faces(fi, :);
-            face_idx = face_idx(~isnan(face_idx));
-
-            if length(face_idx) < 3
-                continue;
-            end
-
-            % Get triangle vertices (handle quads by splitting)
-            v0 = verts(face_idx(1), :);
-            v1 = verts(face_idx(2), :);
-            v2 = verts(face_idx(3), :);
-
-            % Moller-Trumbore ray-triangle intersection
-            if ray_triangle_intersect(ray_origin, ray_dir, v0, v1, v2)
-                intersect_count = intersect_count + 1;
-            end
-
-            % If quad, test second triangle
-            if length(face_idx) == 4
-                v2 = verts(face_idx(3), :);
-                v3 = verts(face_idx(4), :);
-                if ray_triangle_intersect(ray_origin, ray_dir, v0, v2, v3)
-                    intersect_count = intersect_count + 1;
-                end
-            end
-        end
-
-        % Odd intersections = inside for this ray
-        if mod(intersect_count, 2) == 1
-            inside_votes = inside_votes + 1;
-        end
-    end
-
-    % Majority vote: consider inside if more than half agree
-    inside = inside_votes > (total_votes / 2);
-end
-
-function hit = ray_triangle_intersect(ray_origin, ray_dir, v0, v1, v2)
-    % Moller-Trumbore algorithm
-    EPSILON = 1e-10;
-
-    edge1 = v1 - v0;
-    edge2 = v2 - v0;
-
-    h = cross(ray_dir, edge2);
-    a = dot(edge1, h);
-
-    if abs(a) < EPSILON
-        hit = false;
-        return;
-    end
-
-    f = 1.0 / a;
-    s = ray_origin - v0;
-    u = f * dot(s, h);
-
-    if u < 0.0 || u > 1.0
-        hit = false;
-        return;
-    end
-
-    q = cross(s, edge1);
-    v = f * dot(ray_dir, q);
-
-    if v < 0.0 || u + v > 1.0
-        hit = false;
-        return;
-    end
-
-    t = f * dot(edge2, q);
-
-    % Ray intersection (t > EPSILON means intersection in positive direction)
-    hit = t > EPSILON;
-end
+{self._point_in_mesh_helper()}
 """
 
         return code
 
-    def _connected_dimer_core_shell_cube(self):
-        """Generate connected dimer core-shell cube - two core-shell cubes with fused shells.
+    def _connected_dimer_cube_core_shell(self):
+        """Generate connected dimer cube with core-shell structure (internal).
 
-        Creates two core-shell tricubes where:
-        - Shells are fused into a single mesh (overlap removed)
-        - Cores remain as separate particles (or fused if gap is very negative)
-
-        This enables proper charge transfer plasmon simulations for core-shell dimers.
-
-        Parameters:
-            core_size: Size of core cube (nm)
-            shell_layers: List with single shell thickness [thickness]
-            materials: [core_material, shell_material]
-            gap: Surface-to-surface distance of shells (must be <= 0)
-            rounding: Edge rounding parameter (or roundings for per-layer)
-            offset: [x, y, z] additional shift for particle 2
-            tilt_angle: Tilt angle for particle 2 (degrees)
-            tilt_axis: Axis for tilt rotation
-            rotation_angle: Z-axis rotation for particle 2 (degrees)
-            mesh_density: Element size in nm
+        Shells are fused into a single mesh (overlap removed).
+        Cores remain separate or fused depending on core_gap.
         """
         core_size = self.config.get('core_size', 30)
         shell_layers = self.config.get('shell_layers', [5])
@@ -3452,23 +3364,17 @@ end
         # Validate inputs
         if len(shell_layers) != 1:
             raise ValueError(
-                f"connected_dimer_core_shell_cube requires exactly 1 shell layer, got {len(shell_layers)}"
+                f"connected_dimer_cube core-shell mode requires exactly 1 shell layer, got {len(shell_layers)}"
             )
         if len(materials) != 2:
             raise ValueError(
-                f"connected_dimer_core_shell_cube requires exactly 2 materials [core, shell], got {len(materials)}"
-            )
-        if gap > 0:
-            raise ValueError(
-                f"connected_dimer_core_shell_cube requires gap <= 0 (got gap={gap}). "
-                f"For gap > 0, use 'advanced_dimer_cube' instead."
+                f"connected_dimer_cube core-shell mode requires exactly 2 materials [core, shell], got {len(materials)}"
             )
 
         shell_thickness = shell_layers[0]
         shell_size = core_size + 2 * shell_thickness
 
         # Calculate core gap: if shell surfaces overlap by |gap|, cores are further apart
-        # Shell gap = gap (negative), Core gap = gap + 2 * shell_thickness
         core_gap = gap + 2 * shell_thickness
         fuse_cores = core_gap <= 0
 
@@ -3491,10 +3397,10 @@ end
         # Shell shift distance (based on shell size and gap)
         shell_shift = (shell_size + gap) / 2
         # Core shift distance (based on core size and core_gap)
-        core_shift = (core_size + core_gap) / 2 if not fuse_cores else (core_size + core_gap) / 2
+        core_shift = (core_size + core_gap) / 2
 
         if self.verbose:
-            print(f"  Connected dimer core-shell cube:")
+            print(f"  Connected dimer cube (core-shell mode):")
             print(f"    core_size={core_size}nm, shell_thickness={shell_thickness}nm")
             print(f"    shell_size={shell_size}nm, gap={gap}nm")
             print(f"    core_gap={core_gap}nm → {'FUSE CORES' if fuse_cores else 'SEPARATE CORES'}")
@@ -3502,11 +3408,11 @@ end
             print(f"    mesh: core_n={core_mesh_n}, shell_n={shell_mesh_n}")
 
         code = f"""
-%% Geometry: Connected Dimer Core-Shell Cube
+%% Geometry: Connected Dimer Cube (Core-Shell Mode)
 %% Shells fused with internal faces removed, cores {'fused' if fuse_cores else 'separate'}
 %% core_size={core_size}nm, shell_thickness={shell_thickness}nm, gap={gap}nm
 %% core_gap={core_gap}nm
-fprintf('\\n=== Creating Connected Dimer Core-Shell Cube ===\\n');
+fprintf('\\n=== Creating Connected Dimer Cube (Core-Shell) ===\\n');
 fprintf('  Core size: %.1f nm\\n', {core_size});
 fprintf('  Shell thickness: %.1f nm\\n', {shell_thickness});
 fprintf('  Shell gap: %.1f nm\\n', {gap});
@@ -3741,7 +3647,7 @@ p_fused_core = particle(clean_core_verts, clean_core_faces, op, 'interp', 'flat'
 
 fprintf('    Fused core: %d vertices, %d faces\\n', size(clean_core_verts, 1), size(clean_core_faces, 1));
 
-fprintf('  [OK] Connected dimer core-shell cube created (both core and shell fused)\\n');
+fprintf('  [OK] Connected dimer cube (core-shell) created - both core and shell fused\\n');
 
 particles = {{p_fused_core, p_fused_shell}};
 """
@@ -3762,13 +3668,21 @@ p_core2 = rot(p_core2, {tilt_angle}, [{tilt_axis[0]}, {tilt_axis[1]}, {tilt_axis
 p_core2 = shift(p_core2, [core_shift, 0, 0]);
 p_core2 = shift(p_core2, [{offset[0]}, {offset[1]}, {offset[2]}]);
 
-fprintf('  [OK] Connected dimer core-shell cube created (shell fused, cores separate)\\n');
+fprintf('  [OK] Connected dimer cube (core-shell) created - shell fused, cores separate\\n');
 
 particles = {{p_core1, p_core2, p_fused_shell}};
 """
 
         # Add helper functions
-        code += """
+        code += f"""
+{self._point_in_mesh_helper()}
+"""
+
+        return code
+
+    def _point_in_mesh_helper(self):
+        """Return MATLAB helper functions for point-in-mesh testing."""
+        return """
 %% Helper function: Point in mesh test using ray casting with multiple directions
 function inside = point_in_mesh(point, verts, faces)
     % Robust ray casting using multiple directions and majority vote
@@ -3858,8 +3772,6 @@ function hit = ray_triangle_intersect(ray_origin, ray_dir, v0, v1, v2)
     hit = t > EPSILON;
 end
 """
-
-        return code
 
     def _advanced_monomer_cube(self):
         """Generate advanced monomer cube with full control.
