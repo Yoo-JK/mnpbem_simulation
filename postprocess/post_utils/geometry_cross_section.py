@@ -70,6 +70,7 @@ class GeometryCrossSection:
             'dimer_cube': self._dimer_cube_cross_section,
             'dimer_core_shell_cube': self._dimer_cube_cross_section,  # Simplified
             'advanced_dimer_cube': self._dimer_cube_cross_section,  # Simplified
+            'advanced_monomer_cube': self._cube_cross_section,  # Single cube with multi-shell
             'connected_dimer_cube': self._dimer_cube_cross_section,  # Fused dimer (supports core-shell)
             'rod': self._rod_cross_section,
             'ellipsoid': self._ellipsoid_cross_section,
