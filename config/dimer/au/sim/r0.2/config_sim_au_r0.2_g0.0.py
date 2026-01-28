@@ -148,8 +148,7 @@ args['field_region'] = {
 # Field calculation options
 args['field_mindist'] = 0.5     # Minimum distance from particle surface (nm)
 args['field_nmax'] = 2000       # Work off calculation in portions (for large grids)
-args['field_wavelength_idx'] = [990]
-#args['field_wavelength_idx'] = [553, 568, 663, 684, 687, 717, 728, 796, 816, 825, 972, 990]  # Which wavelength to calculate fields: 'middle', 'peak', or integer index
+args['field_wavelength_idx'] = [553, 568, 663, 684, 687, 717, 728, 796, 816, 825, 972, 990]  # Which wavelength to calculate fields: 'middle', 'peak', or integer index
 
 # ============================================================================
 # FIELD DATA EXPORT OPTIONS (NEW)

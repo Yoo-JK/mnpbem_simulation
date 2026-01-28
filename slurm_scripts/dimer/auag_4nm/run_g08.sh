@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=auag10
+#SBATCH --job-name=auag08_4nm
 #SBATCH --account=yoojk20-ic
 #SBATCH --partition=IllinoisComputes
 #SBATCH --time=72:00:00
@@ -17,9 +17,9 @@ conda activate mnpbem
 
 echo "Job started on $(date)"
 
-echo "---------- Start simulation: AuAg dimer 1.0 nm gap ----------"
+echo "---------- Start simulation: AuAg dimer 0.8 nm gap ----------"
 cd /u/yoojk20/workspace/mnpbem_simulation
-./master.sh --str-conf ./config/dimer/auag/str/r0.2/config_str_auag_r0.2_g1.0.py --sim-conf ./config/dimer/auag/sim/r0.2/config_sim_auag_r0.2_g1.0.py --verbose
+./master.sh --str-conf ./config/dimer/auag_4nm/str/r0.2/config_str_auag_r0.2_g0.8.py --sim-conf ./config/dimer/auag_4nm/sim/r0.2/config_sim_auag_r0.2_g0.8.py --verbose
 
 echo "Job finished on $(date)"
 
