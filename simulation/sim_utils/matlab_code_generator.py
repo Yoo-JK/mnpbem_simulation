@@ -4,6 +4,12 @@ MATLAB Code Generator
 Generates complete MATLAB simulation scripts with field calculation support.
 Supports nonlocal quantum corrections for sub-nanometer gaps.
 Supports parallel computing with parfor (single node, multiple cores).
+
+PARALLEL EXECUTION FIX (2026-01-29):
+- Large MNPBEM objects (bem, greentab, exc, p) are wrapped using parallel.pool.Constant
+- This prevents copying objects to each worker, avoiding memory issues and worker crashes
+- Critical for substrate simulations with large Green function tables
+- See: https://www.mathworks.com/help/parallel-computing/parallel.pool.constant.html
 """
 import os
 import numpy as np
@@ -1396,10 +1402,21 @@ if exist('parallel_enabled', 'var') && parallel_enabled
     fprintf('    Progress updates may appear out of order\\n');
     fprintf('    Each worker computes independently\\n\\n');
 
-    %% PARALLEL LOOP (FIXED!)
-    % - Excitation object (exc) is already initialized
+    %% CRITICAL FIX: Wrap large objects to prevent copying to workers
+    % This prevents memory issues and worker crashes with large Green function tables
+    fprintf('  Preparing objects for parallel workers...\\n');
+
+    % Wrap large MNPBEM objects using parallel.pool.Constant
+    % This shares them with workers without copying
+    bem_const = parallel.pool.Constant(bem);
+    exc_const = parallel.pool.Constant(exc);
+    p_const = parallel.pool.Constant(p);
+
+    fprintf('  [OK] Objects wrapped for worker access\\n\\n');
+
+    %% PARALLEL LOOP with Constant objects
+    % - Using .Value to access the constant objects in workers
     % - MNPBEM processes ALL polarizations at once
-    % - No need for inner polarization loop
     parfor ien = 1:n_wavelengths
         try
             % Progress indicator (less frequent for parallel)
@@ -1408,19 +1425,20 @@ if exist('parallel_enabled', 'var') && parallel_enabled
                         ien, n_wavelengths, enei(ien));
             end
 
-            % FIXED: Just use pre-initialized exc object!
-            % MNPBEM automatically handles ALL polarizations in one call
-            sig = bem \\ exc(p, enei(ien));
+            % Access constant objects via .Value property
+            % This uses the shared objects without copying
+            sig = bem_const.Value \\ exc_const.Value(p_const.Value, enei(ien));
 
             % Extract cross sections (returns vector for all polarizations)
-            sca(ien, :) = exc.sca(sig);
-            ext(ien, :) = exc.ext(sig);
+            sca(ien, :) = exc_const.Value.sca(sig);
+            ext(ien, :) = exc_const.Value.ext(sig);
             abs_cross(ien, :) = ext(ien, :) - sca(ien, :);
 
         catch ME
             % Error handling: print error but continue with other wavelengths
             fprintf('  ERROR at wavelength %d (%.1f nm): %s\\n', ...
                     ien, enei(ien), ME.message);
+            fprintf('    Error details: %s\\n', ME.getReport());
             % Leave zeros for this wavelength
             sca(ien, :) = zeros(1, n_polarizations);
             ext(ien, :) = zeros(1, n_polarizations);
@@ -2979,13 +2997,20 @@ for ichunk = 1:n_chunks
     % PARALLEL EXECUTION (parfor)
     % ========================================
     if exist('parallel_enabled', 'var') && parallel_enabled
-        fprintf('  Using parallel execution (parfor)\\n\\n');
+        fprintf('  Using parallel execution (parfor)\\n');
+
+        % CRITICAL FIX: Wrap large objects to prevent copying to workers
+        fprintf('    Wrapping objects for parallel workers...\\n');
+        bem_const = parallel.pool.Constant(bem);
+        exc_const = parallel.pool.Constant(exc);
+        p_const = parallel.pool.Constant(p);
+        fprintf('    [OK] Objects ready for workers\\n\\n');
 
         % Pre-allocate chunk-local arrays for parfor slicing
         sca_chunk = zeros(n_chunk, n_polarizations);
         ext_chunk = zeros(n_chunk, n_polarizations);
         abs_chunk = zeros(n_chunk, n_polarizations);
-        
+
         % Local copies for parfor
         enei_local = enei;
         chunk_idx_local = chunk_indices;
@@ -3000,17 +3025,18 @@ for ichunk = 1:n_chunks
                             i_local, n_chunk, enei_local(ien));
                 end
 
-                % BEM calculation
-                sig = bem \\ exc(p, enei_local(ien));
+                % BEM calculation using Constant objects
+                sig = bem_const.Value \\ exc_const.Value(p_const.Value, enei_local(ien));
 
                 % Store results
-                sca_chunk(i_local, :) = exc.sca(sig);
-                ext_chunk(i_local, :) = exc.ext(sig);
+                sca_chunk(i_local, :) = exc_const.Value.sca(sig);
+                ext_chunk(i_local, :) = exc_const.Value.ext(sig);
                 abs_chunk(i_local, :) = ext_chunk(i_local, :) - sca_chunk(i_local, :);
 
             catch ME
                 fprintf('    [ERROR] lambda %d (%.1f nm): %s\\n', ...
                         ien, enei_local(ien), ME.message);
+                fprintf('      Details: %s\\n', ME.getReport());
                 sca_chunk(i_local, :) = zeros(1, n_polarizations);
                 ext_chunk(i_local, :) = zeros(1, n_polarizations);
                 abs_chunk(i_local, :) = zeros(1, n_polarizations);
