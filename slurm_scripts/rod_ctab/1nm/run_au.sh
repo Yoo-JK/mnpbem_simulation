@@ -4,8 +4,9 @@
 #SBATCH --partition=IllinoisComputes
 #SBATCH --time=72:00:00
 #SBATCH --nodes=1
-#SBATCH --ntasks=1
+#SBATCH --ntasks=4
 #SBATCH --cpus-per-task=1
+#SBATCH --mem=64G
 
 module purge
 module load matlab/24.1

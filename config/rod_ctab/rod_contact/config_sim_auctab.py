@@ -22,7 +22,7 @@ args['propagation_dirs'] = [
     [0, 0, 1],
     [0, 0, 1],
 ]
-args['wavelength_range'] = [400, 800, 100]
+args['wavelength_range'] = [500, 1000, 200]
 args['refine'] = 3
 args['relcutoff'] = 3
 
@@ -33,7 +33,8 @@ args['output_formats'] = ['txt']
 args['save_plots'] = True
 args['plot_format'] = ['png']
 args['plot_dpi'] = 300
-args['spectrum_xaxis'] = 'energy'
+args['spectrum_xaxis'] = 'wavelength'
+
 args['use_mirror_symmetry'] = False
 args['use_iterative_solver'] = False
 args['use_nonlocality'] = False
