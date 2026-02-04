@@ -4,7 +4,7 @@
 #SBATCH --partition=IllinoisComputes
 #SBATCH --time=72:00:00
 #SBATCH --nodes=1
-#SBATCH --ntasks=16
+#SBATCH --ntasks=48
 #SBATCH --cpus-per-task=1
 #SBATCH --export=NONE
 
@@ -43,7 +43,7 @@ cd /u/yoojk20/workspace/mnpbem_simulation
 
 echo "---------- Start simulation: 40x79_15 ----------"
 cd /u/yoojk20/workspace/mnpbem_simulation
-./master.sh --str-conf ./config/ho_rod/config_str_40x79_15.py --sim-conf ./config/ho_rod/config_sim_40x79_15.py --verbose
+#./master.sh --str-conf ./config/ho_rod/config_str_40x79_15.py --sim-conf ./config/ho_rod/config_sim_40x79_15.py --verbose
 
 echo "---------- Start simulation: 40x79_20 ----------"
 cd /u/yoojk20/workspace/mnpbem_simulation
