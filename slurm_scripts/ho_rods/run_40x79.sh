@@ -31,15 +31,15 @@ cd /u/yoojk20/workspace/mnpbem_simulation
 
 echo "---------- Start simulation: 40x79_05 ----------"
 cd /u/yoojk20/workspace/mnpbem_simulation
-./master.sh --str-conf ./config/ho_rod/config_str_40x79_05.py --sim-conf ./config/ho_rod/config_sim_40x79_05.py --verbose
+#./master.sh --str-conf ./config/ho_rod/config_str_40x79_05.py --sim-conf ./config/ho_rod/config_sim_40x79_05.py --verbose
 
 echo "---------- Start simulation: 40x79_07 ----------"
 cd /u/yoojk20/workspace/mnpbem_simulation
-./master.sh --str-conf ./config/ho_rod/config_str_40x79_07.py --sim-conf ./config/ho_rod/config_sim_40x79_07.py --verbose
+#./master.sh --str-conf ./config/ho_rod/config_str_40x79_07.py --sim-conf ./config/ho_rod/config_sim_40x79_07.py --verbose
 
 echo "---------- Start simulation: 40x79_10 ----------"
 cd /u/yoojk20/workspace/mnpbem_simulation
-./master.sh --str-conf ./config/ho_rod/config_str_40x79_10.py --sim-conf ./config/ho_rod/config_sim_40x79_10.py --verbose
+#./master.sh --str-conf ./config/ho_rod/config_str_40x79_10.py --sim-conf ./config/ho_rod/config_sim_40x79_10.py --verbose
 
 echo "---------- Start simulation: 40x79_15 ----------"
 cd /u/yoojk20/workspace/mnpbem_simulation

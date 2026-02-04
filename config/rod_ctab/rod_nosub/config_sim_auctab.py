@@ -22,7 +22,7 @@ args['propagation_dirs'] = [
     [0, 0, 1],
     [0, 0, 1],
 ]
-args['wavelength_range'] = [500, 1000, 200]
+args['wavelength_range'] = [400, 1000, 300]
 args['refine'] = 3
 args['relcutoff'] = 3
 

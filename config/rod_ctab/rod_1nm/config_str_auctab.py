@@ -7,9 +7,9 @@ args['structure'] = 'core_shell_rod'
 args['core_diameter'] = 20  # nm
 args['shell_thickness'] = 3.5  # nm (total diameter = 25nm)
 args['height'] = 67  # nm (along z-axis)
-args['nphi'] = 2
-args['ntheta'] = 2           
-args['nz'] = 2
+args['nphi'] = 3
+args['ntheta'] = 3           
+args['nz'] = 3
 args['materials'] = ['gold_olmon', 'ctab']  # [core, shell]
 args['medium'] = {'type': 'constant', 'epsilon': 1}
 

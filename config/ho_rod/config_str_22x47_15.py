@@ -31,7 +31,7 @@ args['structure_name'] = '22x47_01'
 # --- Core-Shell Rod (Nanorod) ---
 args['structure'] = 'core_shell_rod'
 args['core_diameter'] = 22  # nm
-args['shell_thickness'] = 1  # nm (total diameter = 25nm)
+args['shell_thickness'] = 15  # nm (total diameter = 25nm)
 args['height'] = 77  # nm (total length along z-axis)
 args['mesh_density'] = 2  # element size in nm (smaller = finer mesh)
 args['materials'] = ['gold', 'polymer']  # [core, shell]

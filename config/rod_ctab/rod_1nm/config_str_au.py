@@ -7,9 +7,9 @@ args['structure_name'] = 'Au_vac/olmon'
 args['structure'] = 'rod'
 args['diameter'] = 20.0  # nm
 args['height'] = 60  # nm (along z-axis)
-args['nphi'] = 2
-args['ntheta'] = 2  
-args['nz'] = 2
+args['nphi'] = 3
+args['ntheta'] = 3  
+args['nz'] = 3
 args['materials'] = ['gold_olmon']
 args['medium'] = {'type': 'constant', 'epsilon': 1}
 
