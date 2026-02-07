@@ -27,6 +27,22 @@ class MatlabCodeGenerator:
             print("    -> Automatically disabling H2 compression")
             self.config['use_h2_compression'] = False
 
+        # Auto-disable parfor when substrate + iterative solver is used
+        # The iterative solver (bemretlayeriter) uses ACA H-matrix compression
+        # which internally calls hmatgreentab1/hmatgreentab2 MEX functions
+        # (via aca.compgreenretlayer -> lowrank2). These MEX functions cause
+        # worker crashes (segfault) when executed concurrently in parfor workers.
+        use_parallel = config.get('use_parallel', False)
+        use_iterative = config.get('use_iterative_solver', False)
+
+        if use_substrate and use_parallel and use_iterative:
+            print("[!] WARNING: Parallel execution (parfor) is incompatible with")
+            print("    substrate + iterative solver mode")
+            print("    (MNPBEM MEX files 'hmatgreentab1/2' cause worker crashes")
+            print("     when called concurrently from aca.compgreenretlayer)")
+            print("    -> Automatically disabling parallel execution")
+            self.config['use_parallel'] = False
+
         self.nonlocal_gen = NonlocalGenerator(config, verbose)
 
         # Validate calculate_cross_sections and field_wavelength_idx combination
