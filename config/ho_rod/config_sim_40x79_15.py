@@ -3,7 +3,7 @@ from pathlib import Path
 
 args = {}
 
-args['use_parallel'] = True
+args['use_parallel'] = False
 args['num_workers'] = 3
 args['max_comp_threads'] = 1
 args['wavelength_chunk_size'] = 10

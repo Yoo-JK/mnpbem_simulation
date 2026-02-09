@@ -5,12 +5,12 @@ args = {}
 
 args['use_parallel'] = True
 args['num_workers'] = 4
-args['mnpbem_path'] = os.path.join(Path.home(), 'workspace/MNPBEM')
 
-args['simulation_name'] = 'Au90Cu10'
+args['mnpbem_path'] = os.path.join(Path.home(), 'workspace/MNPBEM')
+args['simulation_name'] = 'AuAu'
+
 args['simulation_type'] = 'ret'
 args['interp'] = 'curv'
-
 args['waitbar'] = 1
 
 args['excitation_type'] = 'planewave'
@@ -27,15 +27,20 @@ args['refine'] = 3
 args['relcutoff'] = 3
 
 args['calculate_cross_sections'] = True
-args['output_dir'] = os.path.join(Path.home(), 'research/mnpbem/rod_aucu')
 
+args['output_dir'] = os.path.join(Path.home(), 'research/mnpbem/rod_aucu')
 args['output_formats'] = ['txt']
+
 args['save_plots'] = True
 args['plot_format'] = ['png']
+
 args['plot_dpi'] = 300
 args['spectrum_xaxis'] = 'energy'
+
 args['use_mirror_symmetry'] = False
 args['use_iterative_solver'] = False
 args['use_nonlocality'] = False
+
+
 args['matlab_executable'] = 'matlab'
 args['matlab_options'] = '-nodisplay -nosplash -nodesktop'

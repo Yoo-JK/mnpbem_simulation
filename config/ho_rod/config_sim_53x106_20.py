@@ -4,7 +4,7 @@ from pathlib import Path
 args = {}
 
 args['use_parallel'] = True
-args['num_workers'] = 2
+args['num_workers'] = 4
 args['max_comp_threads'] = 1
 args['wavelength_chunk_size'] = 10
 
@@ -56,7 +56,7 @@ args['plot_dpi'] = 300
 args['spectrum_xaxis'] = 'energy'
 
 args['use_mirror_symmetry'] = False
-args['use_iterative_solver'] = False
+args['use_iterative_solver'] = True
 args['use_nonlocality'] = False
 
 args['matlab_executable'] = 'matlab'
