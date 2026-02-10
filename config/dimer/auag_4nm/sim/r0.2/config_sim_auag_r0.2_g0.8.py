@@ -133,7 +133,7 @@ args['relcutoff'] = 3
 # ============================================================================
 
 # Calculate optical cross sections (scattering, absorption, extinction)
-args['calculate_cross_sections'] = True
+args['calculate_cross_sections'] = False
 
 # Calculate electric field distribution
 args['calculate_fields'] = True
@@ -148,7 +148,7 @@ args['field_region'] = {
 # Field calculation options
 args['field_mindist'] = 0.5     # Minimum distance from particle surface (nm)
 args['field_nmax'] = 2000       # Work off calculation in portions (for large grids)
-args['field_wavelength_idx'] = 'peak'  # Which wavelength to calculate fields: 'middle', 'peak', or integer index
+args['field_wavelength_idx'] = [523, 530, 558, 569, 575, 604, 614, 650, 760, 772, 776]
 
 # ============================================================================
 # FIELD DATA EXPORT OPTIONS (NEW)

@@ -38,7 +38,7 @@ args['mnpbem_path'] = os.path.join(Path.home(), 'workspace/MNPBEM')
 # SIMULATION NAME (IDENTIFIER)
 # ============================================================================
 # Give your simulation a descriptive name
-args['simulation_name'] = 'auag_r0.2_g0.2'
+args['simulation_name'] = 'auagcl_r0.2_g0.8_1nm'
 
 # ============================================================================
 # SIMULATION TYPE
@@ -133,7 +133,7 @@ args['relcutoff'] = 3
 # ============================================================================
 
 # Calculate optical cross sections (scattering, absorption, extinction)
-args['calculate_cross_sections'] = False
+args['calculate_cross_sections'] = True
 
 # Calculate electric field distribution
 args['calculate_fields'] = True
@@ -148,7 +148,7 @@ args['field_region'] = {
 # Field calculation options
 args['field_mindist'] = 0.5     # Minimum distance from particle surface (nm)
 args['field_nmax'] = 2000       # Work off calculation in portions (for large grids)
-args['field_wavelength_idx'] = [535, 545, 550, 604, 616, 627, 637, 652, 664, 672, 677, 687, 703, 707, 714, 722, 729, 762, 768, 775, 794, 799, 853, 861, 866, 899, 904, 909]
+args['field_wavelength_idx'] = 'peak'  # Which wavelength to calculate fields: 'middle', 'peak', or integer index
 
 # ============================================================================
 # FIELD DATA EXPORT OPTIONS (NEW)
