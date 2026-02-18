@@ -134,7 +134,7 @@ class PostprocessManager:
                     self.field_analyzer.save_near_field_results(
                         near_field_results, self.config, output_file
                     )
-                    
+
                     if self.verbose:
                         print(f"  ✓ Near-field integration completed")
                 else:
@@ -145,6 +145,32 @@ class PostprocessManager:
                 if self.verbose:
                     import traceback
                     traceback.print_exc()
+
+        # Step 4.6: Near-field integration (center sphere only)
+        if 'fields' in data and data['fields']:
+            structure_type = self.config.get('structure', 'unknown')
+            if structure_type in ['sphere_cluster_aggregate', 'sphere_cluster']:
+                if self.verbose:
+                    print("\n[4.6/6] Calculating near-field integration (center sphere only)...")
+
+                try:
+                    center_results = self.field_analyzer.calculate_near_field_integration(
+                        data['fields'], self.config, self.geometry, center_only=True
+                    )
+
+                    if center_results:
+                        output_file = os.path.join(self.output_dir, 'near_field_integration_center.txt')
+                        self.field_analyzer.save_near_field_results(
+                            center_results, self.config, output_file, center_only=True
+                        )
+
+                        if self.verbose:
+                            print(f"  ✓ Near-field integration (center sphere only) completed")
+                except Exception as e:
+                    print(f"  [!] Near-field integration (center sphere) failed: {e}")
+                    if self.verbose:
+                        import traceback
+                        traceback.print_exc()
 
         # Step 5: Save processed data
         if self.verbose:
