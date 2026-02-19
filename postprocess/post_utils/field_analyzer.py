@@ -316,13 +316,13 @@ class FieldAnalyzer:
                 print(f"    #{hotspot['rank']}: ({pos[0]:.1f}, {pos[1]:.1f}, {pos[2]:.1f}) nm "
                       f"| E/E₀ = {hotspot['enhancement']:.2f}")
 
-    def calculate_near_field_integration(self, field_data_list, config, geometry):
+    def calculate_near_field_integration(self, field_data_list, config, geometry, center_only=False):
         """
         Calculate near-field integration for all field data.
-        
+
         Integrates field enhancement and intensity in region near particle surfaces
         (default: 5nm from surface, exterior only).
-        
+
         Parameters
         ----------
         field_data_list : list of dict
@@ -331,32 +331,35 @@ class FieldAnalyzer:
             Simulation configuration
         geometry : GeometryCrossSection
             Geometry calculator for particle boundaries
-        
+        center_only : bool
+            If True, integrate over center sphere only (for cluster structures)
+
         Returns
         -------
         dict or None
             Integration results organized by wavelength and polarization
         """
         structure_type = config.get('structure', 'unknown')
-        
+
         if not self._is_structure_supported_for_integration(structure_type):
             if self.verbose:
                 print(f"  [!] Structure '{structure_type}' not supported for near-field integration")
             return None
-        
+
         results = {}
-        
+
         for field_data in field_data_list:
             wl = field_data['wavelength']
             pol_idx = field_data.get('polarization_idx')
-            
+
             if self.verbose:
                 pol_str = f"pol{pol_idx+1}" if pol_idx is not None else "unpolarized"
-                print(f"\n  Processing λ={wl:.1f} nm, {pol_str}")
-            
+                mode_str = " (center only)" if center_only else ""
+                print(f"\n  Processing λ={wl:.1f} nm, {pol_str}{mode_str}")
+
             # Calculate integration for this field
             integration_result = self._integrate_single_field(
-                field_data, config, geometry
+                field_data, config, geometry, center_only=center_only
             )
             
             # Organize results
@@ -372,11 +375,22 @@ class FieldAnalyzer:
         
         return results
     
-    def _integrate_single_field(self, field_data, config, geometry):
+    def _integrate_single_field(self, field_data, config, geometry, center_only=False):
         """
         Integrate field values for a single wavelength/polarization.
 
         Calculates integration at multiple depths (10nm, 15nm interior).
+
+        Parameters
+        ----------
+        field_data : dict
+            Field data dictionary
+        config : dict
+            Simulation configuration
+        geometry : GeometryCrossSection
+            Geometry calculator
+        center_only : bool
+            If True, integrate over center sphere only
 
         Returns
         -------
@@ -417,9 +431,9 @@ class FieldAnalyzer:
             if len(enh_finite) > 0:
                 print(f"      Range: {np.min(enh_finite):.3f} ~ {np.max(enh_finite):.3f}")
                 print(f"      Mean: {np.mean(enh_finite):.3f}")
-        
+
         # Get particle boundaries
-        spheres = self._get_sphere_boundaries(config, geometry)
+        spheres = self._get_sphere_boundaries(config, geometry, center_only=center_only)
         
         if spheres is None or len(spheres) == 0:
             if self.verbose:
@@ -706,19 +720,28 @@ class FieldAnalyzer:
         
         return integration_mask
     
-    def _get_sphere_boundaries(self, config, geometry):
+    def _get_sphere_boundaries(self, config, geometry, center_only=False):
         """
         Get sphere boundaries from configuration.
-        
+
+        Parameters
+        ----------
+        config : dict
+            Simulation configuration
+        geometry : GeometryCrossSection
+            Geometry calculator
+        center_only : bool
+            If True, return only center sphere for cluster structures
+
         Returns
         -------
         list of tuple
             List of (center_x, center_y, center_z, radius) for each sphere
         """
         structure = config.get('structure', 'unknown')
-        
+
         if structure in ['sphere_cluster_aggregate', 'sphere_cluster']:
-            return self._get_cluster_spheres(config, geometry)
+            return self._get_cluster_spheres(config, geometry, center_only=center_only)
         elif structure == 'sphere':
             return self._get_single_sphere(config)
         elif structure in ['dimer_sphere', 'dimer']:
@@ -728,10 +751,23 @@ class FieldAnalyzer:
                 print(f"    [!] Sphere boundary extraction not implemented for '{structure}'")
             return None
     
-    def _get_cluster_spheres(self, config, geometry):
+    def _get_cluster_spheres(self, config, geometry, center_only=False):
         """Get sphere boundaries for sphere cluster aggregate.
 
-        Returns all spheres in the cluster for integration.
+        Parameters
+        ----------
+        config : dict
+            Simulation configuration
+        geometry : GeometryCrossSection
+            Geometry calculator
+        center_only : bool
+            If True, return only the first sphere (center sphere at origin
+            for N>=4, first sphere for N<4)
+
+        Returns
+        -------
+        list of tuple
+            List of (cx, cy, cz, radius)
         """
         n_spheres = config.get('n_spheres', 1)
         diameter = config.get('diameter', 50.0)
@@ -746,8 +782,13 @@ class FieldAnalyzer:
         # Convert to sphere list
         spheres = [(pos[0], pos[1], pos[2], radius) for pos in positions]
 
-        if self.verbose:
-            print(f"    Using all {len(spheres)} spheres (r={radius:.1f} nm)")
+        if center_only:
+            spheres = [spheres[0]]
+            if self.verbose:
+                print(f"    Using center sphere only (r={radius:.1f} nm)")
+        else:
+            if self.verbose:
+                print(f"    Using all {len(spheres)} spheres (r={radius:.1f} nm)")
 
         return spheres
     
@@ -804,10 +845,10 @@ class FieldAnalyzer:
             result['excluded_outliers'] = 0
         return result
     
-    def save_near_field_results(self, results, config, output_path):
+    def save_near_field_results(self, results, config, output_path, center_only=False):
         """
         Save near-field integration results to text file.
-        
+
         Parameters
         ----------
         results : dict
@@ -816,37 +857,46 @@ class FieldAnalyzer:
             Configuration dictionary
         output_path : str
             Path to output file
+        center_only : bool
+            If True, write header indicating center sphere only analysis
         """
         with open(output_path, 'w') as f:
-            self._write_integration_header(f, config)
+            self._write_integration_header(f, config, center_only=center_only)
             self._write_integration_results(f, results)
             self._write_integration_summary(f, results)
-        
+
         if self.verbose:
-            print(f"\n[OK] Near-field integration results saved: {output_path}")
-    
-    def _write_integration_header(self, f, config):
+            mode_str = " (center sphere only)" if center_only else ""
+            print(f"\n[OK] Near-field integration results{mode_str} saved: {output_path}")
+
+    def _write_integration_header(self, f, config, center_only=False):
         """Write file header for near-field integration results."""
         f.write("=" * 80 + "\n")
-        f.write("Near-Field Integration Analysis (INTERIOR)\n")
+        if center_only:
+            f.write("Near-Field Integration Analysis (INTERIOR) - CENTER SPHERE ONLY\n")
+        else:
+            f.write("Near-Field Integration Analysis (INTERIOR)\n")
         f.write("=" * 80 + "\n\n")
-        
+
         f.write("Configuration:\n")
         f.write(f"  Integration depths: {', '.join([f'{d:.1f}' for d in self.near_field_distances])} nm from particle surface (interior)\n")
-        
+
         structure_type = config.get('structure', 'unknown')
         f.write(f"  Structure: {structure_type}\n")
-        
+
         # Structure-specific info
         if structure_type in ['sphere_cluster_aggregate', 'sphere_cluster']:
             n_spheres = config.get('n_spheres', 1)
             diameter = config.get('diameter', 50.0)
             gap = config.get('gap', -0.1)
             f.write(f"  Total spheres in cluster: {n_spheres}\n")
-            f.write(f"  Integration target: ALL SPHERES\n")
+            if center_only:
+                f.write(f"  Integration target: CENTER SPHERE ONLY (sphere #0)\n")
+            else:
+                f.write(f"  Integration target: ALL SPHERES\n")
             f.write(f"  Sphere diameter: {diameter:.1f} nm\n")
             f.write(f"  Gap: {gap:.3f} nm\n")
-        
+
         f.write("\n" + "=" * 80 + "\n\n")
     
     def _write_integration_results(self, f, results):
