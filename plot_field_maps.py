@@ -8,9 +8,9 @@ Generates 9 individual field map plots (log scale, no percentile clipping):
   - Raw |E|^2:           External, Internal, Merged
 
 Usage:
-    python plot_field_maps.py simulation_results.mat --field_entry 15
-    python plot_field_maps.py simulation_results.mat --field_entry 15 --config_structure /path/to/config_structure.py
-    python plot_field_maps.py simulation_results.mat --field_entry 15 --outdir ./plots
+    python plot_field_maps.py --input field_data.mat --field_entry 15
+    python plot_field_maps.py --input field_data.mat --field_entry 15 --config_structure /path/to/config_structure.py
+    python plot_field_maps.py --input field_data.mat --field_entry 15 --outdir ./plots --prefix run01 --suffix 1nm
 """
 
 import argparse
@@ -29,25 +29,38 @@ from matplotlib.patches import Circle, Rectangle
 # Data Loading
 # ============================================================================
 
+_FIELD_ATTRS = ['x_grid', 'y_grid', 'z_grid', 'polarization',
+                'enhancement', 'enhancement_ext', 'enhancement_int',
+                'intensity', 'intensity_ext', 'intensity_int',
+                'e_sq', 'e_sq_ext', 'e_sq_int', 'e0_sq',
+                'e_total', 'e_total_ext', 'e_total_int']
+
+
 def load_field_entry(mat_path, entry_idx):
     """
     Load a specific field entry from the .mat file.
+    Supports both MATLAB v5/v7 (scipy) and v7.3 HDF5 (h5py) formats.
 
     Parameters
     ----------
     mat_path : str
-        Path to simulation_results.mat
+        Path to field_data.mat or simulation_results.mat
     entry_idx : int
-        Field entry index (0-based internally, but user specifies 1-based or
-        the actual index stored in wavelength_idx)
+        Field entry index (0-based)
 
     Returns
     -------
     dict with keys: wavelength, wavelength_idx, polarization_idx,
         x_grid, y_grid, z_grid, and all available field arrays
     """
-    mat_data = sio.loadmat(mat_path, struct_as_record=False, squeeze_me=True)
+    try:
+        mat_data = sio.loadmat(mat_path, struct_as_record=False, squeeze_me=True)
+    except NotImplementedError:
+        # MATLAB v7.3 (HDF5) format
+        print("Detected MATLAB v7.3 (HDF5) format, using h5py...")
+        return _load_field_entry_h5(mat_path, entry_idx)
 
+    # --- scipy path (MATLAB v5/v7) ---
     if 'results' in mat_data:
         results = mat_data['results']
         fields_struct = results.fields
@@ -81,22 +94,103 @@ def load_field_entry(mat_path, entry_idx):
         if hasattr(field, attr):
             result[attr] = float(getattr(field, attr)) if attr == 'wavelength' else int(getattr(field, attr))
 
-    for attr in ['x_grid', 'y_grid', 'z_grid', 'polarization',
-                 'enhancement', 'enhancement_ext', 'enhancement_int',
-                 'intensity', 'intensity_ext', 'intensity_int',
-                 'e_sq', 'e_sq_ext', 'e_sq_int', 'e0_sq',
-                 'e_total', 'e_total_ext', 'e_total_int']:
+    for attr in _FIELD_ATTRS:
         if hasattr(field, attr):
             val = np.array(getattr(field, attr))
             if val.size > 0:
                 result[attr] = val
 
+    return _report_loaded(result, entry_idx)
+
+
+def _load_field_entry_h5(mat_path, entry_idx):
+    """Load field entry from MATLAB v7.3 (HDF5) file using h5py."""
+    try:
+        import h5py
+    except ImportError:
+        raise ImportError(
+            "This .mat file is MATLAB v7.3 (HDF5) format.\n"
+            "Install h5py to read it:  pip install h5py"
+        )
+
+    with h5py.File(mat_path, 'r') as f:
+        # Locate the field struct
+        if 'results' in f and 'fields' in f['results']:
+            fields_grp = f['results']['fields']
+        elif 'field_data' in f:
+            fields_grp = f['field_data']
+        else:
+            raise KeyError("MAT file has neither 'results/fields' nor 'field_data'")
+
+        # Determine number of entries by inspecting a reference-typed dataset
+        field_names = list(fields_grp.keys())
+        if not field_names:
+            raise ValueError("No fields found in struct")
+
+        first_ds = fields_grp[field_names[0]]
+        is_ref = (first_ds.dtype == h5py.ref_dtype)
+
+        if is_ref:
+            n_entries = first_ds.size
+        else:
+            n_entries = 1
+
+        print(f"Total field entries in file: {n_entries}")
+
+        if entry_idx < 0 or entry_idx >= n_entries:
+            # Try to list available entries
+            if is_ref and 'wavelength' in fields_grp:
+                print("\nAvailable field entries:")
+                wl_ds = fields_grp['wavelength']
+                for i in range(n_entries):
+                    try:
+                        wl = float(np.array(f[wl_ds.flat[i]]).squeeze())
+                    except Exception:
+                        wl = '?'
+                    print(f"  [{i}] wavelength = {wl} nm")
+            raise IndexError(f"field_entry {entry_idx} out of range [0, {n_entries-1}]")
+
+        result = {}
+        all_attrs = ['wavelength', 'wavelength_idx', 'polarization_idx'] + _FIELD_ATTRS
+
+        for attr in all_attrs:
+            if attr not in fields_grp:
+                continue
+
+            ds = fields_grp[attr]
+
+            try:
+                if is_ref:
+                    ref = ds.flat[entry_idx]
+                    val = np.array(f[ref]).squeeze()
+                else:
+                    val = np.array(ds).squeeze()
+            except Exception:
+                continue
+
+            # MATLAB HDF5 stores arrays transposed (column-major)
+            if isinstance(val, np.ndarray) and val.ndim == 2:
+                val = val.T
+
+            if attr == 'wavelength':
+                result[attr] = float(val)
+            elif attr in ('wavelength_idx', 'polarization_idx'):
+                result[attr] = int(val)
+            else:
+                val = np.array(val)
+                if val.size > 0:
+                    result[attr] = val
+
+    return _report_loaded(result, entry_idx)
+
+
+def _report_loaded(result, entry_idx):
+    """Print summary of loaded field data and return result."""
     wl = result.get('wavelength', '?')
     wl_idx = result.get('wavelength_idx', '?')
     pol_idx = result.get('polarization_idx', '?')
     print(f"Loaded entry [{entry_idx}]: wavelength = {wl} nm, wl_idx = {wl_idx}, pol_idx = {pol_idx}")
 
-    # Report available fields
     field_keys = [k for k in result if k not in
                   ['wavelength', 'wavelength_idx', 'polarization_idx', 'polarization',
                    'x_grid', 'y_grid', 'z_grid']]
@@ -467,20 +561,25 @@ PLOT_CONFIGS = [
 def main():
     parser = argparse.ArgumentParser(
         description='Plot field maps from MNPBEM simulation results (log scale, full range)')
-    parser.add_argument('mat_file', help='Path to simulation_results.mat')
+    parser.add_argument('--input', type=str, required=True,
+                        help='Path to field_data.mat or simulation_results.mat')
     parser.add_argument('--field_entry', type=int, required=True,
                         help='Field entry index (0-based)')
     parser.add_argument('--config_structure', type=str, default=None,
                         help='Path to config_structure.py for material boundary overlay')
     parser.add_argument('--outdir', type=str, default='.',
                         help='Output directory (default: current dir)')
+    parser.add_argument('--prefix', type=str, default='fieldmap',
+                        help='Output filename prefix (default: fieldmap)')
+    parser.add_argument('--suffix', type=str, default='',
+                        help='Output filename suffix before extension (default: none)')
     parser.add_argument('--dpi', type=int, default=300, help='Figure DPI (default: 300)')
     parser.add_argument('--format', type=str, default='png',
                         choices=['png', 'pdf', 'svg'], help='Output format (default: png)')
     args = parser.parse_args()
 
     # Load field entry
-    field = load_field_entry(args.mat_file, args.field_entry)
+    field = load_field_entry(args.input, args.field_entry)
 
     # Grid and plane
     x_grid = field['x_grid']
@@ -545,7 +644,8 @@ def main():
             data_2d = data_2d.T
 
         title = f'{qty_label}\n\u03bb = {wl:.1f} nm (entry {args.field_entry}), pol {pol_idx}'
-        out_path = os.path.join(args.outdir, f'fieldmap_{fname_tag}_wl{wl_idx}.{args.format}')
+        suffix_part = f'_{args.suffix}' if args.suffix else ''
+        out_path = os.path.join(args.outdir, f'{args.prefix}_{fname_tag}_wl{wl_idx}{suffix_part}.{args.format}')
 
         plot_single_fieldmap(data_2d, extent, x_label, y_label, title, cbar_label,
                              cmap, out_path, sections=sections, dpi=args.dpi)
