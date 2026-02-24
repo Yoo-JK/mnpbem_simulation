@@ -138,6 +138,19 @@ class DataLoader:
             if hasattr(field_item, 'intensity'):
                 field_dict['intensity'] = self._extract_array(field_item.intensity)
 
+            # Separate external/internal enhancement and intensity
+            if hasattr(field_item, 'enhancement_ext'):
+                field_dict['enhancement_ext'] = self._extract_array(field_item.enhancement_ext)
+
+            if hasattr(field_item, 'enhancement_int'):
+                field_dict['enhancement_int'] = self._extract_array(field_item.enhancement_int)
+
+            if hasattr(field_item, 'intensity_ext'):
+                field_dict['intensity_ext'] = self._extract_array(field_item.intensity_ext)
+
+            if hasattr(field_item, 'intensity_int'):
+                field_dict['intensity_int'] = self._extract_array(field_item.intensity_int)
+
             # Raw intensity fields for energy ratio calculation: sum(|E|²)/sum(|E0|²)
             if hasattr(field_item, 'e_sq'):
                 field_dict['e_sq'] = self._extract_array(field_item.e_sq)
@@ -242,3 +255,4 @@ class DataLoader:
             print(f"  Polarizations: {n_pol}")
         
         return data
+
