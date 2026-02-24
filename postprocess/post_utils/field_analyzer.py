@@ -570,20 +570,29 @@ class FieldAnalyzer:
                 final_mask = final_mask & valid_enh
                 excluded_outliers = 0
 
-        # Apply top percentile filter: remove top N% of enhancement values
+        # Apply top percentile filter: remove exactly top N% of enhancement values (count-based)
         excluded_top_percentile = 0
         if top_percentile_filter is not None and top_percentile_filter > 0:
-            enh_in_mask = enhancement[final_mask]
-            if len(enh_in_mask) > 0:
-                keep_percentile = 100.0 - top_percentile_filter
-                percentile_threshold = np.percentile(enh_in_mask, keep_percentile)
-                top_pct_mask = enhancement <= percentile_threshold
-                excluded_top_percentile = int(np.sum(final_mask & ~top_pct_mask))
-                final_mask = final_mask & top_pct_mask
+            # Get indices of points currently in the mask
+            mask_indices = np.where(final_mask.ravel())[0]
+            if len(mask_indices) > 0:
+                # Get enhancement values for masked points
+                enh_in_mask = enhancement.ravel()[mask_indices]
+                # Calculate exact number of points to remove
+                n_to_remove = int(np.ceil(len(enh_in_mask) * top_percentile_filter / 100.0))
+
+                if n_to_remove > 0 and n_to_remove < len(enh_in_mask):
+                    # Find indices of top N points by enhancement (descending)
+                    top_indices_in_mask = np.argsort(enh_in_mask)[::-1][:n_to_remove]
+                    # Map back to flat grid indices and remove from mask
+                    flat_mask = final_mask.ravel().copy()
+                    remove_grid_indices = mask_indices[top_indices_in_mask]
+                    flat_mask[remove_grid_indices] = False
+                    final_mask = flat_mask.reshape(final_mask.shape)
+                    excluded_top_percentile = n_to_remove
 
                 if self.verbose:
-                    print(f"        Top {top_percentile_filter}% filter: threshold={percentile_threshold:.3f}")
-                    print(f"        Excluded top {top_percentile_filter}%: {excluded_top_percentile} points")
+                    print(f"        Top {top_percentile_filter}% filter (count-based): removed {excluded_top_percentile}/{len(enh_in_mask)} points")
 
         if self.verbose:
             print(f"        Final mask: {np.sum(final_mask)} points")
