@@ -464,7 +464,7 @@ class FieldAnalyzer:
             # Compute hybrid edge artifact mask for this depth's region
             artifact_mask, n_artifacts = find_edge_artifacts(
                 enhancement, x_grid, y_grid, z_grid, spheres,
-                mask=distance_mask, edge_threshold=1.0, isolation_ratio=5.0,
+                mask=distance_mask, edge_threshold=1.0, isolation_ratio=1.3,
                 verbose=self.verbose
             )
 
