@@ -101,7 +101,7 @@ def compute_min_surface_distance(x_grid, y_grid, z_grid, spheres):
 
 
 def find_edge_artifacts(data, x_grid, y_grid, z_grid, spheres, mask=None,
-                        edge_threshold=1.0, isolation_ratio=5.0, kernel_radius=2,
+                        edge_threshold=1.0, isolation_ratio=1.3, kernel_radius=2,
                         verbose=False):
     """
     Find BEM artifact pixels using hybrid edge + spatial isolation filter.
