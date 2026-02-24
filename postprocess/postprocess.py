@@ -147,34 +147,6 @@ class PostprocessManager:
                     import traceback
                     traceback.print_exc()
 
-        # Step 4.55: Near-field integration with top 1% excluded
-        if 'fields' in data and data['fields']:
-            if self.verbose:
-                print("\n[4.55/6] Calculating near-field integration (top 1% excluded)...")
-
-            try:
-                near_field_results_99 = self.field_analyzer.calculate_near_field_integration(
-                    data['fields'], self.config, self.geometry, top_percentile_filter=1
-                )
-
-                if near_field_results_99:
-                    output_file = os.path.join(self.output_dir, 'near_field_integration_99.txt')
-                    self.field_analyzer.save_near_field_results(
-                        near_field_results_99, self.config, output_file,
-                        top_percentile_filter=1
-                    )
-
-                    if self.verbose:
-                        print(f"  ✓ Near-field integration (top 1% excluded) completed")
-                else:
-                    if self.verbose:
-                        print(f"  Structure not supported for near-field integration")
-            except Exception as e:
-                print(f"  [!] Near-field integration (top 1% excluded) failed: {e}")
-                if self.verbose:
-                    import traceback
-                    traceback.print_exc()
-
         # Step 4.6: Near-field integration (center sphere only)
         if 'fields' in data and data['fields']:
             structure_type = self.config.get('structure', 'unknown')
@@ -197,34 +169,6 @@ class PostprocessManager:
                             print(f"  ✓ Near-field integration (center sphere only) completed")
                 except Exception as e:
                     print(f"  [!] Near-field integration (center sphere) failed: {e}")
-                    if self.verbose:
-                        import traceback
-                        traceback.print_exc()
-
-        # Step 4.65: Near-field integration (center sphere only, top 1% excluded)
-        if 'fields' in data and data['fields']:
-            structure_type = self.config.get('structure', 'unknown')
-            if structure_type in ['sphere_cluster_aggregate', 'sphere_cluster']:
-                if self.verbose:
-                    print("\n[4.65/6] Calculating near-field integration (center, top 1% excluded)...")
-
-                try:
-                    center_results_99 = self.field_analyzer.calculate_near_field_integration(
-                        data['fields'], self.config, self.geometry,
-                        center_only=True, top_percentile_filter=1
-                    )
-
-                    if center_results_99:
-                        output_file = os.path.join(self.output_dir, 'near_field_integration_center_99.txt')
-                        self.field_analyzer.save_near_field_results(
-                            center_results_99, self.config, output_file,
-                            center_only=True, top_percentile_filter=1
-                        )
-
-                        if self.verbose:
-                            print(f"  ✓ Near-field integration (center, top 1% excluded) completed")
-                except Exception as e:
-                    print(f"  [!] Near-field integration (center, top 1% excluded) failed: {e}")
                     if self.verbose:
                         import traceback
                         traceback.print_exc()
@@ -488,3 +432,4 @@ class PostprocessManager:
         
         if self.verbose:
             print(f"  Saved: {filepath}")
+
