@@ -5,7 +5,7 @@ Analyzes electromagnetic field distributions.
 """
 
 import numpy as np
-from scipy.ndimage import maximum_filter, median_filter
+from scipy.ndimage import maximum_filter
 
 
 class FieldAnalyzer:
@@ -585,8 +585,7 @@ class FieldAnalyzer:
                 # Only remove pixels that are BOTH near the surface boundary
                 # AND spatially isolated (artifact spikes), preserving legitimate hotspots
                 final_mask, excluded_top_percentile = self._apply_hybrid_edge_filter(
-                    enhancement, final_mask, dist_from_surface,
-                    top_percentile_filter=top_percentile_filter
+                    enhancement, final_mask, dist_from_surface
                 )
             else:
                 # Fallback: blind count-based removal (legacy behavior)
@@ -709,16 +708,18 @@ class FieldAnalyzer:
         return result
 
     def _apply_hybrid_edge_filter(self, enhancement, final_mask, dist_from_surface,
-                                   edge_threshold=2.0, isolation_ratio=5.0,
-                                   kernel_size=5, top_percentile_filter=1.0):
+                                   edge_threshold=1.0, isolation_ratio=5.0,
+                                   kernel_size=5, **kwargs):
         """
         Hybrid edge + spatial isolation filter for removing boundary artifacts
         while preserving legitimate hotspots (e.g., gap regions between spheres).
 
-        A pixel is removed only if ALL three conditions are met:
-        1. High value: in the top N% of enhancement values (candidate)
-        2. Near edge: within edge_threshold nm from the nearest sphere surface
-        3. Spatially isolated: value >> local median of neighbors (artifact spike)
+        A pixel is removed only if BOTH conditions are met:
+        1. Near edge: within edge_threshold nm from the nearest sphere surface
+        2. Spatially isolated: value >> local median of in-mask neighbors
+
+        The median is computed using ONLY in-mask neighbors (NaN for out-of-mask),
+        so outermost pixels are compared fairly against their valid neighbors.
 
         Parameters
         ----------
@@ -729,63 +730,61 @@ class FieldAnalyzer:
         dist_from_surface : ndarray
             Absolute distance from nearest sphere surface for each grid point
         edge_threshold : float
-            Distance from surface (nm) defining the edge zone. Default 2.0 nm.
+            Distance from surface (nm) defining the edge zone. Default 1.0 nm.
         isolation_ratio : float
             Pixel value / local median ratio above which a pixel is considered
             spatially isolated (artifact). Default 5.0.
         kernel_size : int
             Size of the median filter kernel. Default 5 (5x5 or 5x5x5).
-        top_percentile_filter : float
-            Top N% of values to consider as removal candidates. Default 1.0.
 
         Returns
         -------
         tuple of (ndarray bool, int)
             (updated_mask, n_removed)
         """
-        mask_indices = np.where(final_mask.ravel())[0]
-        if len(mask_indices) == 0:
-            return final_mask, 0
+        from scipy.ndimage import generic_filter
 
-        enh_in_mask = enhancement.ravel()[mask_indices]
-        n_candidates = int(np.ceil(len(enh_in_mask) * top_percentile_filter / 100.0))
-        if n_candidates == 0 or n_candidates >= len(enh_in_mask):
-            return final_mask, 0
-
-        # Step 1: Value threshold - identify top N% as candidates
-        sorted_vals = np.sort(enh_in_mask)[::-1]
-        value_threshold = sorted_vals[n_candidates - 1]
-        high_value = enhancement >= value_threshold
-
-        # Step 2: Edge zone - pixels close to sphere surface
+        # Step 1: Edge zone - only consider pixels near sphere surface
         edge_zone = dist_from_surface <= edge_threshold
+        candidates = edge_zone & final_mask
 
-        # Step 3: Spatial isolation - compare each pixel to local median
-        # Clean enhancement for median filter (replace non-finite with 0)
-        enh_clean = enhancement.copy()
-        enh_clean[~np.isfinite(enh_clean)] = 0
-        enh_clean[~final_mask] = 0
+        n_edge_total = int(np.sum(candidates))
+        if n_edge_total == 0:
+            if self.verbose:
+                print(f"        Hybrid edge+isolation filter:")
+                print(f"          No pixels in edge zone (<={edge_threshold:.1f}nm), skipping")
+            return final_mask, 0
 
-        local_med = median_filter(enh_clean, size=kernel_size)
+        # Step 2: Spatial isolation using in-mask neighbors only
+        # Set out-of-mask and non-finite pixels to NaN so they're excluded from median
+        enh_for_median = enhancement.astype(float).copy()
+        enh_for_median[~np.isfinite(enh_for_median)] = np.nan
+        enh_for_median[~final_mask] = np.nan
+
+        def _nanmedian(values):
+            valid = values[~np.isnan(values)]
+            if len(valid) == 0:
+                return 0.0
+            return np.median(valid)
+
+        local_med = generic_filter(enh_for_median, _nanmedian, size=kernel_size,
+                                   mode='constant', cval=np.nan)
 
         with np.errstate(divide='ignore', invalid='ignore'):
             ratio = np.where(local_med > 0, enhancement / local_med, 0)
         isolated = ratio > isolation_ratio
 
-        # Remove only pixels meeting ALL three conditions
-        remove_mask = high_value & edge_zone & isolated & final_mask
+        # Remove only pixels meeting BOTH conditions: edge + isolated
+        remove_mask = candidates & isolated
         n_removed = int(np.sum(remove_mask))
 
         new_mask = final_mask & ~remove_mask
 
         if self.verbose:
-            n_high = int(np.sum(high_value & final_mask))
-            n_edge = int(np.sum(high_value & edge_zone & final_mask))
-            n_edge_isolated = n_removed
-            print(f"        Hybrid edge+isolation filter (top {top_percentile_filter}%):")
-            print(f"          High-value candidates: {n_high}/{len(enh_in_mask)}")
-            print(f"          In edge zone (<={edge_threshold:.1f}nm): {n_edge}")
-            print(f"          Also spatially isolated (ratio>{isolation_ratio:.1f}): {n_edge_isolated}")
+            n_isolated = int(np.sum(isolated & candidates))
+            print(f"        Hybrid edge+isolation filter:")
+            print(f"          Edge zone pixels (<={edge_threshold:.1f}nm): {n_edge_total}")
+            print(f"          Spatially isolated (ratio>{isolation_ratio:.1f}, in-mask median): {n_isolated}")
             print(f"          Removed: {n_removed} pixels")
 
         return new_mask, n_removed
@@ -1032,7 +1031,7 @@ class FieldAnalyzer:
         f.write("Configuration:\n")
         f.write(f"  Integration depths: {', '.join([f'{d:.1f}' for d in self.near_field_distances])} nm from particle surface (interior)\n")
         if top_percentile_filter is not None and top_percentile_filter > 0:
-            f.write(f"  Enhancement filter: Hybrid edge+isolation (top {top_percentile_filter}% candidates, edge<=2nm, isolation ratio>5)\n")
+            f.write(f"  Enhancement filter: Hybrid edge+isolation (edge<=1nm, isolation ratio>5, in-mask median)\n")
 
         structure_type = config.get('structure', 'unknown')
         f.write(f"  Structure: {structure_type}\n")
