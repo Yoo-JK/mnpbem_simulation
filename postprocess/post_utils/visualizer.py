@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm, PowerNorm
 from matplotlib.patches import Circle, Rectangle
 from .geometry_cross_section import GeometryCrossSection
+from .edge_filter import get_sphere_boundaries_from_config, find_edge_artifacts
 
 class Visualizer:
     """Handles all visualization tasks."""
@@ -633,59 +634,119 @@ class Visualizer:
     def plot_field_separate_internal_external(self, field_data):
         """
         Plot internal and external fields separately if available.
-        
+
         Creates 3 types of plots:
         1. Separate 2-panel plots (Ext | Int)
         2. Comparison 3-panel plots (Ext | Int | Merged)
         3. Overlay plots (Ext heatmap + Int scatter)
-        
+
         Only creates plots if field_data contains enhancement_ext and enhancement_int.
+        Internal field data is filtered using hybrid edge artifact filter
+        to remove BEM boundary artifacts while preserving physical features.
         """
         if not field_data:
             return []
-        
+
         saved_files = []
-        
+
+        # Get sphere boundaries for edge artifact filter (once for all entries)
+        spheres = get_sphere_boundaries_from_config(self.config)
+        if spheres and self.verbose:
+            print(f"  Edge artifact filter: {len(spheres)} sphere(s) detected")
+
         # Check if we have separate internal/external data
         for idx, field in enumerate(field_data):
             # Check if this field has separate ext/int data
             has_separate = (
-                'enhancement_ext' in field and 
+                'enhancement_ext' in field and
                 'enhancement_int' in field and
                 field['enhancement_ext'] is not None and
                 field['enhancement_int'] is not None
             )
-            
+
             if not has_separate:
                 continue  # Skip this field
-            
+
             pol_idx = field.get('polarization_idx', idx)
             wl_idx = field.get('wavelength_idx')
-            
+
             if self.verbose:
                 print(f"  Creating separate int/ext plots for pol {pol_idx+1}...")
-            
+
+            # Compute artifact mask for internal field (once per field entry)
+            artifact_mask = self._compute_artifact_mask(field, spheres)
+
             # Create separate plots
-            sep_files = self._plot_field_separate(field, pol_idx, wl_idx)
+            sep_files = self._plot_field_separate(field, pol_idx, wl_idx, artifact_mask)
             if sep_files:
                 saved_files.extend(sep_files)
-            
+
             # Create comparison plots
-            comp_files = self._plot_field_comparison(field, pol_idx, wl_idx)
+            comp_files = self._plot_field_comparison(field, pol_idx, wl_idx, artifact_mask)
             if comp_files:
                 saved_files.extend(comp_files)
-            
+
             # Create overlay plots
-            overlay_files = self._plot_field_overlay(field, pol_idx, wl_idx)
+            overlay_files = self._plot_field_overlay(field, pol_idx, wl_idx, artifact_mask)
             if overlay_files:
                 saved_files.extend(overlay_files)
-        
+
         return saved_files
+
+    def _compute_artifact_mask(self, field, spheres):
+        """
+        Compute artifact mask for internal field data using hybrid edge filter.
+
+        Returns boolean mask (True = artifact pixel to remove), or None if
+        filtering is not possible.
+        """
+        if spheres is None or len(spheres) == 0:
+            return None
+
+        # Use enhancement_int as detection source
+        detection_key = None
+        for candidate in ['enhancement_int', 'intensity_int', 'e_sq_int']:
+            if candidate in field and field[candidate] is not None:
+                detection_key = candidate
+                break
+
+        if detection_key is None:
+            return None
+
+        det_data = np.array(field[detection_key], dtype=float)
+        if np.iscomplexobj(det_data):
+            det_data = np.abs(det_data)
+
+        x_grid = np.atleast_2d(np.asarray(field['x_grid'], dtype=float))
+        y_grid = np.atleast_2d(np.asarray(field['y_grid'], dtype=float))
+        z_grid = np.atleast_2d(np.asarray(field['z_grid'], dtype=float))
+
+        # Ensure grids match data shape
+        if x_grid.shape != det_data.shape and x_grid.size == det_data.size:
+            x_grid = x_grid.reshape(det_data.shape)
+            y_grid = y_grid.reshape(det_data.shape)
+            z_grid = z_grid.reshape(det_data.shape)
+
+        int_mask = ~np.isnan(det_data) & np.isfinite(det_data)
+
+        artifact_mask, n_artifacts = find_edge_artifacts(
+            det_data, x_grid, y_grid, z_grid, spheres,
+            mask=int_mask,
+            edge_threshold=1.0,
+            isolation_ratio=5.0,
+            verbose=self.verbose
+        )
+
+        if self.verbose and n_artifacts > 0:
+            print(f"    Edge filter: {n_artifacts} artifact pixels will be removed "
+                  f"from internal + merged plots (detected from {detection_key})")
+
+        return artifact_mask
     
-    def _plot_field_separate(self, field_data, polarization_idx, wavelength_idx=None):
+    def _plot_field_separate(self, field_data, polarization_idx, wavelength_idx=None, artifact_mask=None):
         """Plot internal and external fields separately (2 subplots)."""
         saved_files = []
-        
+
         # Extract data
         enhancement_ext = np.array(field_data['enhancement_ext'])
         enhancement_int = np.array(field_data['enhancement_int'])
@@ -693,12 +754,17 @@ class Visualizer:
         y_grid = field_data['y_grid']
         z_grid = field_data['z_grid']
         wavelength = field_data['wavelength']
-        
+
         # Convert complex to magnitude
         if np.iscomplexobj(enhancement_ext):
             enhancement_ext = np.abs(enhancement_ext)
         if np.iscomplexobj(enhancement_int):
             enhancement_int = np.abs(enhancement_int)
+
+        # Apply edge artifact filter to internal field
+        if artifact_mask is not None and artifact_mask.shape == enhancement_int.shape:
+            enhancement_int = enhancement_int.copy()
+            enhancement_int[artifact_mask] = np.nan
         
         # Determine plane
         plane_type, extent, x_label, y_label = self._determine_plane(x_grid, y_grid, z_grid)
@@ -787,10 +853,10 @@ class Visualizer:
         
         return saved_files
     
-    def _plot_field_comparison(self, field_data, polarization_idx, wavelength_idx=None):
+    def _plot_field_comparison(self, field_data, polarization_idx, wavelength_idx=None, artifact_mask=None):
         """Plot 3-panel comparison: External | Internal | Merged."""
         saved_files = []
-        
+
         # Extract data
         enhancement_ext = np.array(field_data['enhancement_ext'])
         enhancement_int = np.array(field_data['enhancement_int'])
@@ -799,7 +865,7 @@ class Visualizer:
         y_grid = field_data['y_grid']
         z_grid = field_data['z_grid']
         wavelength = field_data['wavelength']
-        
+
         # Convert complex to magnitude
         if np.iscomplexobj(enhancement_ext):
             enhancement_ext = np.abs(enhancement_ext)
@@ -807,6 +873,15 @@ class Visualizer:
             enhancement_int = np.abs(enhancement_int)
         if np.iscomplexobj(enhancement_merged):
             enhancement_merged = np.abs(enhancement_merged)
+
+        # Apply edge artifact filter to internal and merged fields
+        if artifact_mask is not None:
+            if artifact_mask.shape == enhancement_int.shape:
+                enhancement_int = enhancement_int.copy()
+                enhancement_int[artifact_mask] = np.nan
+            if artifact_mask.shape == enhancement_merged.shape:
+                enhancement_merged = enhancement_merged.copy()
+                enhancement_merged[artifact_mask] = np.nan
         
         # Determine plane
         plane_type, extent, x_label, y_label = self._determine_plane(x_grid, y_grid, z_grid)
@@ -876,10 +951,10 @@ class Visualizer:
         
         return saved_files
     
-    def _plot_field_overlay(self, field_data, polarization_idx, wavelength_idx=None):
+    def _plot_field_overlay(self, field_data, polarization_idx, wavelength_idx=None, artifact_mask=None):
         """Plot internal field as scatter points over external field heatmap."""
         saved_files = []
-        
+
         # Extract data
         enhancement_ext = np.array(field_data['enhancement_ext'])
         enhancement_int = np.array(field_data['enhancement_int'])
@@ -887,12 +962,17 @@ class Visualizer:
         y_grid = field_data['y_grid']
         z_grid = field_data['z_grid']
         wavelength = field_data['wavelength']
-        
+
         # Convert complex to magnitude
         if np.iscomplexobj(enhancement_ext):
             enhancement_ext = np.abs(enhancement_ext)
         if np.iscomplexobj(enhancement_int):
             enhancement_int = np.abs(enhancement_int)
+
+        # Apply edge artifact filter to internal field
+        if artifact_mask is not None and artifact_mask.shape == enhancement_int.shape:
+            enhancement_int = enhancement_int.copy()
+            enhancement_int[artifact_mask] = np.nan
         
         # Determine plane
         plane_type, extent, x_label, y_label = self._determine_plane(x_grid, y_grid, z_grid)
