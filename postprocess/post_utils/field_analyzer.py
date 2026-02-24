@@ -570,32 +570,29 @@ class FieldAnalyzer:
                 final_mask = final_mask & valid_enh
                 excluded_outliers = 0
 
-        # Apply top percentile filter: remove exactly top N% of points by count
-        # (sorted by enhancement descending, remove the largest ones)
-        # Uses .ravel() to correctly handle multi-dimensional arrays
+        # Apply top percentile filter: remove exactly top N% of enhancement values (count-based)
         excluded_top_percentile = 0
         if top_percentile_filter is not None and top_percentile_filter > 0:
-            # Get flat indices of points currently in the mask
+            # Get indices of points currently in the mask
             mask_indices = np.where(final_mask.ravel())[0]
-            n_in_mask = len(mask_indices)
-            if n_in_mask > 0:
-                n_to_remove = int(np.ceil(n_in_mask * top_percentile_filter / 100.0))
-                if n_to_remove > 0 and n_to_remove < n_in_mask:
-                    # Get enhancement values for masked points
-                    enh_in_mask = enhancement.ravel()[mask_indices]
-                    # argsort descending: largest enhancement first
-                    sorted_idx = np.argsort(enh_in_mask)[::-1]
+            if len(mask_indices) > 0:
+                # Get enhancement values for masked points
+                enh_in_mask = enhancement.ravel()[mask_indices]
+                # Calculate exact number of points to remove
+                n_to_remove = int(np.ceil(len(enh_in_mask) * top_percentile_filter / 100.0))
+
+                if n_to_remove > 0 and n_to_remove < len(enh_in_mask):
+                    # Find indices of top N points by enhancement (descending)
+                    top_indices_in_mask = np.argsort(enh_in_mask)[::-1][:n_to_remove]
                     # Map back to flat grid indices and remove from mask
                     flat_mask = final_mask.ravel().copy()
-                    remove_grid_indices = mask_indices[sorted_idx[:n_to_remove]]
+                    remove_grid_indices = mask_indices[top_indices_in_mask]
                     flat_mask[remove_grid_indices] = False
                     final_mask = flat_mask.reshape(final_mask.shape)
                     excluded_top_percentile = n_to_remove
 
-                    if self.verbose:
-                        min_removed_val = enh_in_mask[sorted_idx[n_to_remove - 1]]
-                        print(f"        Top {top_percentile_filter}% filter (count-based): removed {n_to_remove}/{n_in_mask} points")
-                        print(f"        Smallest removed E/E0={min_removed_val:.3f}")
+                if self.verbose:
+                    print(f"        Top {top_percentile_filter}% filter (count-based): removed {excluded_top_percentile}/{len(enh_in_mask)} points")
 
         if self.verbose:
             print(f"        Final mask: {np.sum(final_mask)} points")
