@@ -572,23 +572,29 @@ class FieldAnalyzer:
 
         # Apply top percentile filter: remove exactly top N% of points by count
         # (sorted by enhancement descending, remove the largest ones)
+        # Uses .ravel() to correctly handle multi-dimensional arrays
         excluded_top_percentile = 0
         if top_percentile_filter is not None and top_percentile_filter > 0:
-            mask_indices = np.where(final_mask)[0]
+            # Get flat indices of points currently in the mask
+            mask_indices = np.where(final_mask.ravel())[0]
             n_in_mask = len(mask_indices)
             if n_in_mask > 0:
                 n_to_remove = int(np.ceil(n_in_mask * top_percentile_filter / 100.0))
                 if n_to_remove > 0 and n_to_remove < n_in_mask:
-                    enh_at_mask = enhancement[mask_indices]
+                    # Get enhancement values for masked points
+                    enh_in_mask = enhancement.ravel()[mask_indices]
                     # argsort descending: largest enhancement first
-                    sorted_idx = np.argsort(enh_at_mask)[::-1]
-                    remove_idx = mask_indices[sorted_idx[:n_to_remove]]
-                    final_mask[remove_idx] = False
+                    sorted_idx = np.argsort(enh_in_mask)[::-1]
+                    # Map back to flat grid indices and remove from mask
+                    flat_mask = final_mask.ravel().copy()
+                    remove_grid_indices = mask_indices[sorted_idx[:n_to_remove]]
+                    flat_mask[remove_grid_indices] = False
+                    final_mask = flat_mask.reshape(final_mask.shape)
                     excluded_top_percentile = n_to_remove
 
                     if self.verbose:
-                        min_removed_val = enh_at_mask[sorted_idx[n_to_remove - 1]]
-                        print(f"        Top {top_percentile_filter}% filter: removed {n_to_remove}/{n_in_mask} points")
+                        min_removed_val = enh_in_mask[sorted_idx[n_to_remove - 1]]
+                        print(f"        Top {top_percentile_filter}% filter (count-based): removed {n_to_remove}/{n_in_mask} points")
                         print(f"        Smallest removed E/E0={min_removed_val:.3f}")
 
         if self.verbose:
