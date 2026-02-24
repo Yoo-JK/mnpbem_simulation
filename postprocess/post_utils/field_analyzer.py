@@ -316,7 +316,8 @@ class FieldAnalyzer:
                 print(f"    #{hotspot['rank']}: ({pos[0]:.1f}, {pos[1]:.1f}, {pos[2]:.1f}) nm "
                       f"| E/E₀ = {hotspot['enhancement']:.2f}")
 
-    def calculate_near_field_integration(self, field_data_list, config, geometry, center_only=False):
+    def calculate_near_field_integration(self, field_data_list, config, geometry,
+                                          center_only=False, top_percentile_filter=None):
         """
         Calculate near-field integration for all field data.
 
@@ -333,6 +334,9 @@ class FieldAnalyzer:
             Geometry calculator for particle boundaries
         center_only : bool
             If True, integrate over center sphere only (for cluster structures)
+        top_percentile_filter : float, optional
+            If set, remove the top N% of enhancement values after filtering.
+            E.g., top_percentile_filter=1 removes the top 1%.
 
         Returns
         -------
@@ -359,7 +363,8 @@ class FieldAnalyzer:
 
             # Calculate integration for this field
             integration_result = self._integrate_single_field(
-                field_data, config, geometry, center_only=center_only
+                field_data, config, geometry, center_only=center_only,
+                top_percentile_filter=top_percentile_filter
             )
             
             # Organize results
@@ -375,7 +380,8 @@ class FieldAnalyzer:
         
         return results
     
-    def _integrate_single_field(self, field_data, config, geometry, center_only=False):
+    def _integrate_single_field(self, field_data, config, geometry, center_only=False,
+                                top_percentile_filter=None):
         """
         Integrate field values for a single wavelength/polarization.
 
@@ -391,6 +397,8 @@ class FieldAnalyzer:
             Geometry calculator
         center_only : bool
             If True, integrate over center sphere only
+        top_percentile_filter : float, optional
+            If set, remove the top N% of enhancement values after filtering.
 
         Returns
         -------
@@ -460,12 +468,14 @@ class FieldAnalyzer:
             # Calculate with two filtering methods
             result_strict = self._calculate_with_filtering(
                 enhancement, intensity, distance_mask, n_spheres,
-                e_sq=e_sq, e0_sq=e0_sq, e_sq_int=e_sq_int, method='strict'
+                e_sq=e_sq, e0_sq=e0_sq, e_sq_int=e_sq_int, method='strict',
+                top_percentile_filter=top_percentile_filter
             )
 
             result_conservative = self._calculate_with_filtering(
                 enhancement, intensity, distance_mask, n_spheres,
-                e_sq=e_sq, e0_sq=e0_sq, e_sq_int=e_sq_int, method='conservative'
+                e_sq=e_sq, e0_sq=e0_sq, e_sq_int=e_sq_int, method='conservative',
+                top_percentile_filter=top_percentile_filter
             )
 
             results_by_depth[depth] = {
@@ -486,7 +496,8 @@ class FieldAnalyzer:
         }
     
     def _calculate_with_filtering(self, enhancement, intensity, distance_mask, n_spheres,
-                                    e_sq=None, e0_sq=None, e_sq_int=None, method='strict'):
+                                    e_sq=None, e0_sq=None, e_sq_int=None, method='strict',
+                                    top_percentile_filter=None):
         """
         Calculate sums with specified filtering method.
 
@@ -508,6 +519,9 @@ class FieldAnalyzer:
             |E|² internal intensity array (for chunked version)
         method : str
             'strict' or 'conservative'
+        top_percentile_filter : float, optional
+            If set, remove the top N% of enhancement values after filtering.
+            E.g., top_percentile_filter=1 removes the top 1% (keeps below 99th percentile).
 
         Returns
         -------
@@ -520,7 +534,7 @@ class FieldAnalyzer:
         if self.verbose:
             print(f"      [DEBUG] {method.upper()} filtering:")
             print(f"        Distance mask: {np.sum(distance_mask)} points")
-        
+
         # Apply filtering
         if method == 'strict':
             # Remove only Inf and NaN
@@ -528,18 +542,18 @@ class FieldAnalyzer:
 
             if self.verbose:
                 print(f"        Finite enhancement: {np.sum(valid_enh)} points")
-            
+
             final_mask = final_mask & valid_enh
-            
+
             excluded_outliers = 0
-            
+
         elif method == 'conservative':
             # Remove Inf, NaN, and outliers
             valid_enh = np.isfinite(enhancement)
 
             if self.verbose:
                 print(f"        Finite enhancement: {np.sum(valid_enh)} points")
-            
+
             if np.sum(valid_enh) > 0:
                 # Calculate threshold from valid data
                 threshold = np.percentile(enhancement[valid_enh], 99.9)
@@ -548,13 +562,28 @@ class FieldAnalyzer:
                 if self.verbose:
                     print(f"        99.9%ile threshold: {threshold:.3f}")
                     print(f"        Outlier cutoff: {threshold * 10:.3f}")
-                
+
                 excluded_outliers = int(np.sum(distance_mask & valid_enh & ~outlier_mask))
-                
+
                 final_mask = final_mask & valid_enh & outlier_mask
             else:
                 final_mask = final_mask & valid_enh
                 excluded_outliers = 0
+
+        # Apply top percentile filter: remove top N% of enhancement values
+        excluded_top_percentile = 0
+        if top_percentile_filter is not None and top_percentile_filter > 0:
+            enh_in_mask = enhancement[final_mask]
+            if len(enh_in_mask) > 0:
+                keep_percentile = 100.0 - top_percentile_filter
+                percentile_threshold = np.percentile(enh_in_mask, keep_percentile)
+                top_pct_mask = enhancement <= percentile_threshold
+                excluded_top_percentile = int(np.sum(final_mask & ~top_pct_mask))
+                final_mask = final_mask & top_pct_mask
+
+                if self.verbose:
+                    print(f"        Top {top_percentile_filter}% filter: threshold={percentile_threshold:.3f}")
+                    print(f"        Excluded top {top_percentile_filter}%: {excluded_top_percentile} points")
 
         if self.verbose:
             print(f"        Final mask: {np.sum(final_mask)} points")
@@ -651,6 +680,10 @@ class FieldAnalyzer:
 
         if method == 'conservative':
             result['excluded_outliers'] = excluded_outliers
+
+        if top_percentile_filter is not None and top_percentile_filter > 0:
+            result['excluded_top_percentile'] = excluded_top_percentile
+            result['top_percentile_filter'] = top_percentile_filter
 
         return result
     
@@ -845,7 +878,8 @@ class FieldAnalyzer:
             result['excluded_outliers'] = 0
         return result
     
-    def save_near_field_results(self, results, config, output_path, center_only=False):
+    def save_near_field_results(self, results, config, output_path, center_only=False,
+                                top_percentile_filter=None):
         """
         Save near-field integration results to text file.
 
@@ -859,27 +893,36 @@ class FieldAnalyzer:
             Path to output file
         center_only : bool
             If True, write header indicating center sphere only analysis
+        top_percentile_filter : float, optional
+            If set, indicate that top N% of enhancement values were removed.
         """
         with open(output_path, 'w') as f:
-            self._write_integration_header(f, config, center_only=center_only)
-            self._write_integration_results(f, results)
+            self._write_integration_header(f, config, center_only=center_only,
+                                           top_percentile_filter=top_percentile_filter)
+            self._write_integration_results(f, results, top_percentile_filter=top_percentile_filter)
             self._write_integration_summary(f, results)
 
         if self.verbose:
             mode_str = " (center sphere only)" if center_only else ""
-            print(f"\n[OK] Near-field integration results{mode_str} saved: {output_path}")
+            filter_str = f" (top {top_percentile_filter}% excluded)" if top_percentile_filter else ""
+            print(f"\n[OK] Near-field integration results{mode_str}{filter_str} saved: {output_path}")
 
-    def _write_integration_header(self, f, config, center_only=False):
+    def _write_integration_header(self, f, config, center_only=False, top_percentile_filter=None):
         """Write file header for near-field integration results."""
         f.write("=" * 80 + "\n")
+        title_parts = ["Near-Field Integration Analysis (INTERIOR)"]
         if center_only:
-            f.write("Near-Field Integration Analysis (INTERIOR) - CENTER SPHERE ONLY\n")
-        else:
-            f.write("Near-Field Integration Analysis (INTERIOR)\n")
+            title_parts.append("CENTER SPHERE ONLY")
+        if top_percentile_filter is not None and top_percentile_filter > 0:
+            keep_pct = 100.0 - top_percentile_filter
+            title_parts.append(f"TOP {top_percentile_filter}% EXCLUDED (keep <= {keep_pct:.0f}th percentile)")
+        f.write(" - ".join(title_parts) + "\n")
         f.write("=" * 80 + "\n\n")
 
         f.write("Configuration:\n")
         f.write(f"  Integration depths: {', '.join([f'{d:.1f}' for d in self.near_field_distances])} nm from particle surface (interior)\n")
+        if top_percentile_filter is not None and top_percentile_filter > 0:
+            f.write(f"  Enhancement filter: Top {top_percentile_filter}% of E/E0 values excluded\n")
 
         structure_type = config.get('structure', 'unknown')
         f.write(f"  Structure: {structure_type}\n")
@@ -899,7 +942,7 @@ class FieldAnalyzer:
 
         f.write("\n" + "=" * 80 + "\n\n")
     
-    def _write_integration_results(self, f, results):
+    def _write_integration_results(self, f, results, top_percentile_filter=None):
         """Write detailed results for each wavelength/polarization."""
         for wl in sorted(results.keys()):
             f.write(f"Results at wavelength = {wl:.1f} nm:\n")
@@ -950,6 +993,8 @@ class FieldAnalyzer:
                             if strict.get('energy_ratio_per_sphere') is not None:
                                 f.write(f"    Energy ratio per sphere: {strict['energy_ratio_per_sphere']:15.6f}\n")
                         f.write(f"    Valid points in region:  {strict['valid_points']:15d}\n")
+                        if strict.get('excluded_top_percentile') is not None:
+                            f.write(f"    Excluded top {strict['top_percentile_filter']}%:  {strict['excluded_top_percentile']:15d}\n")
                         f.write(f"    Mean enhancement:        {strict['enhancement_mean']:15.3f}\n")
                         if strict['intensity_mean'] is not None:
                             f.write(f"    Mean intensity:          {strict['intensity_mean']:15.3f}\n")
@@ -970,6 +1015,8 @@ class FieldAnalyzer:
                                 f.write(f"    Energy ratio per sphere: {cons['energy_ratio_per_sphere']:15.6f}\n")
                         f.write(f"    Valid points in region:  {cons['valid_points']:15d}\n")
                         f.write(f"    Excluded outliers:       {cons['excluded_outliers']:15d}\n")
+                        if cons.get('excluded_top_percentile') is not None:
+                            f.write(f"    Excluded top {cons['top_percentile_filter']}%:  {cons['excluded_top_percentile']:15d}\n")
                         f.write(f"    Mean enhancement:        {cons['enhancement_mean']:15.3f}\n")
                         if cons['intensity_mean'] is not None:
                             f.write(f"    Mean intensity:          {cons['intensity_mean']:15.3f}\n")
