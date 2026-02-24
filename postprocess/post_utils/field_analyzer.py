@@ -5,7 +5,7 @@ Analyzes electromagnetic field distributions.
 """
 
 import numpy as np
-from scipy.ndimage import maximum_filter
+from scipy.ndimage import maximum_filter, median_filter
 
 
 class FieldAnalyzer:
@@ -463,19 +463,23 @@ class FieldAnalyzer:
             if self.verbose:
                 print(f"    [DEBUG] Processing depth = {depth:.1f} nm (interior)")
             # Create distance mask for this depth
-            distance_mask = self._create_distance_mask(x_grid, y_grid, z_grid, spheres, depth)
+            distance_mask, min_dist_from_surface = self._create_distance_mask(
+                x_grid, y_grid, z_grid, spheres, depth
+            )
 
             # Calculate with two filtering methods
             result_strict = self._calculate_with_filtering(
                 enhancement, intensity, distance_mask, n_spheres,
                 e_sq=e_sq, e0_sq=e0_sq, e_sq_int=e_sq_int, method='strict',
-                top_percentile_filter=top_percentile_filter
+                top_percentile_filter=top_percentile_filter,
+                dist_from_surface=min_dist_from_surface
             )
 
             result_conservative = self._calculate_with_filtering(
                 enhancement, intensity, distance_mask, n_spheres,
                 e_sq=e_sq, e0_sq=e0_sq, e_sq_int=e_sq_int, method='conservative',
-                top_percentile_filter=top_percentile_filter
+                top_percentile_filter=top_percentile_filter,
+                dist_from_surface=min_dist_from_surface
             )
 
             results_by_depth[depth] = {
@@ -497,7 +501,7 @@ class FieldAnalyzer:
     
     def _calculate_with_filtering(self, enhancement, intensity, distance_mask, n_spheres,
                                     e_sq=None, e0_sq=None, e_sq_int=None, method='strict',
-                                    top_percentile_filter=None):
+                                    top_percentile_filter=None, dist_from_surface=None):
         """
         Calculate sums with specified filtering method.
 
@@ -522,6 +526,9 @@ class FieldAnalyzer:
         top_percentile_filter : float, optional
             If set, remove the top N% of enhancement values after filtering.
             E.g., top_percentile_filter=1 removes the top 1% (keeps below 99th percentile).
+        dist_from_surface : ndarray, optional
+            Absolute distance from nearest sphere surface for each grid point.
+            If provided, uses hybrid edge+isolation filter instead of blind top percentile.
 
         Returns
         -------
@@ -570,29 +577,34 @@ class FieldAnalyzer:
                 final_mask = final_mask & valid_enh
                 excluded_outliers = 0
 
-        # Apply top percentile filter: remove exactly top N% of enhancement values (count-based)
+        # Apply top percentile filter
         excluded_top_percentile = 0
         if top_percentile_filter is not None and top_percentile_filter > 0:
-            # Get indices of points currently in the mask
-            mask_indices = np.where(final_mask.ravel())[0]
-            if len(mask_indices) > 0:
-                # Get enhancement values for masked points
-                enh_in_mask = enhancement.ravel()[mask_indices]
-                # Calculate exact number of points to remove
-                n_to_remove = int(np.ceil(len(enh_in_mask) * top_percentile_filter / 100.0))
+            if dist_from_surface is not None:
+                # Hybrid edge + isolation filter:
+                # Only remove pixels that are BOTH near the surface boundary
+                # AND spatially isolated (artifact spikes), preserving legitimate hotspots
+                final_mask, excluded_top_percentile = self._apply_hybrid_edge_filter(
+                    enhancement, final_mask, dist_from_surface,
+                    top_percentile_filter=top_percentile_filter
+                )
+            else:
+                # Fallback: blind count-based removal (legacy behavior)
+                mask_indices = np.where(final_mask.ravel())[0]
+                if len(mask_indices) > 0:
+                    enh_in_mask = enhancement.ravel()[mask_indices]
+                    n_to_remove = int(np.ceil(len(enh_in_mask) * top_percentile_filter / 100.0))
 
-                if n_to_remove > 0 and n_to_remove < len(enh_in_mask):
-                    # Find indices of top N points by enhancement (descending)
-                    top_indices_in_mask = np.argsort(enh_in_mask)[::-1][:n_to_remove]
-                    # Map back to flat grid indices and remove from mask
-                    flat_mask = final_mask.ravel().copy()
-                    remove_grid_indices = mask_indices[top_indices_in_mask]
-                    flat_mask[remove_grid_indices] = False
-                    final_mask = flat_mask.reshape(final_mask.shape)
-                    excluded_top_percentile = n_to_remove
+                    if n_to_remove > 0 and n_to_remove < len(enh_in_mask):
+                        top_indices_in_mask = np.argsort(enh_in_mask)[::-1][:n_to_remove]
+                        flat_mask = final_mask.ravel().copy()
+                        remove_grid_indices = mask_indices[top_indices_in_mask]
+                        flat_mask[remove_grid_indices] = False
+                        final_mask = flat_mask.reshape(final_mask.shape)
+                        excluded_top_percentile = n_to_remove
 
-                if self.verbose:
-                    print(f"        Top {top_percentile_filter}% filter (count-based): removed {excluded_top_percentile}/{len(enh_in_mask)} points")
+                    if self.verbose:
+                        print(f"        Top {top_percentile_filter}% filter (count-based fallback): removed {excluded_top_percentile}/{len(enh_in_mask)} points")
 
         if self.verbose:
             print(f"        Final mask: {np.sum(final_mask)} points")
@@ -695,18 +707,100 @@ class FieldAnalyzer:
             result['top_percentile_filter'] = top_percentile_filter
 
         return result
-    
+
+    def _apply_hybrid_edge_filter(self, enhancement, final_mask, dist_from_surface,
+                                   edge_threshold=2.0, isolation_ratio=5.0,
+                                   kernel_size=5, top_percentile_filter=1.0):
+        """
+        Hybrid edge + spatial isolation filter for removing boundary artifacts
+        while preserving legitimate hotspots (e.g., gap regions between spheres).
+
+        A pixel is removed only if ALL three conditions are met:
+        1. High value: in the top N% of enhancement values (candidate)
+        2. Near edge: within edge_threshold nm from the nearest sphere surface
+        3. Spatially isolated: value >> local median of neighbors (artifact spike)
+
+        Parameters
+        ----------
+        enhancement : ndarray
+            Enhancement values on the grid
+        final_mask : ndarray (bool)
+            Current valid pixel mask after basic filtering
+        dist_from_surface : ndarray
+            Absolute distance from nearest sphere surface for each grid point
+        edge_threshold : float
+            Distance from surface (nm) defining the edge zone. Default 2.0 nm.
+        isolation_ratio : float
+            Pixel value / local median ratio above which a pixel is considered
+            spatially isolated (artifact). Default 5.0.
+        kernel_size : int
+            Size of the median filter kernel. Default 5 (5x5 or 5x5x5).
+        top_percentile_filter : float
+            Top N% of values to consider as removal candidates. Default 1.0.
+
+        Returns
+        -------
+        tuple of (ndarray bool, int)
+            (updated_mask, n_removed)
+        """
+        mask_indices = np.where(final_mask.ravel())[0]
+        if len(mask_indices) == 0:
+            return final_mask, 0
+
+        enh_in_mask = enhancement.ravel()[mask_indices]
+        n_candidates = int(np.ceil(len(enh_in_mask) * top_percentile_filter / 100.0))
+        if n_candidates == 0 or n_candidates >= len(enh_in_mask):
+            return final_mask, 0
+
+        # Step 1: Value threshold - identify top N% as candidates
+        sorted_vals = np.sort(enh_in_mask)[::-1]
+        value_threshold = sorted_vals[n_candidates - 1]
+        high_value = enhancement >= value_threshold
+
+        # Step 2: Edge zone - pixels close to sphere surface
+        edge_zone = dist_from_surface <= edge_threshold
+
+        # Step 3: Spatial isolation - compare each pixel to local median
+        # Clean enhancement for median filter (replace non-finite with 0)
+        enh_clean = enhancement.copy()
+        enh_clean[~np.isfinite(enh_clean)] = 0
+        enh_clean[~final_mask] = 0
+
+        local_med = median_filter(enh_clean, size=kernel_size)
+
+        with np.errstate(divide='ignore', invalid='ignore'):
+            ratio = np.where(local_med > 0, enhancement / local_med, 0)
+        isolated = ratio > isolation_ratio
+
+        # Remove only pixels meeting ALL three conditions
+        remove_mask = high_value & edge_zone & isolated & final_mask
+        n_removed = int(np.sum(remove_mask))
+
+        new_mask = final_mask & ~remove_mask
+
+        if self.verbose:
+            n_high = int(np.sum(high_value & final_mask))
+            n_edge = int(np.sum(high_value & edge_zone & final_mask))
+            n_edge_isolated = n_removed
+            print(f"        Hybrid edge+isolation filter (top {top_percentile_filter}%):")
+            print(f"          High-value candidates: {n_high}/{len(enh_in_mask)}")
+            print(f"          In edge zone (<={edge_threshold:.1f}nm): {n_edge}")
+            print(f"          Also spatially isolated (ratio>{isolation_ratio:.1f}): {n_edge_isolated}")
+            print(f"          Removed: {n_removed} pixels")
+
+        return new_mask, n_removed
+
     def _create_distance_mask(self, x_grid, y_grid, z_grid, spheres, depth):
         """
         Create mask for integration region - INTERIOR VERSION.
-        
+
         Region criteria:
         1. Inside at least ONE sphere
         2. Within 'depth' nm from surface (measured inward)
-        
+
         This selects the region inside particles, near the surface.
         Overlapping regions between particles are included only once (OR operation).
-        
+
         Parameters
         ----------
         x_grid, y_grid, z_grid : ndarray
@@ -715,31 +809,39 @@ class FieldAnalyzer:
             List of (center_x, center_y, center_z, radius)
         depth : float
             Integration depth from surface (nm)
-        
+
         Returns
         -------
-        ndarray (bool)
-            True for points in integration region
+        tuple of (ndarray bool, ndarray float)
+            (integration_mask, min_dist_from_surface)
+            min_dist_from_surface: signed distance to nearest sphere surface
+            (negative = inside, positive = outside)
         """
         shape = x_grid.shape
-        
+
         # Initialize mask - all False
         integration_mask = np.zeros(shape, dtype=bool)
+        # Track minimum distance from any sphere surface (for edge detection)
+        min_dist_from_surface = np.full(shape, np.inf)
 
         if self.verbose:
             print(f"      Grid shape: {shape}, total points: {np.prod(shape)}")
-        
+
         for sphere_idx, (cx, cy, cz, radius) in enumerate(spheres):
             # Calculate distance from sphere center
             dist_from_center = np.sqrt(
-                (x_grid - cx)**2 + 
-                (y_grid - cy)**2 + 
+                (x_grid - cx)**2 +
+                (y_grid - cy)**2 +
                 (z_grid - cz)**2
             )
-            
+
             # Distance from surface (negative = inside, positive = outside)
             dist_from_surface = dist_from_center - radius
-            
+
+            # Track minimum absolute distance to any sphere surface
+            min_dist_from_surface = np.minimum(min_dist_from_surface,
+                                               np.abs(dist_from_surface))
+
             # Points inside this sphere AND within depth from surface (inward)
             # -depth <= dist_from_surface <= 0
             inside_near_surface = (
@@ -751,16 +853,16 @@ class FieldAnalyzer:
                 n_inside_total = np.sum(dist_from_surface <= 0)
                 n_inside_near = np.sum(inside_near_surface)
                 print(f"      Sphere {sphere_idx+1}: {n_inside_near}/{n_inside_total} points in near-surface region")
-            
+
             # OR operation: add to integration mask (overlaps counted once)
             integration_mask = integration_mask | inside_near_surface
-        
+
         if self.verbose:
             n_total = np.prod(shape)
             n_selected = np.sum(integration_mask)
             print(f"    Integration region ({depth:.1f}nm interior): {n_selected}/{n_total} points ({100*n_selected/n_total:.1f}%)")
-        
-        return integration_mask
+
+        return integration_mask, min_dist_from_surface
     
     def _get_sphere_boundaries(self, config, geometry, center_only=False):
         """
@@ -923,15 +1025,14 @@ class FieldAnalyzer:
         if center_only:
             title_parts.append("CENTER SPHERE ONLY")
         if top_percentile_filter is not None and top_percentile_filter > 0:
-            keep_pct = 100.0 - top_percentile_filter
-            title_parts.append(f"TOP {top_percentile_filter}% EXCLUDED (keep <= {keep_pct:.0f}th percentile)")
+            title_parts.append(f"EDGE ARTIFACTS FILTERED (hybrid edge+isolation, top {top_percentile_filter}% candidates)")
         f.write(" - ".join(title_parts) + "\n")
         f.write("=" * 80 + "\n\n")
 
         f.write("Configuration:\n")
         f.write(f"  Integration depths: {', '.join([f'{d:.1f}' for d in self.near_field_distances])} nm from particle surface (interior)\n")
         if top_percentile_filter is not None and top_percentile_filter > 0:
-            f.write(f"  Enhancement filter: Top {top_percentile_filter}% of E/E0 values excluded\n")
+            f.write(f"  Enhancement filter: Hybrid edge+isolation (top {top_percentile_filter}% candidates, edge<=2nm, isolation ratio>5)\n")
 
         structure_type = config.get('structure', 'unknown')
         f.write(f"  Structure: {structure_type}\n")
@@ -1003,7 +1104,7 @@ class FieldAnalyzer:
                                 f.write(f"    Energy ratio per sphere: {strict['energy_ratio_per_sphere']:15.6f}\n")
                         f.write(f"    Valid points in region:  {strict['valid_points']:15d}\n")
                         if strict.get('excluded_top_percentile') is not None:
-                            f.write(f"    Excluded top {strict['top_percentile_filter']}%:  {strict['excluded_top_percentile']:15d}\n")
+                            f.write(f"    Excluded edge artifacts:     {strict['excluded_top_percentile']:15d}  [hybrid edge+isolation filter]\n")
                         f.write(f"    Mean enhancement:        {strict['enhancement_mean']:15.3f}\n")
                         if strict['intensity_mean'] is not None:
                             f.write(f"    Mean intensity:          {strict['intensity_mean']:15.3f}\n")
@@ -1025,7 +1126,7 @@ class FieldAnalyzer:
                         f.write(f"    Valid points in region:  {cons['valid_points']:15d}\n")
                         f.write(f"    Excluded outliers:       {cons['excluded_outliers']:15d}\n")
                         if cons.get('excluded_top_percentile') is not None:
-                            f.write(f"    Excluded top {cons['top_percentile_filter']}%:  {cons['excluded_top_percentile']:15d}\n")
+                            f.write(f"    Excluded edge artifacts:     {cons['excluded_top_percentile']:15d}  [hybrid edge+isolation filter]\n")
                         f.write(f"    Mean enhancement:        {cons['enhancement_mean']:15.3f}\n")
                         if cons['intensity_mean'] is not None:
                             f.write(f"    Mean intensity:          {cons['intensity_mean']:15.3f}\n")
