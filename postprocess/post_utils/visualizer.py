@@ -733,7 +733,7 @@ class Visualizer:
             det_data, x_grid, y_grid, z_grid, spheres,
             mask=int_mask,
             edge_threshold=1.0,
-            isolation_ratio=5.0,
+            isolation_ratio=1.3,
             verbose=self.verbose
         )
 

@@ -480,8 +480,8 @@ def main():
                              'Does NOT remove pixels, only adjusts color range. (default: full range)')
     parser.add_argument('--edge_threshold', type=float, default=1.0,
                         help='Edge zone threshold in nm for artifact filter (default: 1.0)')
-    parser.add_argument('--isolation_ratio', type=float, default=5.0,
-                        help='Isolation ratio threshold for artifact filter (default: 5.0)')
+    parser.add_argument('--isolation_ratio', type=float, default=1.3,
+                        help='Isolation ratio threshold for artifact filter (default: 1.3)')
     args = parser.parse_args()
 
     # Load field entry
