@@ -30,7 +30,7 @@ args['wavelength_range'] = [400, 900, 200]  # 400-800 nm, 100 points
 args['refine'] = 3
 args['relcutoff'] = 3
 args['calculate_cross_sections'] = True
-args['calculate_fields'] = True
+args['calculate_fields'] = False
 
 args['field_region'] = {
     'x_range': [-80, 80, 161],  # [min, max, num_points] in nm
