@@ -7,13 +7,21 @@ Generates 9 individual field map plots (log scale, hybrid edge artifact filter):
   - Intensity |E/E0|^2:  External, Internal, Merged
   - Raw |E|^2:           External, Internal, Merged
 
+Additionally, if multiple polarizations exist at the same wavelength, automatically
+generates 9 unpolarized field maps using FDTD-style incoherent averaging:
+  unpol = mean(pol1, pol2, ...)  (arithmetic mean of intensity-like quantities)
+
 Internal field data is filtered using hybrid edge + spatial isolation filter
 to remove BEM boundary artifacts while preserving physical features (gap hotspots).
+The same filter is applied independently to both per-polarization and unpolarized plots.
 
 Usage:
     python plot_field_maps.py --input field_data.mat --field_entry 15 --config_structure /path/to/config_structure.py
     python plot_field_maps.py --input field_data.mat --field_entry 15 --config_structure /path/to/config_structure.py --vmax_percentile 99
     python plot_field_maps.py --input field_data.mat --field_entry 15  # no filtering without config
+
+    # Unpolarized plots are generated automatically when other polarizations
+    # are found at the same wavelength (no extra arguments needed).
 """
 import argparse
 import os
@@ -49,6 +57,15 @@ _FIELD_ATTRS = ['x_grid', 'y_grid', 'z_grid', 'polarization',
                 'intensity', 'intensity_ext', 'intensity_int',
                 'e_sq', 'e_sq_ext', 'e_sq_int', 'e0_sq',
                 'e_total', 'e_total_ext', 'e_total_int']
+
+# Field data keys that can be incoherently averaged for unpolarized calculation
+_AVERAGEABLE_KEYS = [
+    'enhancement', 'enhancement_ext', 'enhancement_int',
+    'intensity', 'intensity_ext', 'intensity_int',
+    'e_sq', 'e_sq_ext', 'e_sq_int',
+    'e_total', 'e_total_ext', 'e_total_int',
+    'e0_sq',
+]
 
 
 def load_field_entry(mat_path, entry_idx):
@@ -188,6 +205,166 @@ def _report_loaded(result, entry_idx):
                   ['wavelength', 'wavelength_idx', 'polarization_idx', 'polarization',
                    'x_grid', 'y_grid', 'z_grid']]
     print(f"Available field data: {field_keys}")
+    return result
+
+
+# ============================================================================
+# Unpolarized: Metadata Scanning and Incoherent Averaging
+# ============================================================================
+
+def list_field_entries_metadata(mat_path):
+    """Return list of dicts with metadata (index, wavelength, polarization_idx) for each field entry."""
+    try:
+        mat_data = sio.loadmat(mat_path, struct_as_record=False, squeeze_me=True)
+    except NotImplementedError:
+        return _list_field_entries_metadata_h5(mat_path)
+
+    if 'results' in mat_data:
+        fields_struct = mat_data['results'].fields
+    elif 'field_data' in mat_data:
+        fields_struct = mat_data['field_data']
+    else:
+        return []
+
+    if not isinstance(fields_struct, np.ndarray):
+        fields_struct = np.array([fields_struct])
+
+    entries = []
+    for i, f in enumerate(fields_struct):
+        entry = {'index': i}
+        entry['wavelength'] = float(f.wavelength) if hasattr(f, 'wavelength') else None
+        entry['wavelength_idx'] = int(f.wavelength_idx) if hasattr(f, 'wavelength_idx') else None
+        entry['polarization_idx'] = int(f.polarization_idx) if hasattr(f, 'polarization_idx') else None
+        entries.append(entry)
+    return entries
+
+
+def _list_field_entries_metadata_h5(mat_path):
+    """List field entry metadata from HDF5 .mat file."""
+    try:
+        import h5py
+    except ImportError:
+        return []
+
+    entries = []
+    with h5py.File(mat_path, 'r') as f:
+        if 'results' in f and 'fields' in f['results']:
+            fields_grp = f['results']['fields']
+        elif 'field_data' in f:
+            fields_grp = f['field_data']
+        else:
+            return []
+
+        field_names = list(fields_grp.keys())
+        if not field_names:
+            return []
+
+        first_ds = fields_grp[field_names[0]]
+        is_ref = (first_ds.dtype == h5py.ref_dtype or first_ds.dtype == object)
+        n_entries = first_ds.shape[0] if is_ref else 1
+
+        for i in range(n_entries):
+            entry = {'index': i}
+            for attr in ['wavelength', 'wavelength_idx', 'polarization_idx']:
+                if attr not in fields_grp:
+                    entry[attr] = None
+                    continue
+                ds = fields_grp[attr]
+                try:
+                    if is_ref:
+                        val = float(np.array(f[ds[i, 0]]).squeeze())
+                    else:
+                        val = float(np.array(ds).squeeze())
+                    entry[attr] = val if attr == 'wavelength' else int(val)
+                except Exception:
+                    entry[attr] = None
+            entries.append(entry)
+    return entries
+
+
+def find_same_wavelength_entries(mat_path, reference_entry_idx):
+    """
+    Find all field entries with the same wavelength as the reference entry.
+    Returns sorted list of entry indices (by polarization_idx), including the reference.
+    Returns empty list if no additional polarizations found.
+    """
+    metadata = list_field_entries_metadata(mat_path)
+    if reference_entry_idx >= len(metadata):
+        return []
+
+    ref_wl = metadata[reference_entry_idx]['wavelength']
+    if ref_wl is None:
+        return []
+
+    matching = [m for m in metadata
+                if m['wavelength'] is not None
+                and abs(m['wavelength'] - ref_wl) < 0.01]
+
+    if len(matching) < 2:
+        return []
+
+    matching.sort(key=lambda m: m['polarization_idx'] if m['polarization_idx'] is not None else 0)
+    return [m['index'] for m in matching]
+
+
+def load_and_average_fields(mat_path, entry_indices):
+    """
+    Load multiple field entries and compute FDTD-style incoherent average.
+
+    All intensity-like quantities (enhancement, intensity, e_sq and their _ext/_int variants)
+    are arithmetically averaged. This is correct because the MATLAB simulation stores
+    intensity enhancement (|E|^2/|E0|^2), not field amplitude.
+    """
+    if len(entry_indices) < 2:
+        raise ValueError("Need at least 2 field entries for unpolarized average")
+
+    fields = []
+    for idx in entry_indices:
+        fields.append(load_field_entry(mat_path, idx))
+
+    # Validate: same wavelength
+    wavelengths = [f.get('wavelength') for f in fields]
+    unique_wl = set(w for w in wavelengths if w is not None)
+    if len(unique_wl) > 1:
+        raise ValueError(f"Cannot average entries with different wavelengths: {wavelengths}")
+
+    # Validate: same grid
+    ref = fields[0]
+    for i, f in enumerate(fields[1:], 1):
+        for grid_key in ('x_grid', 'y_grid', 'z_grid'):
+            if grid_key in ref and grid_key in f:
+                if not np.array_equal(ref[grid_key], f[grid_key]):
+                    raise ValueError(f"Grid mismatch in '{grid_key}' between entries "
+                                     f"{entry_indices[0]} and {entry_indices[i]}")
+
+    result = {}
+    result['wavelength'] = ref.get('wavelength')
+    result['wavelength_idx'] = ref.get('wavelength_idx')
+
+    for grid_key in ('x_grid', 'y_grid', 'z_grid'):
+        if grid_key in ref:
+            result[grid_key] = ref[grid_key]
+
+    n_pol = len(fields)
+    pol_indices = [f.get('polarization_idx', '?') for f in fields]
+
+    for key in _AVERAGEABLE_KEYS:
+        arrays = []
+        for f in fields:
+            if key in f:
+                arr = f[key]
+                if np.iscomplexobj(arr):
+                    arr = np.abs(arr)
+                arrays.append(np.array(arr, dtype=float))
+        if len(arrays) == n_pol:
+            result[key] = np.mean(arrays, axis=0)
+
+    result['n_polarizations_averaged'] = n_pol
+    result['polarization_indices'] = pol_indices
+
+    print(f"\nUnpolarized average computed: {n_pol} polarizations "
+          f"(pol indices: {pol_indices}), wavelength = {result.get('wavelength', '?')} nm")
+
     return result
 
 
@@ -432,7 +609,7 @@ def plot_single_fieldmap(data_2d, extent, x_label, y_label, title, cbar_label,
 
 
 # ============================================================================
-# Main
+# Plot Configurations
 # ============================================================================
 
 # 9 plot configurations: (data_key, label, cbar_label, cmap, filename_tag, int_mask_key)
@@ -456,6 +633,144 @@ INT_TO_MERGED = {
     'e_sq_int': 'e_sq',
 }
 
+
+# ============================================================================
+# Plot Generation (shared by per-polarization and unpolarized)
+# ============================================================================
+
+def _generate_plots_for_field(field, args, n_unique_x, n_unique_y, extent, x_label, y_label,
+                               sections, spheres, title_suffix, fname_extra):
+    """
+    Compute artifact masks and generate 9 field map plots for a field data set.
+
+    Parameters
+    ----------
+    field : dict
+        Field data dictionary (single polarization or averaged unpolarized).
+    title_suffix : str
+        Appended after wavelength in plot title.
+        e.g. ' (entry 15), pol 0' or ', Unpolarized (2 pol avg)'
+    fname_extra : str
+        Inserted in filename before suffix. e.g. '' or '_unpolarized'
+
+    Returns
+    -------
+    (n_plotted, n_skipped) : tuple of int
+    """
+    wl = field.get('wavelength', 0)
+    wl_idx = field.get('wavelength_idx', 0)
+
+    # ---- Compute artifact masks for internal fields ----
+    artifact_masks = {}
+
+    if spheres is not None and HAS_EDGE_FILTER:
+        x_2d = np.atleast_2d(np.asarray(field['x_grid'], dtype=float))
+        y_2d = np.atleast_2d(np.asarray(field['y_grid'], dtype=float))
+        z_2d = np.atleast_2d(np.asarray(field['z_grid'], dtype=float))
+
+        detection_key = None
+        for candidate in ['enhancement_int', 'intensity_int', 'e_sq_int']:
+            if candidate in field:
+                detection_key = candidate
+                break
+
+        if detection_key is not None:
+            det_data = np.array(field[detection_key], dtype=float)
+            if det_data.ndim == 1:
+                det_data = det_data.reshape(1, -1)
+            if det_data.shape == (n_unique_x, n_unique_y) and n_unique_x != n_unique_y:
+                det_data = det_data.T
+
+            if x_2d.shape != det_data.shape:
+                x_2d = x_2d.reshape(det_data.shape) if x_2d.size == det_data.size else x_2d
+                y_2d = y_2d.reshape(det_data.shape) if y_2d.size == det_data.size else y_2d
+                z_2d = z_2d.reshape(det_data.shape) if z_2d.size == det_data.size else z_2d
+
+            int_mask = ~np.isnan(det_data) & np.isfinite(det_data)
+
+            artifact_mask, n_artifacts = find_edge_artifacts(
+                det_data, x_2d, y_2d, z_2d, spheres,
+                mask=int_mask,
+                edge_threshold=args.edge_threshold,
+                isolation_ratio=args.isolation_ratio,
+                verbose=True
+            )
+
+            if n_artifacts > 0:
+                for int_key, merged_key in INT_TO_MERGED.items():
+                    artifact_masks[int_key] = artifact_mask
+                    artifact_masks[merged_key] = artifact_mask
+                print(f"  Artifact filter: {n_artifacts} pixels will be removed from "
+                      f"internal + merged plots (detected from {detection_key})")
+            else:
+                print(f"  Artifact filter: no artifacts detected")
+
+    # ---- Generate 9 plots ----
+    filter_msg = (f"hybrid edge filter (edge<={args.edge_threshold}nm, ratio>{args.isolation_ratio}x)"
+                  if spheres and HAS_EDGE_FILTER else "no filter")
+    vmax_msg = f", vmax={args.vmax_percentile}th pct" if args.vmax_percentile else ""
+    print(f"\nGenerating field maps (log scale, {filter_msg}{vmax_msg})...")
+
+    n_plotted = 0
+    n_skipped = 0
+
+    for data_key, qty_label, cbar_label, cmap, fname_tag, int_mask_key in PLOT_CONFIGS:
+        if data_key not in field:
+            print(f"  SKIP {fname_tag}: '{data_key}' not in field data")
+            n_skipped += 1
+            continue
+
+        data_2d = np.array(field[data_key])
+
+        if data_2d.ndim == 0:
+            data_2d = np.array([[data_2d.item()]])
+        elif data_2d.ndim == 1:
+            data_2d = data_2d.reshape(1, -1)
+
+        if data_2d.shape == (n_unique_x, n_unique_y) and n_unique_x != n_unique_y:
+            data_2d = data_2d.T
+
+        data_2d = data_2d.astype(float, copy=True)
+
+        # For _ext plots: mask out internal region pixels
+        if int_mask_key is not None and int_mask_key in field:
+            int_data = np.array(field[int_mask_key])
+            if int_data.ndim == 1:
+                int_data = int_data.reshape(1, -1)
+            if int_data.shape == (n_unique_x, n_unique_y) and n_unique_x != n_unique_y:
+                int_data = int_data.T
+            int_valid_mask = (~np.isnan(int_data) if not np.iscomplexobj(int_data)
+                              else ~np.isnan(np.abs(int_data)))
+            n_masked = int_valid_mask.sum()
+            if n_masked > 0:
+                data_2d[int_valid_mask] = np.nan
+                print(f"  {fname_tag}: masked {n_masked} internal pixels in ext data")
+
+        # For _int and merged plots: apply artifact mask
+        if data_key in artifact_masks:
+            mask = artifact_masks[data_key]
+            if mask.shape == data_2d.shape:
+                n_clipped = mask.sum()
+                data_2d[mask] = np.nan
+                print(f"  {fname_tag}: removed {n_clipped} edge artifact pixels")
+
+        title = f'{qty_label}\n\u03bb = {wl:.1f} nm{title_suffix}'
+        suffix_part = f'_{args.suffix}' if args.suffix else ''
+        out_path = os.path.join(
+            args.outdir,
+            f'{args.prefix}_{fname_tag}_wl{wl_idx}{fname_extra}{suffix_part}.{args.format}')
+
+        plot_single_fieldmap(data_2d, extent, x_label, y_label, title, cbar_label,
+                             cmap, out_path, sections=sections, dpi=args.dpi,
+                             vmax_percentile=args.vmax_percentile)
+        n_plotted += 1
+
+    return n_plotted, n_skipped
+
+
+# ============================================================================
+# Main
+# ============================================================================
 
 def main():
     parser = argparse.ArgumentParser(
@@ -499,7 +814,6 @@ def main():
 
     print(f"\nPlane: {plane_type}, wavelength = {wl:.1f} nm")
 
-    # Transpose check
     n_unique_x = len(np.unique(x_grid))
     n_unique_y = len(np.unique(y_grid))
 
@@ -512,7 +826,6 @@ def main():
         try:
             geo_config = load_geometry_config(args.config_structure)
 
-            # Cross-section for boundary overlay
             if plane_type == 'xy':
                 z_plane = float(np.unique(z_grid).mean())
             elif plane_type == 'xz':
@@ -524,7 +837,6 @@ def main():
             if sections:
                 print(f"Geometry boundary: {len(sections)} section(s)")
 
-            # Sphere boundaries for edge filter
             if HAS_EDGE_FILTER:
                 spheres = get_sphere_boundaries_from_config(geo_config)
                 if spheres:
@@ -535,118 +847,43 @@ def main():
         except Exception as e:
             print(f"Warning: Could not load geometry config: {e}")
 
-    # Output directory
     os.makedirs(args.outdir, exist_ok=True)
 
-    # ---- Compute artifact masks for internal fields ----
-    # Use enhancement_int to detect artifacts, apply same mask to all int + merged fields
-    artifact_masks = {}  # artifact_masks[data_key] = boolean mask (True = artifact pixel)
+    # ========== 1. Per-polarization plots (existing behavior) ==========
+    title_suffix = f' (entry {args.field_entry}), pol {pol_idx}'
+    n_plotted, n_skipped = _generate_plots_for_field(
+        field, args, n_unique_x, n_unique_y, extent, x_label, y_label,
+        sections, spheres, title_suffix, fname_extra='')
 
-    if spheres is not None and HAS_EDGE_FILTER:
-        # Prepare 2D grids for edge filter
-        x_2d = np.atleast_2d(np.asarray(x_grid, dtype=float))
-        y_2d = np.atleast_2d(np.asarray(y_grid, dtype=float))
-        z_2d = np.atleast_2d(np.asarray(z_grid, dtype=float))
+    print(f"\nPer-polarization: {n_plotted} plots saved, {n_skipped} skipped")
 
-        # Detect artifacts from enhancement_int (primary), fall back to others
-        detection_key = None
-        for candidate in ['enhancement_int', 'intensity_int', 'e_sq_int']:
-            if candidate in field:
-                detection_key = candidate
-                break
+    # ========== 2. Auto-detect unpolarized (same wavelength, different pol) ==========
+    entry_indices = find_same_wavelength_entries(args.input, args.field_entry)
 
-        if detection_key is not None:
-            det_data = np.array(field[detection_key], dtype=float)
-            if det_data.ndim == 1:
-                det_data = det_data.reshape(1, -1)
-            if det_data.shape == (n_unique_x, n_unique_y) and n_unique_x != n_unique_y:
-                det_data = det_data.T
+    if len(entry_indices) >= 2:
+        print(f"\n{'='*60}")
+        print(f"Auto-detected {len(entry_indices)} polarizations at wavelength {wl:.1f} nm")
+        metadata = list_field_entries_metadata(args.input)
+        for idx in entry_indices:
+            meta = next((m for m in metadata if m['index'] == idx), {})
+            print(f"  entry [{idx}]: pol_idx = {meta.get('polarization_idx', '?')}")
+        print(f"Computing unpolarized field maps (FDTD-style incoherent average)...")
+        print(f"{'='*60}")
 
-            # Grid shape must match data shape
-            if x_2d.shape != det_data.shape:
-                x_2d = x_2d.reshape(det_data.shape) if x_2d.size == det_data.size else x_2d
-                y_2d = y_2d.reshape(det_data.shape) if y_2d.size == det_data.size else y_2d
-                z_2d = z_2d.reshape(det_data.shape) if z_2d.size == det_data.size else z_2d
+        unpol_field = load_and_average_fields(args.input, entry_indices)
+        n_pol = unpol_field['n_polarizations_averaged']
 
-            int_mask = ~np.isnan(det_data) & np.isfinite(det_data)
+        title_suffix = f', Unpolarized ({n_pol} pol avg)'
+        n_plotted_unpol, n_skipped_unpol = _generate_plots_for_field(
+            unpol_field, args, n_unique_x, n_unique_y, extent, x_label, y_label,
+            sections, spheres, title_suffix, fname_extra='_unpolarized')
 
-            artifact_mask, n_artifacts = find_edge_artifacts(
-                det_data, x_2d, y_2d, z_2d, spheres,
-                mask=int_mask,
-                edge_threshold=args.edge_threshold,
-                isolation_ratio=args.isolation_ratio,
-                verbose=True
-            )
+        print(f"\nUnpolarized: {n_plotted_unpol} plots saved, {n_skipped_unpol} skipped")
+    else:
+        print(f"\nNo additional polarizations found at wavelength {wl:.1f} nm, "
+              f"skipping unpolarized plots")
 
-            if n_artifacts > 0:
-                # Apply same artifact mask to all internal and merged fields
-                for int_key, merged_key in INT_TO_MERGED.items():
-                    artifact_masks[int_key] = artifact_mask
-                    artifact_masks[merged_key] = artifact_mask
-
-                print(f"  Artifact filter: {n_artifacts} pixels will be removed from "
-                      f"internal + merged plots (detected from {detection_key})")
-            else:
-                print(f"  Artifact filter: no artifacts detected")
-
-    # ---- Generate 9 plots ----
-    filter_msg = f"hybrid edge filter (edge<={args.edge_threshold}nm, ratio>{args.isolation_ratio}x)" \
-                 if spheres and HAS_EDGE_FILTER else "no filter"
-    vmax_msg = f", vmax={args.vmax_percentile}th pct" if args.vmax_percentile else ""
-    print(f"\nGenerating field maps (log scale, {filter_msg}{vmax_msg})...")
-
-    n_plotted = 0
-    n_skipped = 0
-
-    for data_key, qty_label, cbar_label, cmap, fname_tag, int_mask_key in PLOT_CONFIGS:
-        if data_key not in field:
-            print(f"  SKIP {fname_tag}: '{data_key}' not in field data")
-            n_skipped += 1
-            continue
-
-        data_2d = np.array(field[data_key])
-
-        if data_2d.ndim == 0:
-            data_2d = np.array([[data_2d.item()]])
-        elif data_2d.ndim == 1:
-            data_2d = data_2d.reshape(1, -1)
-
-        if data_2d.shape == (n_unique_x, n_unique_y) and n_unique_x != n_unique_y:
-            data_2d = data_2d.T
-
-        data_2d = data_2d.astype(float, copy=True)
-
-        # For _ext plots: mask out internal region pixels
-        if int_mask_key is not None and int_mask_key in field:
-            int_data = np.array(field[int_mask_key])
-            if int_data.ndim == 1:
-                int_data = int_data.reshape(1, -1)
-            if int_data.shape == (n_unique_x, n_unique_y) and n_unique_x != n_unique_y:
-                int_data = int_data.T
-            int_valid_mask = ~np.isnan(int_data) if not np.iscomplexobj(int_data) else ~np.isnan(np.abs(int_data))
-            n_masked = int_valid_mask.sum()
-            if n_masked > 0:
-                data_2d[int_valid_mask] = np.nan
-                print(f"  {fname_tag}: masked {n_masked} internal pixels in ext data")
-
-        # For _int and merged plots: apply artifact mask
-        if data_key in artifact_masks:
-            mask = artifact_masks[data_key]
-            if mask.shape == data_2d.shape:
-                n_clipped = mask.sum()
-                data_2d[mask] = np.nan
-                print(f"  {fname_tag}: removed {n_clipped} edge artifact pixels")
-
-        title = f'{qty_label}\n\u03bb = {wl:.1f} nm (entry {args.field_entry}), pol {pol_idx}'
-        suffix_part = f'_{args.suffix}' if args.suffix else ''
-        out_path = os.path.join(args.outdir, f'{args.prefix}_{fname_tag}_wl{wl_idx}{suffix_part}.{args.format}')
-
-        plot_single_fieldmap(data_2d, extent, x_label, y_label, title, cbar_label,
-                             cmap, out_path, sections=sections, dpi=args.dpi,
-                             vmax_percentile=args.vmax_percentile)
-        n_plotted += 1
-
-    print(f"\nDone: {n_plotted} plots saved, {n_skipped} skipped")
+    print(f"\nAll done.")
 
 
 if __name__ == '__main__':
