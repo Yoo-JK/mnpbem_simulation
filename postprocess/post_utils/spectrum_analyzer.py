@@ -52,6 +52,26 @@ class SpectrumAnalyzer:
             results['peak_values'] = []
             results['peak_indices'] = []
             results['fwhm'] = []
+
+            # Still calculate unpolarized spectrum even when peak analysis is skipped
+            if calculate_cross_sections:
+                excitation_type = self.config.get('excitation_type', 'planewave')
+                polarizations = data.get('polarizations', self.config.get('polarizations', []))
+
+                unpolarized_info = self._check_unpolarized_conditions(
+                    polarizations, excitation_type, data['n_polarizations']
+                )
+                results['unpolarized'] = unpolarized_info
+
+                if unpolarized_info['can_calculate']:
+                    unpol_data = self._calculate_unpolarized_spectrum(data, unpolarized_info)
+                    results['unpolarized_spectrum'] = unpol_data
+
+                    if self.verbose:
+                        print(f"  Unpolarized calculation: {unpolarized_info['method']}")
+                        print(f"    Peak wavelength: {unpol_data['peak_wavelength']:.1f} nm")
+                        print(f"    Peak absorption: {unpol_data['peak_absorption']:.2f} nm²")
+
             return results
 
         # Find peaks for each polarization
