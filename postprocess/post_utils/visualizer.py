@@ -126,10 +126,6 @@ class Visualizer:
             ax.legend(fontsize=11)
             ax.grid(True, alpha=0.3)
             
-            # Reverse x-axis for energy to show high energy on left
-            if xaxis_unit == 'energy':
-                ax.invert_xaxis()
-            
             plt.tight_layout()
             
             # Save plot with polarization index
@@ -183,12 +179,9 @@ class Visualizer:
         ax.set_title('Polarization Comparison - Extinction', fontsize=14, fontweight='bold')
         ax.legend(fontsize=9)  # Smaller for long labels
         ax.grid(True, alpha=0.3)
-        
-        if xaxis_unit == 'energy':
-            ax.invert_xaxis()
-        
+
         plt.tight_layout()
-        
+
         base_filename = 'simulation_polarization_extinction'
         saved_files = self._save_figure(fig, base_filename)
         if saved_files:
@@ -209,12 +202,9 @@ class Visualizer:
         ax.set_title('Polarization Comparison - Scattering', fontsize=14, fontweight='bold')
         ax.legend(fontsize=9)
         ax.grid(True, alpha=0.3)
-        
-        if xaxis_unit == 'energy':
-            ax.invert_xaxis()
-        
+
         plt.tight_layout()
-        
+
         base_filename = 'simulation_polarization_scattering'
         saved_files = self._save_figure(fig, base_filename)
         if saved_files:
@@ -235,12 +225,9 @@ class Visualizer:
         ax.set_title('Polarization Comparison - Absorption', fontsize=14, fontweight='bold')
         ax.legend(fontsize=9)
         ax.grid(True, alpha=0.3)
-        
-        if xaxis_unit == 'energy':
-            ax.invert_xaxis()
-        
+
         plt.tight_layout()
-        
+
         base_filename = 'simulation_polarization_absorption'
         saved_files = self._save_figure(fig, base_filename)
         if saved_files:
@@ -1282,9 +1269,6 @@ class Visualizer:
         ax.legend(fontsize=11)
         ax.grid(True, alpha=0.3)
 
-        if xaxis_unit == 'energy':
-            ax.invert_xaxis()
-
         plt.tight_layout()
 
         base_filename = 'simulation_spectrum_unpolarized'
@@ -1349,9 +1333,6 @@ class Visualizer:
         ax.legend(fontsize=9)
         ax.grid(True, alpha=0.3)
 
-        if xaxis_unit == 'energy':
-            ax.invert_xaxis()
-
         plt.tight_layout()
         files = self._save_figure(fig, 'simulation_comparison_extinction_unpolarized')
         if files:
@@ -1374,9 +1355,6 @@ class Visualizer:
         ax.legend(fontsize=9)
         ax.grid(True, alpha=0.3)
 
-        if xaxis_unit == 'energy':
-            ax.invert_xaxis()
-
         plt.tight_layout()
         files = self._save_figure(fig, 'simulation_comparison_scattering_unpolarized')
         if files:
@@ -1398,9 +1376,6 @@ class Visualizer:
         ax.set_title('Absorption: Polarizations vs Unpolarized', fontsize=14, fontweight='bold')
         ax.legend(fontsize=9)
         ax.grid(True, alpha=0.3)
-
-        if xaxis_unit == 'energy':
-            ax.invert_xaxis()
 
         plt.tight_layout()
         files = self._save_figure(fig, 'simulation_comparison_absorption_unpolarized')
@@ -1431,8 +1406,6 @@ class Visualizer:
             ax.set_title(titles[idx], fontsize=12, fontweight='bold')
             ax.legend(fontsize=8)
             ax.grid(True, alpha=0.3)
-            if xaxis_unit == 'energy':
-                ax.invert_xaxis()
 
         plt.suptitle('Polarizations vs Unpolarized Comparison', fontsize=14, fontweight='bold')
         plt.tight_layout()
