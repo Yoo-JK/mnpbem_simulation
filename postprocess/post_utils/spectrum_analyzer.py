@@ -54,7 +54,9 @@ class SpectrumAnalyzer:
             results['fwhm'] = []
 
             # Still calculate unpolarized spectrum even when peak analysis is skipped
-            if calculate_cross_sections:
+            # Check for actual spectrum data instead of config flag - data may be loaded from .mat file
+            has_spectrum = ('extinction' in data and data['extinction'] is not None and data['extinction'].size > 0)
+            if has_spectrum:
                 excitation_type = self.config.get('excitation_type', 'planewave')
                 polarizations = data.get('polarizations', self.config.get('polarizations', []))
 
