@@ -53,26 +53,30 @@ class SpectrumAnalyzer:
             results['peak_indices'] = []
             results['fwhm'] = []
 
-            # Still calculate unpolarized spectrum even when peak analysis is skipped
-            # Check for actual spectrum data instead of config flag - data may be loaded from .mat file
+            # Always attempt unpolarized calculation - spectrum data may exist from .mat file
+            excitation_type = self.config.get('excitation_type', 'planewave')
+            polarizations = data.get('polarizations', self.config.get('polarizations', []))
+
             has_spectrum = ('extinction' in data and data['extinction'] is not None and data['extinction'].size > 0)
             if has_spectrum:
-                excitation_type = self.config.get('excitation_type', 'planewave')
-                polarizations = data.get('polarizations', self.config.get('polarizations', []))
-
                 unpolarized_info = self._check_unpolarized_conditions(
                     polarizations, excitation_type, data['n_polarizations']
                 )
-                results['unpolarized'] = unpolarized_info
+            else:
+                unpolarized_info = {'can_calculate': False, 'method': None, 'reason': 'No spectrum data available'}
 
-                if unpolarized_info['can_calculate']:
-                    unpol_data = self._calculate_unpolarized_spectrum(data, unpolarized_info)
-                    results['unpolarized_spectrum'] = unpol_data
+            results['unpolarized'] = unpolarized_info
 
-                    if self.verbose:
-                        print(f"  Unpolarized calculation: {unpolarized_info['method']}")
-                        print(f"    Peak wavelength: {unpol_data['peak_wavelength']:.1f} nm")
-                        print(f"    Peak absorption: {unpol_data['peak_absorption']:.2f} nm²")
+            if unpolarized_info['can_calculate']:
+                unpol_data = self._calculate_unpolarized_spectrum(data, unpolarized_info)
+                results['unpolarized_spectrum'] = unpol_data
+
+                if self.verbose:
+                    print(f"  Unpolarized calculation: {unpolarized_info['method']}")
+                    print(f"    Peak wavelength: {unpol_data['peak_wavelength']:.1f} nm")
+                    print(f"    Peak absorption: {unpol_data['peak_absorption']:.2f} nm²")
+            elif self.verbose:
+                print(f"  Unpolarized: skipped ({unpolarized_info.get('reason', 'Unknown')})")
 
             return results
 
