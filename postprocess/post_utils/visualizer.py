@@ -1721,6 +1721,12 @@ class Visualizer:
                 all_data.append(enh.flatten())
 
         unpol_enh = unpol_field['enhancement']
+        if not isinstance(unpol_enh, np.ndarray):
+            unpol_enh = np.array([[unpol_enh]])
+        elif unpol_enh.ndim == 0:
+            unpol_enh = np.array([[unpol_enh.item()]])
+        elif unpol_enh.ndim == 1:
+            unpol_enh = unpol_enh.reshape(1, -1)
         if np.iscomplexobj(unpol_enh):
             unpol_enh = np.abs(unpol_enh)
         all_data.append(unpol_enh.flatten())
@@ -1745,6 +1751,13 @@ class Visualizer:
             ax = axes[idx]
             enh = field.get('enhancement')
             pol_idx = field.get('polarization_idx', idx)
+
+            if not isinstance(enh, np.ndarray):
+                enh = np.array([[enh]])
+            elif enh.ndim == 0:
+                enh = np.array([[enh.item()]])
+            elif enh.ndim == 1:
+                enh = enh.reshape(1, -1)
 
             if np.iscomplexobj(enh):
                 enh = np.abs(enh)
