@@ -1461,9 +1461,9 @@ class Visualizer:
 
             # Get reference field for grid info
             ref_field = wl_fields_sorted[0]
-            x_grid = ref_field.get('x_grid')
-            y_grid = ref_field.get('y_grid')
-            z_grid = ref_field.get('z_grid')
+            x_grid = np.atleast_1d(np.asarray(ref_field.get('x_grid')))
+            y_grid = np.atleast_1d(np.asarray(ref_field.get('y_grid')))
+            z_grid = np.atleast_1d(np.asarray(ref_field.get('z_grid')))
             wavelength = ref_field.get('wavelength', 0)
 
             # Calculate unpolarized (incoherent average)
@@ -1546,17 +1546,10 @@ class Visualizer:
         if np.iscomplexobj(enhancement):
             enhancement = np.abs(enhancement)
 
-        # DEBUG: Print shapes to verify orientation
-        print(f"  [DEBUG] enhancement shape: {enhancement.shape}")
-        print(f"  [DEBUG] x_grid shape: {x_grid.shape}, unique x: {len(np.unique(x_grid))}")
-        print(f"  [DEBUG] y_grid shape: {y_grid.shape}, unique y: {len(np.unique(y_grid))}")
-
-        # FIX: Transpose if needed - MATLAB stores (ny, nx) but may need transpose for correct display
-        # Check if shape matches expected (ny, nx) based on unique values
+        # Transpose if needed - MATLAB stores (ny, nx) but may need transpose for correct display
         n_unique_x = len(np.unique(x_grid))
         n_unique_y = len(np.unique(y_grid))
         if enhancement.shape == (n_unique_x, n_unique_y):
-            print(f"  [DEBUG] Transposing enhancement from {enhancement.shape} to {(n_unique_y, n_unique_x)}")
             enhancement = enhancement.T
 
         plane_type, extent, x_label, y_label = self._determine_plane(x_grid, y_grid, z_grid)
