@@ -203,13 +203,15 @@ class PostprocessManager:
 
         # Print unpolarized analysis if available
         unpol_info = analysis.get('unpolarized', {})
-        if unpol_info.get('can_calculate', False):
-            unpol_spec = analysis.get('unpolarized_spectrum', {})
+        if 'unpolarized_spectrum' in analysis:
+            unpol_spec = analysis['unpolarized_spectrum']
             print(f"\n  Unpolarized (FDTD-style incoherent average):")
             print(f"    Method: {unpol_info.get('method', 'N/A')}")
             print(f"    Peak Wavelength: {unpol_spec.get('peak_wavelength', 0):.2f} nm")
             print(f"    Peak Absorption: {unpol_spec.get('peak_absorption', 0):.2e} nm²")
             print(f"    Peak Extinction: {unpol_spec.get('peak_extinction', 0):.2e} nm²")
+        elif unpol_info.get('can_calculate', False):
+            print(f"\n  Unpolarized: fields only ({unpol_info.get('method', 'N/A')})")
         else:
             print(f"\n  Unpolarized: Not calculated")
             print(f"    Reason: {unpol_info.get('reason', 'Unknown')}")
