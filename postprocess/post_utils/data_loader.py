@@ -63,8 +63,14 @@ class DataLoader:
             if data[key].ndim == 1:
                 data[key] = data[key].reshape(-1, 1)
         
-        # FIX: Add n_polarizations to data dictionary
-        data['n_polarizations'] = data['scattering'].shape[1]
+        # Determine n_polarizations from polarizations array (preferred) or scattering shape
+        pols = data.get('polarizations')
+        if isinstance(pols, np.ndarray) and pols.ndim == 2 and pols.shape[0] > 0:
+            data['n_polarizations'] = pols.shape[0]
+        elif data['scattering'].size > 0:
+            data['n_polarizations'] = data['scattering'].shape[1]
+        else:
+            data['n_polarizations'] = 1
         
         if self.verbose:
             print(f"  Loaded {len(data['wavelength'])} wavelength points")
