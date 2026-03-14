@@ -215,6 +215,12 @@ args['output_formats'] = ['txt', 'csv', 'json']
 # Generate plots
 args['save_plots'] = True
 
+# Individual plot type toggles
+# Set to False to skip specific plot types during postprocessing
+args['plot_spectrum'] = True
+args['plot_fields'] = False
+args['plot_surface_charge'] = False
+
 # Plot formats
 # Available: 'png', 'pdf', 'eps', 'svg'
 args['plot_format'] = ['png', 'pdf']

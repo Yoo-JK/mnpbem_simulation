@@ -42,6 +42,10 @@ class Visualizer:
         """Create all visualization plots."""
         plots_created = []
 
+        plot_spectrum = self.config.get('plot_spectrum', True)
+        plot_fields = self.config.get('plot_fields', True)
+        plot_surface_charge = self.config.get('plot_surface_charge', True)
+
         # Spectrum plots (skip if no cross section data)
         has_spectrum_data = (
             'wavelength' in data and
@@ -49,22 +53,22 @@ class Visualizer:
             data['extinction'] is not None and
             data['extinction'].size > 0
         )
-        if has_spectrum_data:
+        if plot_spectrum and has_spectrum_data:
             spectrum_file = self.plot_spectrum(data)
             plots_created.append(spectrum_file)
 
         # Polarization comparison
-        if has_spectrum_data and data['extinction'].shape[1] > 1:
+        if plot_spectrum and has_spectrum_data and data['extinction'].shape[1] > 1:
             pol_file = self.plot_polarization_comparison(data)
             plots_created.append(pol_file)
 
         # Unpolarized spectrum plots (if available)
-        if analysis_results and 'unpolarized_spectrum' in analysis_results:
+        if plot_spectrum and analysis_results and 'unpolarized_spectrum' in analysis_results:
             unpol_files = self.plot_unpolarized_spectrum(data, analysis_results)
             plots_created.extend(unpol_files)
 
         # Field plots
-        if 'fields' in data:
+        if plot_fields and 'fields' in data:
             field_files = self.plot_fields(data)
             plots_created.extend(field_files)
 
@@ -74,7 +78,7 @@ class Visualizer:
                 plots_created.extend(unpol_field_files)
 
         # Surface charge plots
-        if 'surface_charge' in data and data['surface_charge']:
+        if plot_surface_charge and 'surface_charge' in data and data['surface_charge']:
             if self.verbose:
                 print("\n  Creating surface charge plots...")
             sc_files = self.plot_surface_charge(data)
