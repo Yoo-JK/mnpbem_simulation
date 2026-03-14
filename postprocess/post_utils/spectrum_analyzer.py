@@ -28,53 +28,50 @@ class SpectrumAnalyzer:
         """
         results = {}
 
-        # Check if spectrum analysis should be skipped
-        # Case 1: cross sections not calculated (field-only mode)
-        # Case 2: field_wavelength_idx is a list (user already specified wavelengths)
-        calculate_cross_sections = self.config.get('calculate_cross_sections', True)
+        # Data-driven: check actual data availability instead of config flags
+        has_spectrum = ('extinction' in data and data['extinction'] is not None and data['extinction'].size > 0)
         field_wavelength_idx = self.config.get('field_wavelength_idx', 'middle')
 
         skip_analysis = False
         skip_reason = None
 
-        if not calculate_cross_sections:
+        if not has_spectrum:
             skip_analysis = True
-            skip_reason = "calculate_cross_sections=False"
+            skip_reason = "No spectrum data in .mat file"
         elif isinstance(field_wavelength_idx, list):
             skip_analysis = True
             skip_reason = f"field_wavelength_idx is a list ({len(field_wavelength_idx)} wavelengths specified)"
 
         if skip_analysis:
             if self.verbose:
-                print(f"  [!] {skip_reason}, skipping spectrum analysis")
+                print(f"  [!] {skip_reason}, skipping peak analysis")
             results['field_only_mode'] = True
             results['peak_wavelengths'] = []
             results['peak_values'] = []
             results['peak_indices'] = []
             results['fwhm'] = []
 
-            # Always attempt unpolarized calculation - spectrum data may exist from .mat file
+            # Always check unpolarized conditions (needed for field plots too)
             excitation_type = self.config.get('excitation_type', 'planewave')
             polarizations = data.get('polarizations', self.config.get('polarizations', []))
 
-            has_spectrum = ('extinction' in data and data['extinction'] is not None and data['extinction'].size > 0)
-            if has_spectrum:
-                unpolarized_info = self._check_unpolarized_conditions(
-                    polarizations, excitation_type, data['n_polarizations']
-                )
-            else:
-                unpolarized_info = {'can_calculate': False, 'method': None, 'reason': 'No spectrum data available'}
-
+            unpolarized_info = self._check_unpolarized_conditions(
+                polarizations, excitation_type, data['n_polarizations']
+            )
             results['unpolarized'] = unpolarized_info
 
-            if unpolarized_info['can_calculate']:
+            # Calculate unpolarized spectrum only if spectrum data exists
+            if unpolarized_info['can_calculate'] and has_spectrum:
                 unpol_data = self._calculate_unpolarized_spectrum(data, unpolarized_info)
                 results['unpolarized_spectrum'] = unpol_data
 
                 if self.verbose:
-                    print(f"  Unpolarized calculation: {unpolarized_info['method']}")
+                    print(f"  Unpolarized spectrum: {unpolarized_info['method']}")
                     print(f"    Peak wavelength: {unpol_data['peak_wavelength']:.1f} nm")
                     print(f"    Peak absorption: {unpol_data['peak_absorption']:.2f} nm²")
+            elif unpolarized_info['can_calculate']:
+                if self.verbose:
+                    print(f"  Unpolarized fields: {unpolarized_info['method']} (no spectrum data)")
             elif self.verbose:
                 print(f"  Unpolarized: skipped ({unpolarized_info.get('reason', 'Unknown')})")
 
