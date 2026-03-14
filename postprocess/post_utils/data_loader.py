@@ -71,7 +71,14 @@ class DataLoader:
             data['n_polarizations'] = data['scattering'].shape[1]
         else:
             data['n_polarizations'] = 1
-        
+
+        # Recover spectrum from text files if .mat has empty spectrum data
+        has_spectrum = data['extinction'].size > 0
+        if not has_spectrum:
+            recovered = self._recover_spectrum_from_text(data)
+            if recovered and self.verbose:
+                print("  Recovered spectrum data from text file(s)")
+
         if self.verbose:
             print(f"  Loaded {len(data['wavelength'])} wavelength points")
             print(f"  Polarizations: {data['n_polarizations']}")
@@ -207,6 +214,105 @@ class DataLoader:
             surface_charge_list.append(sc_data)
 
         return surface_charge_list
+
+    def _recover_spectrum_from_text(self, data):
+        """Try to recover spectrum data from text files when .mat has empty spectrum."""
+        # Try spectra_all.txt first (combined file with all polarizations)
+        all_file = os.path.join(self.output_dir, 'spectra_all.txt')
+        if os.path.exists(all_file):
+            return self._load_from_spectra_all(data, all_file)
+
+        # Try individual polarization files
+        n_pol = data['n_polarizations']
+        pol_files = []
+        for i in range(1, n_pol + 1):
+            f = os.path.join(self.output_dir, f'spectra_pol{i}.txt')
+            if os.path.exists(f):
+                pol_files.append(f)
+        if len(pol_files) == n_pol:
+            return self._load_from_spectra_pols(data, pol_files)
+
+        return False
+
+    def _load_from_spectra_all(self, data, filepath):
+        """Load spectrum data from spectra_all.txt.
+
+        Format: wavelength, then per-polarization groups of (sca, ext, abs).
+        Total columns: 1 + 3 * n_pol (may also include unpolarized columns at the end).
+        """
+        if self.verbose:
+            print(f"  Loading spectrum from: {os.path.basename(filepath)}")
+
+        arr = np.loadtxt(filepath, comments='#')
+        n_cols = arr.shape[1]
+        # Columns beyond 1 + 3*n_pol are unpolarized (ignored, will be recalculated)
+        n_pol_from_file = (n_cols - 1) // 3
+
+        # Use the smaller of file n_pol and data n_pol
+        n_pol = min(n_pol_from_file, data['n_polarizations'])
+        if n_pol < 1:
+            return False
+
+        n_wl = arr.shape[0]
+        sca = np.zeros((n_wl, n_pol))
+        ext = np.zeros((n_wl, n_pol))
+        abs_cs = np.zeros((n_wl, n_pol))
+
+        for i in range(n_pol):
+            base = 1 + i * 3
+            sca[:, i] = arr[:, base]
+            ext[:, i] = arr[:, base + 1]
+            abs_cs[:, i] = arr[:, base + 2]
+
+        # Use wavelength from text file if .mat wavelength is empty
+        if not isinstance(data['wavelength'], np.ndarray) or data['wavelength'].size == 0:
+            data['wavelength'] = arr[:, 0]
+
+        data['scattering'] = sca
+        data['extinction'] = ext
+        data['absorption'] = abs_cs
+
+        if self.verbose:
+            print(f"    {n_wl} wavelengths, {n_pol} polarization(s)")
+
+        return True
+
+    def _load_from_spectra_pols(self, data, pol_files):
+        """Load spectrum data from individual spectra_pol*.txt files.
+
+        Each file format: wavelength, scattering, extinction, absorption (4 columns).
+        """
+        if self.verbose:
+            print(f"  Loading spectrum from: {', '.join(os.path.basename(f) for f in pol_files)}")
+
+        n_pol = len(pol_files)
+        arrays = []
+        for filepath in pol_files:
+            arr = np.loadtxt(filepath, comments='#')
+            arrays.append(arr)
+
+        n_wl = arrays[0].shape[0]
+        sca = np.zeros((n_wl, n_pol))
+        ext = np.zeros((n_wl, n_pol))
+        abs_cs = np.zeros((n_wl, n_pol))
+
+        for i, arr in enumerate(arrays):
+            sca[:, i] = arr[:, 1]
+            ext[:, i] = arr[:, 2]
+            abs_cs[:, i] = arr[:, 3]
+
+        # Use wavelength from text file if .mat wavelength is empty
+        if not isinstance(data['wavelength'], np.ndarray) or data['wavelength'].size == 0:
+            data['wavelength'] = arrays[0][:, 0]
+
+        data['scattering'] = sca
+        data['extinction'] = ext
+        data['absorption'] = abs_cs
+
+        if self.verbose:
+            print(f"    {n_wl} wavelengths, {n_pol} polarization(s)")
+
+        return True
 
     def _extract_array(self, matlab_array):
         """Extract numpy array from MATLAB data."""
